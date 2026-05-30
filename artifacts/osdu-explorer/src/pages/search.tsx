@@ -186,8 +186,8 @@ export default function SearchPage() {
       </Card>
 
       {searchMutation.data && (
-        <Card className="border-border/50 flex flex-col min-h-0">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 shrink-0">
+        <Card className="border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
             <div>
               <CardTitle>Results</CardTitle>
               <CardDescription>
@@ -216,8 +216,8 @@ export default function SearchPage() {
             </div>
           </CardHeader>
 
-          <CardContent className="p-0 flex-1 min-h-0">
-            <div className="border-t border-border overflow-auto max-h-[calc(100vh-340px)]">
+          <CardContent className="p-0">
+            <div className="border-t border-border overflow-auto" style={{ maxHeight: "55vh" }}>
               <Table className="text-xs">
                 <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0] shadow-border">
                   <TableRow>
