@@ -12,6 +12,12 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 interface ConsoleEntryRowProps {
   entry: {
     id: string;
@@ -24,6 +30,8 @@ interface ConsoleEntryRowProps {
     responseStatus: number | null;
     responseBody?: unknown;
     durationMs: number | null;
+    responseSize?: number | null;
+    recordCount?: number | null;
     message: string | null;
   };
 }
@@ -113,6 +121,16 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
           )}
 
           <div className="ml-auto flex items-center gap-3 shrink-0">
+            {entry.recordCount != null && (
+              <span className="text-[11px] font-mono text-muted-foreground" title="Records returned">
+                {entry.recordCount} {entry.recordCount === 1 ? "rec" : "recs"}
+              </span>
+            )}
+            {entry.responseSize != null && (
+              <span className="text-[11px] font-mono text-muted-foreground" title="Response size">
+                {formatSize(entry.responseSize)}
+              </span>
+            )}
             {entry.responseStatus !== null && (
               <span className={`text-[11px] font-mono font-bold ${statusColor}`}>
                 {entry.responseStatus}

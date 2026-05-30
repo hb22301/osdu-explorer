@@ -12,6 +12,8 @@ export interface ConsoleEntry {
   responseStatus: number | null;
   responseBody: unknown | null;
   durationMs: number | null;
+  responseSize: number | null;
+  recordCount: number | null;
   message: string | null;
 }
 

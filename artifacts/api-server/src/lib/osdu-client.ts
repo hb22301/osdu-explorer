@@ -202,6 +202,8 @@ export class OsduClient {
 
     const durationMs = Date.now() - start;
     const level = response.status >= 500 ? "error" : response.status >= 400 ? "warn" : "info";
+    const responseSize = data != null ? Buffer.byteLength(JSON.stringify(data), "utf8") : null;
+    const recordCount = Array.isArray(data) ? data.length : data != null ? 1 : null;
 
     addEntry({
       type: "api_request",
@@ -212,6 +214,8 @@ export class OsduClient {
       responseStatus: response.status,
       responseBody: data,
       durationMs,
+      responseSize,
+      recordCount,
       message: null,
     });
 

@@ -559,6 +559,10 @@ components:
           nullable: true
         durationMs:
           type: ["integer", "null"]
+        responseSize:
+          type: ["integer", "null"]
+        recordCount:
+          type: ["integer", "null"]
         message:
           type: ["string", "null"]
 

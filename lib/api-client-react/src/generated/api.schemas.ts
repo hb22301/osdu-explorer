@@ -186,6 +186,10 @@ export interface ConsoleEntry {
   /** @nullable */
   durationMs?: number | null;
   /** @nullable */
+  responseSize?: number | null;
+  /** @nullable */
+  recordCount?: number | null;
+  /** @nullable */
   message?: string | null;
 }
 

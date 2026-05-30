@@ -247,6 +247,8 @@ export const GetOsduConsoleResponse = zod.object({
   "responseStatus": zod.number().nullish(),
   "responseBody": zod.unknown().nullish(),
   "durationMs": zod.number().nullish(),
+  "responseSize": zod.number().nullish(),
+  "recordCount": zod.number().nullish(),
   "message": zod.string().nullish()
 })),
   "total": zod.number()
