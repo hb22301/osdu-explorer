@@ -22,6 +22,8 @@ interface FetchOptions {
 }
 
 const tokenCache = new Map<string, TokenCacheEntry>();
+// Holds in-flight token fetch promises so concurrent callers share one request
+const tokenInflight = new Map<string, Promise<string>>();
 
 function cacheKey(cfg: OsduConfig): string {
   return `${cfg.tokenEndpoint}|${cfg.clientId}`;
@@ -35,111 +37,124 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
     return cached.accessToken;
   }
 
+  // If another caller is already fetching, piggyback on that promise
+  const inflight = tokenInflight.get(key);
+  if (inflight) return inflight;
+
   const scope = cfg.scope ?? `${cfg.clientId}/.default`;
-  const body = new URLSearchParams({
-    grant_type: "client_credentials",
-    client_id: cfg.clientId,
-    client_secret: cfg.clientSecret,
-    scope,
-  });
 
-  const start = Date.now();
-  logger.info({ tokenEndpoint: cfg.tokenEndpoint, clientId: cfg.clientId }, "Fetching OSDU access token");
-
-  let response: Response;
-  let responseBody: unknown;
-  try {
-    response = await fetch(cfg.tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
+  const promise = (async (): Promise<string> => {
+    const body = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      scope,
     });
 
-    const contentType = response.headers.get("content-type") ?? "";
-    responseBody = contentType.includes("application/json")
-      ? await response.json()
-      : await response.text();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const start = Date.now();
+    logger.info({ tokenEndpoint: cfg.tokenEndpoint, clientId: cfg.clientId }, "Fetching OSDU access token");
+
+    let response: Response;
+    let responseBody: unknown;
+    try {
+      response = await fetch(cfg.tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+
+      const contentType = response.headers.get("content-type") ?? "";
+      responseBody = contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addEntry({
+        type: "token_fetch",
+        level: "error",
+        method: "POST",
+        url: cfg.tokenEndpoint,
+        requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+        responseStatus: null,
+        responseBody: null,
+        durationMs: Date.now() - start,
+        responseSize: null,
+        recordCount: null,
+        pending: false,
+        message: `Token fetch failed: ${message}`,
+      });
+      throw new Error(`Token fetch failed: ${message}`);
+    }
+
+    const durationMs = Date.now() - start;
+
+    if (!response.ok) {
+      addEntry({
+        type: "token_fetch",
+        level: "error",
+        method: "POST",
+        url: cfg.tokenEndpoint,
+        requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+        responseStatus: response.status,
+        responseBody,
+        durationMs,
+        responseSize: null,
+        recordCount: null,
+        pending: false,
+        message: `Token fetch failed with status ${response.status}`,
+      });
+      logger.error({ status: response.status }, "Failed to fetch OSDU access token");
+      throw new Error(`Token fetch failed (${response.status})`);
+    }
+
+    const data = responseBody as { access_token: string; expires_in?: number; token_type?: string };
+
+    if (!data.access_token) {
+      addEntry({
+        type: "token_fetch",
+        level: "error",
+        method: "POST",
+        url: cfg.tokenEndpoint,
+        requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+        responseStatus: response.status,
+        responseBody,
+        durationMs,
+        responseSize: null,
+        recordCount: null,
+        pending: false,
+        message: "Token response missing access_token field",
+      });
+      throw new Error("Token response missing access_token field");
+    }
+
+    const expiresIn = data.expires_in ?? 3600;
+    const expiresAt = Date.now() + (expiresIn - 60) * 1000;
+    tokenCache.set(key, { accessToken: data.access_token, expiresAt });
+
     addEntry({
       type: "token_fetch",
-      level: "error",
-      method: "POST",
-      url: cfg.tokenEndpoint,
-      requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
-      responseStatus: null,
-      responseBody: null,
-      durationMs: Date.now() - start,
-      responseSize: null,
-      recordCount: null,
-      pending: false,
-      message: `Token fetch failed: ${message}`,
-    });
-    throw new Error(`Token fetch failed: ${message}`);
-  }
-
-  const durationMs = Date.now() - start;
-
-  if (!response.ok) {
-    addEntry({
-      type: "token_fetch",
-      level: "error",
+      level: "info",
       method: "POST",
       url: cfg.tokenEndpoint,
       requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
       responseStatus: response.status,
-      responseBody,
+      responseBody: { token_type: data.token_type, expires_in: expiresIn },
       durationMs,
       responseSize: null,
       recordCount: null,
       pending: false,
-      message: `Token fetch failed with status ${response.status}`,
+      message: `Access token obtained (expires in ${expiresIn}s)`,
     });
-    logger.error({ status: response.status }, "Failed to fetch OSDU access token");
-    throw new Error(`Token fetch failed (${response.status})`);
-  }
 
-  const data = responseBody as { access_token: string; expires_in?: number; token_type?: string };
+    logger.info({ expiresIn }, "OSDU access token fetched and cached");
+    return data.access_token;
+  })();
 
-  if (!data.access_token) {
-    addEntry({
-      type: "token_fetch",
-      level: "error",
-      method: "POST",
-      url: cfg.tokenEndpoint,
-      requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
-      responseStatus: response.status,
-      responseBody,
-      durationMs,
-      responseSize: null,
-      recordCount: null,
-      pending: false,
-      message: "Token response missing access_token field",
-    });
-    throw new Error("Token response missing access_token field");
-  }
+  // Register so concurrent callers share this fetch; clean up when done
+  tokenInflight.set(key, promise);
+  promise.finally(() => tokenInflight.delete(key));
 
-  const expiresIn = data.expires_in ?? 3600;
-  const expiresAt = Date.now() + (expiresIn - 60) * 1000;
-  tokenCache.set(key, { accessToken: data.access_token, expiresAt });
-
-  addEntry({
-    type: "token_fetch",
-    level: "info",
-    method: "POST",
-    url: cfg.tokenEndpoint,
-    requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
-    responseStatus: response.status,
-    responseBody: { token_type: data.token_type, expires_in: expiresIn },
-    durationMs,
-    responseSize: null,
-    recordCount: null,
-    pending: false,
-    message: `Access token obtained (expires in ${expiresIn}s)`,
-  });
-
-  logger.info({ expiresIn }, "OSDU access token fetched and cached");
-  return data.access_token;
+  return promise;
 }
 
 // Known OSDU paginated response array field names
