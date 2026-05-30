@@ -6,7 +6,7 @@ import {
   getGetOsduConsoleQueryKey,
 } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { Trash2, ChevronRight, ChevronDown, Play, Pause } from "lucide-react";
+import { Trash2, ChevronRight, ChevronDown, Play, Pause, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,6 +32,7 @@ interface ConsoleEntryRowProps {
     durationMs: number | null;
     responseSize?: number | null;
     recordCount?: number | null;
+    pending?: boolean;
     message: string | null;
   };
 }
@@ -121,25 +122,31 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
           )}
 
           <div className="ml-auto flex items-center gap-3 shrink-0">
-            {entry.recordCount != null && (
-              <span className="text-[11px] font-mono text-muted-foreground" title="Records returned">
-                {entry.recordCount} {entry.recordCount === 1 ? "rec" : "recs"}
-              </span>
-            )}
-            {entry.responseSize != null && (
-              <span className="text-[11px] font-mono text-muted-foreground" title="Response size">
-                {formatSize(entry.responseSize)}
-              </span>
-            )}
-            {entry.responseStatus !== null && (
-              <span className={`text-[11px] font-mono font-bold ${statusColor}`}>
-                {entry.responseStatus}
-              </span>
-            )}
-            {entry.durationMs !== null && (
-              <span className="text-[11px] font-mono text-muted-foreground">
-                {entry.durationMs}ms
-              </span>
+            {entry.pending ? (
+              <Loader2 className="w-3 h-3 text-muted-foreground animate-spin" />
+            ) : (
+              <>
+                {entry.recordCount != null && (
+                  <span className="text-[11px] font-mono text-muted-foreground" title="Records returned">
+                    {entry.recordCount} {entry.recordCount === 1 ? "rec" : "recs"}
+                  </span>
+                )}
+                {entry.responseSize != null && (
+                  <span className="text-[11px] font-mono text-muted-foreground" title="Response size">
+                    {formatSize(entry.responseSize)}
+                  </span>
+                )}
+                {entry.responseStatus !== null && (
+                  <span className={`text-[11px] font-mono font-bold ${statusColor}`}>
+                    {entry.responseStatus}
+                  </span>
+                )}
+                {entry.durationMs !== null && (
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    {entry.durationMs}ms
+                  </span>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -194,7 +201,7 @@ export function ConsolePanel({ height = 280 }: ConsolePanelProps) {
 
   const { data } = useGetOsduConsole(undefined, {
     query: {
-      refetchInterval: isPaused ? false : 2000,
+      refetchInterval: isPaused ? false : 1000,
       queryKey: getGetOsduConsoleQueryKey(),
     },
   });

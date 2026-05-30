@@ -14,6 +14,7 @@ export interface ConsoleEntry {
   durationMs: number | null;
   responseSize: number | null;
   recordCount: number | null;
+  pending: boolean;
   message: string | null;
 }
 
@@ -37,6 +38,16 @@ export function addEntry(entry: Omit<ConsoleEntry, "id" | "timestamp">): Console
     entries.splice(0, entries.length - MAX_ENTRIES);
   }
   return full;
+}
+
+export function updateEntry(
+  id: string,
+  updates: Partial<Omit<ConsoleEntry, "id" | "timestamp">>
+): void {
+  const idx = entries.findLastIndex((e) => e.id === id);
+  if (idx !== -1) {
+    entries[idx] = { ...entries[idx], ...updates };
+  }
 }
 
 export function getEntries(limit = 200, offset = 0): { entries: ConsoleEntry[]; total: number } {

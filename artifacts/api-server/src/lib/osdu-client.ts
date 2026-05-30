@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { addEntry } from "./console-store";
+import { addEntry, updateEntry } from "./console-store";
 
 export interface OsduConfig {
   baseUrl: string;
@@ -70,6 +70,9 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
       responseStatus: null,
       responseBody: null,
       durationMs: Date.now() - start,
+      responseSize: null,
+      recordCount: null,
+      pending: false,
       message: `Token fetch failed: ${message}`,
     });
     throw new Error(`Token fetch failed: ${message}`);
@@ -87,6 +90,9 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
       responseStatus: response.status,
       responseBody,
       durationMs,
+      responseSize: null,
+      recordCount: null,
+      pending: false,
       message: `Token fetch failed with status ${response.status}`,
     });
     logger.error({ status: response.status }, "Failed to fetch OSDU access token");
@@ -105,6 +111,9 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
       responseStatus: response.status,
       responseBody,
       durationMs,
+      responseSize: null,
+      recordCount: null,
+      pending: false,
       message: "Token response missing access_token field",
     });
     throw new Error("Token response missing access_token field");
@@ -123,6 +132,9 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
     responseStatus: response.status,
     responseBody: { token_type: data.token_type, expires_in: expiresIn },
     durationMs,
+    responseSize: null,
+    recordCount: null,
+    pending: false,
     message: `Access token obtained (expires in ${expiresIn}s)`,
   });
 
@@ -166,6 +178,23 @@ export class OsduClient {
     logger.info({ method, path }, "OSDU API request");
 
     const start = Date.now();
+
+    // Write the entry immediately so it appears in the console before the response arrives
+    const pendingEntry = addEntry({
+      type: "api_request",
+      level: "info",
+      method,
+      url,
+      requestBody: options.body ?? null,
+      responseStatus: null,
+      responseBody: null,
+      durationMs: null,
+      responseSize: null,
+      recordCount: null,
+      pending: true,
+      message: null,
+    });
+
     let response: Response;
     let data: unknown;
 
@@ -186,15 +215,10 @@ export class OsduClient {
         : await response.text();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      addEntry({
-        type: "api_request",
+      updateEntry(pendingEntry.id, {
         level: "error",
-        method,
-        url,
-        requestBody: options.body ?? null,
-        responseStatus: null,
-        responseBody: null,
         durationMs: Date.now() - start,
+        pending: false,
         message: `Network error: ${message}`,
       });
       throw err;
@@ -205,17 +229,14 @@ export class OsduClient {
     const responseSize = data != null ? Buffer.byteLength(JSON.stringify(data), "utf8") : null;
     const recordCount = Array.isArray(data) ? data.length : data != null ? 1 : null;
 
-    addEntry({
-      type: "api_request",
+    updateEntry(pendingEntry.id, {
       level,
-      method,
-      url,
-      requestBody: options.body ?? null,
       responseStatus: response.status,
       responseBody: data,
       durationMs,
       responseSize,
       recordCount,
+      pending: false,
       message: null,
     });
 

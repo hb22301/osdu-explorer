@@ -563,6 +563,8 @@ components:
           type: ["integer", "null"]
         recordCount:
           type: ["integer", "null"]
+        pending:
+          type: boolean
         message:
           type: ["string", "null"]
 

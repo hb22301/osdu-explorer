@@ -27,6 +27,7 @@ export interface ConsoleEntry {
   responseSize?: number | null;
   /** @nullable */
   recordCount?: number | null;
+  pending?: boolean;
   /** @nullable */
   message?: string | null;
 }
