@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduConsoleQueryKey } from "@workspace/api-client-react";
 import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp } from "lucide-react";
@@ -6,11 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConsolePanel } from "@/components/console-panel";
 
-const CONSOLE_HEIGHT = 300;
+const DEFAULT_CONSOLE_HEIGHT = 300;
+const MIN_CONSOLE_HEIGHT = 80;
+const MAX_CONSOLE_HEIGHT = 700;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const [consoleOpen, setConsoleOpen] = useState(false);
+  const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
+  const dragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const { data: config, isLoading } = useGetOsduConfig();
   const clearConfig = useClearOsduConfig();
 
@@ -30,6 +34,31 @@ export function Layout({ children }: { children: React.ReactNode }) {
       setLocation("/");
     }
   }, [isLoading, config?.configured, location, setLocation]);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragState.current = { startY: e.clientY, startHeight: consoleHeight };
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: MouseEvent) => {
+      if (!dragState.current) return;
+      const delta = dragState.current.startY - ev.clientY;
+      const next = Math.min(MAX_CONSOLE_HEIGHT, Math.max(MIN_CONSOLE_HEIGHT, dragState.current.startHeight + delta));
+      setConsoleHeight(next);
+    };
+
+    const onUp = () => {
+      dragState.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [consoleHeight]);
 
   const handleLogout = () => {
     clearConfig.mutate(undefined, {
@@ -126,11 +155,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
 
-        {/* Console panel — slides in above the toggle bar */}
+        {/* Drag handle + console panel — slides in above the toggle bar */}
         {consoleOpen && (
-          <div className="shrink-0 border-t border-border" style={{ height: CONSOLE_HEIGHT }}>
-            <ConsolePanel height={CONSOLE_HEIGHT} />
-          </div>
+          <>
+            <div
+              className="shrink-0 h-[5px] cursor-ns-resize bg-border/60 hover:bg-primary/40 active:bg-primary/60 transition-colors"
+              onMouseDown={handleDragStart}
+              title="Drag to resize"
+            />
+            <div className="shrink-0" style={{ height: consoleHeight }}>
+              <ConsolePanel height={consoleHeight} />
+            </div>
+          </>
         )}
 
         {/* Console toggle bar — always visible */}
