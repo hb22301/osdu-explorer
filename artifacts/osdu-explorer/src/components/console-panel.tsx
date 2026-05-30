@@ -24,16 +24,16 @@ interface ConsoleEntryRowProps {
     timestamp: string;
     type: string;
     level: string;
-    method: string | null;
-    url: string | null;
+    method?: string | null;
+    url?: string | null;
     requestBody?: unknown;
-    responseStatus: number | null;
+    responseStatus?: number | null;
     responseBody?: unknown;
-    durationMs: number | null;
+    durationMs?: number | null;
     responseSize?: number | null;
     recordCount?: number | null;
     pending?: boolean;
-    message: string | null;
+    message?: string | null;
   };
 }
 
@@ -160,7 +160,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
 
         <CollapsibleContent className="mt-2 pl-5">
           <div className="grid grid-cols-2 gap-3 pb-1">
-            {entry.requestBody && (
+            {entry.requestBody != null && (
               <div className="space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Request
@@ -172,7 +172,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
                 </pre>
               </div>
             )}
-            {entry.responseBody && (
+            {entry.responseBody != null && (
               <div className="space-y-1">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Response

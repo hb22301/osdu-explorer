@@ -1,49 +1,147 @@
-import { useState } from "react";
-import { Link } from "wouter";
+import { useState, useMemo } from "react";
 import { useSearchOsduRecords, useListOsduKinds } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Search as SearchIcon, FileJson, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
+import { format } from "date-fns";
+
+type SortDir = "asc" | "desc";
+type ColKey = "id" | "version" | "kind" | "name" | "code" | "createdBy" | "createTime" | "modifyBy" | "modifyTime";
+
+interface Col {
+  key: ColKey;
+  label: string;
+  width: string;
+}
+
+const COLUMNS: Col[] = [
+  { key: "id",         label: "ID",          width: "w-[220px] min-w-[180px]" },
+  { key: "version",    label: "Version",     width: "w-[90px] min-w-[70px]" },
+  { key: "kind",       label: "Kind",        width: "w-[240px] min-w-[180px]" },
+  { key: "name",       label: "Name",        width: "w-[160px] min-w-[120px]" },
+  { key: "code",       label: "Code",        width: "w-[120px] min-w-[90px]" },
+  { key: "createdBy",  label: "Created By",  width: "w-[140px] min-w-[110px]" },
+  { key: "createTime", label: "Create Time", width: "w-[160px] min-w-[130px]" },
+  { key: "modifyBy",   label: "Updated By",  width: "w-[140px] min-w-[110px]" },
+  { key: "modifyTime", label: "Update Time", width: "w-[160px] min-w-[130px]" },
+];
+
+type RawRecord = {
+  id?: string;
+  kind?: string;
+  version?: number | null;
+  data?: Record<string, unknown>;
+  meta?: Record<string, unknown>[];
+  [key: string]: unknown;
+};
+
+interface FlatRow {
+  _raw: RawRecord;
+  id: string;
+  version: string;
+  kind: string;
+  name: string;
+  code: string;
+  createdBy: string;
+  createTime: string;
+  modifyBy: string;
+  modifyTime: string;
+}
+
+function fmtDate(val: unknown): string {
+  if (!val) return "—";
+  try {
+    return format(new Date(String(val)), "yyyy-MM-dd HH:mm");
+  } catch {
+    return String(val);
+  }
+}
+
+function flatten(rec: RawRecord): FlatRow {
+  const data = rec.data ?? {};
+  const sys = (rec.meta?.[0] ?? {}) as Record<string, unknown>;
+
+  const pick = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = data[k] ?? sys[k] ?? rec[k];
+      if (v != null && v !== "") return String(v);
+    }
+    return "—";
+  };
+
+  return {
+    _raw: rec,
+    id:         rec.id ?? "—",
+    version:    rec.version != null ? String(rec.version) : "—",
+    kind:       rec.kind ?? "—",
+    name:       pick("Name", "name"),
+    code:       pick("Code", "code"),
+    createdBy:  pick("createUser", "createdBy", "CreateUser"),
+    createTime: fmtDate(data["createTime"] ?? sys["createTime"] ?? rec["createTime"]),
+    modifyBy:   pick("modifyUser", "modifyBy", "updatedBy", "ModifyUser"),
+    modifyTime: fmtDate(data["modifyTime"] ?? sys["modifyTime"] ?? rec["modifyTime"]),
+  };
+}
+
+function SortIcon({ col, sortCol, sortDir }: { col: ColKey; sortCol: ColKey | null; sortDir: SortDir }) {
+  if (sortCol !== col) return <ChevronsUpDown className="ml-1 h-3 w-3 opacity-40 inline" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="ml-1 h-3 w-3 inline" />
+    : <ArrowDown className="ml-1 h-3 w-3 inline" />;
+}
 
 export default function SearchPage() {
-  const [kind, setKind] = useState("*:*:*:*");
+  const [kind, setKind]   = useState("*:*:*:*");
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
-  const limit = 20;
+  const [sortCol, setSortCol] = useState<ColKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [selected, setSelected] = useState<RawRecord | null>(null);
+  const limit = 50;
 
   const { data: kindsData } = useListOsduKinds({ limit: 1000 });
   const searchMutation = useSearchOsduRecords();
 
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    searchMutation.mutate({
-      data: {
-        kind,
-        query: query || undefined,
-        limit,
-        offset
-      }
-    });
+    setOffset(0);
+    searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: 0 } });
   };
 
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
-    searchMutation.mutate({
-      data: {
-        kind,
-        query: query || undefined,
-        limit,
-        offset: newOffset
-      }
-    });
+    searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: newOffset } });
   };
 
+  const handleSortClick = (col: ColKey) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir("asc");
+    }
+  };
+
+  const rows: FlatRow[] = useMemo(() => {
+    const raw = (searchMutation.data?.results ?? []) as RawRecord[];
+    const flat = raw.map(flatten);
+    if (!sortCol) return flat;
+    return [...flat].sort((a, b) => {
+      const av = a[sortCol] ?? "";
+      const bv = b[sortCol] ?? "";
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [searchMutation.data?.results, sortCol, sortDir]);
+
+  const total = searchMutation.data?.totalCount ?? 0;
+
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-8 max-w-full mx-auto space-y-6">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Record Search</h1>
         <p className="text-muted-foreground">Search and explore records in the OSDU data platform.</p>
@@ -76,7 +174,9 @@ export default function SearchPage() {
                   className="font-mono text-sm"
                 />
                 <Button type="submit" disabled={searchMutation.isPending}>
-                  {searchMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <SearchIcon className="h-4 w-4 mr-2" />}
+                  {searchMutation.isPending
+                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    : <SearchIcon className="h-4 w-4 mr-2" />}
                   Search
                 </Button>
               </div>
@@ -86,74 +186,76 @@ export default function SearchPage() {
       </Card>
 
       {searchMutation.data && (
-        <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+        <Card className="border-border/50 flex flex-col min-h-0">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3 shrink-0">
             <div>
               <CardTitle>Results</CardTitle>
-              <CardDescription>Found {searchMutation.data.totalCount} records</CardDescription>
+              <CardDescription>
+                {total.toLocaleString()} record{total !== 1 ? "s" : ""} found
+                {rows.length > 0 && " — double-click a row to view full JSON"}
+              </CardDescription>
             </div>
             <div className="flex items-center gap-2">
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 onClick={() => handlePageChange(Math.max(0, offset - limit))}
                 disabled={offset === 0 || searchMutation.isPending}
               >
                 <ChevronLeft className="h-4 w-4 mr-1" /> Prev
               </Button>
-              <span className="text-sm text-muted-foreground min-w-[100px] text-center">
-                {offset + 1} - {Math.min(offset + limit, searchMutation.data.totalCount)}
+              <span className="text-sm text-muted-foreground min-w-[130px] text-center">
+                {total === 0 ? "0 records" : `${offset + 1}–${Math.min(offset + limit, total)} of ${total.toLocaleString()}`}
               </span>
               <Button
-                variant="outline"
-                size="sm"
+                variant="outline" size="sm"
                 onClick={() => handlePageChange(offset + limit)}
-                disabled={offset + limit >= searchMutation.data.totalCount || searchMutation.isPending}
+                disabled={offset + limit >= total || searchMutation.isPending}
               >
                 Next <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="border rounded-md">
-              <Table>
-                <TableHeader>
+
+          <CardContent className="p-0 flex-1 min-h-0">
+            <div className="border-t border-border overflow-auto max-h-[calc(100vh-340px)]">
+              <Table className="text-xs">
+                <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0] shadow-border">
                   <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Kind</TableHead>
-                    <TableHead>Version</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {COLUMNS.map((col) => (
+                      <TableHead
+                        key={col.key}
+                        className={`${col.width} cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors`}
+                        onClick={() => handleSortClick(col.key)}
+                      >
+                        {col.label}
+                        <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                      </TableHead>
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {searchMutation.data.results?.length === 0 && (
+                  {rows.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={COLUMNS.length} className="text-center py-10 text-muted-foreground">
                         No records found
                       </TableCell>
                     </TableRow>
                   )}
-                  {searchMutation.data.results?.map((record) => (
-                    <TableRow key={record.id}>
-                      <TableCell className="font-mono text-sm max-w-[300px] truncate" title={record.id}>
-                        {record.id}
-                      </TableCell>
-                      <TableCell className="max-w-[300px] truncate" title={record.kind}>
-                        <Badge variant="secondary" className="font-mono font-normal">
-                          {record.kind}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {record.version}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Link href={`/records/${encodeURIComponent(record.id!)}`}>
-                          <Button variant="ghost" size="sm">
-                            <FileJson className="h-4 w-4 mr-2" />
-                            Inspect
-                          </Button>
-                        </Link>
-                      </TableCell>
+                  {rows.map((row, i) => (
+                    <TableRow
+                      key={row.id + i}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onDoubleClick={() => setSelected(row._raw)}
+                    >
+                      <TableCell className="font-mono truncate max-w-[220px]" title={row.id}>{row.id}</TableCell>
+                      <TableCell className="font-mono tabular-nums">{row.version}</TableCell>
+                      <TableCell className="font-mono truncate max-w-[240px]" title={row.kind}>{row.kind}</TableCell>
+                      <TableCell className="truncate max-w-[160px]" title={row.name}>{row.name}</TableCell>
+                      <TableCell className="font-mono truncate max-w-[120px]" title={row.code}>{row.code}</TableCell>
+                      <TableCell className="truncate max-w-[140px]" title={row.createdBy}>{row.createdBy}</TableCell>
+                      <TableCell className="font-mono tabular-nums whitespace-nowrap">{row.createTime}</TableCell>
+                      <TableCell className="truncate max-w-[140px]" title={row.modifyBy}>{row.modifyBy}</TableCell>
+                      <TableCell className="font-mono tabular-nums whitespace-nowrap">{row.modifyTime}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -162,6 +264,21 @@ export default function SearchPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="font-mono text-sm truncate pr-8" title={selected?.id}>
+              {selected?.id ?? "Record"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto min-h-0">
+            <pre className="text-[12px] font-mono bg-muted/50 rounded-lg p-4 border border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed">
+              {selected ? JSON.stringify(selected, null, 2) : ""}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
