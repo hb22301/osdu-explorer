@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useGetOsduConfig, useClearOsduConfig } from "@workspace/api-client-react";
-import { Database, Search, ScrollText, Tags, LogOut, ChevronDown, Activity, Settings2 } from "lucide-react";
+import { Database, Search, ScrollText, Tags, LogOut, ChevronDown, Activity, Settings2, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -13,6 +13,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.classList.add('dark');
   }, []);
+
+  // Redirect to connect page if not configured — must be in effect, not during render
+  useEffect(() => {
+    if (!isLoading && !config?.configured && location !== "/") {
+      setLocation("/");
+    }
+  }, [isLoading, config?.configured, location, setLocation]);
 
   const handleLogout = () => {
     clearConfig.mutate(undefined, {
@@ -27,16 +34,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Search", href: "/search", icon: Search },
     { label: "Schemas", href: "/schemas", icon: ScrollText },
     { label: "Legal Tags", href: "/legal-tags", icon: Tags },
+    { label: "Console", href: "/console", icon: Terminal },
   ];
 
   if (isLoading) {
     return <div className="min-h-screen bg-background text-foreground flex items-center justify-center">Loading...</div>;
-  }
-
-  // If not configured and not on home page, user shouldn't see layout (handled by page guards usually, but good fallback)
-  if (!config?.configured && location !== "/") {
-    setLocation("/");
-    return null;
   }
 
   // Hide sidebar on connection screen

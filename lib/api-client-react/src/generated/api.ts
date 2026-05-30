@@ -21,6 +21,9 @@ import type {
 
 import type {
   ApiError,
+  ClearConsoleResult,
+  ConsoleLog,
+  GetOsduConsoleParams,
   HealthStatus,
   ListOsduKindsParams,
   ListOsduLegalTagsParams,
@@ -816,6 +819,160 @@ export function useListOsduLegalTags<TData = Awaited<ReturnType<typeof listOsduL
 
 
 
+
+export const getGetOsduConsoleUrl = (params?: GetOsduConsoleParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/osdu/console?${stringifiedParams}` : `/api/osdu/console`
+}
+
+/**
+ * @summary Get captured OSDU API console log entries
+ */
+export const getOsduConsole = async (params?: GetOsduConsoleParams, options?: RequestInit): Promise<ConsoleLog> => {
+
+  return customFetch<ConsoleLog>(getGetOsduConsoleUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOsduConsoleQueryKey = (params?: GetOsduConsoleParams,) => {
+    return [
+    `/api/osdu/console`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOsduConsoleQueryOptions = <TData = Awaited<ReturnType<typeof getOsduConsole>>, TError = ErrorType<unknown>>(params?: GetOsduConsoleParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOsduConsole>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOsduConsoleQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOsduConsole>>> = ({ signal }) => getOsduConsole(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOsduConsole>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOsduConsoleQueryResult = NonNullable<Awaited<ReturnType<typeof getOsduConsole>>>
+export type GetOsduConsoleQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get captured OSDU API console log entries
+ */
+
+export function useGetOsduConsole<TData = Awaited<ReturnType<typeof getOsduConsole>>, TError = ErrorType<unknown>>(
+ params?: GetOsduConsoleParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOsduConsole>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOsduConsoleQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getClearOsduConsoleUrl = () => {
+
+
+
+
+  return `/api/osdu/console`
+}
+
+/**
+ * @summary Clear all console log entries
+ */
+export const clearOsduConsole = async ( options?: RequestInit): Promise<ClearConsoleResult> => {
+
+  return customFetch<ClearConsoleResult>(getClearOsduConsoleUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getClearOsduConsoleMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearOsduConsole>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearOsduConsole>>, TError,void, TContext> => {
+
+const mutationKey = ['clearOsduConsole'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearOsduConsole>>, void> = () => {
+
+
+          return  clearOsduConsole(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearOsduConsoleMutationResult = NonNullable<Awaited<ReturnType<typeof clearOsduConsole>>>
+
+    export type ClearOsduConsoleMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear all console log entries
+ */
+export const useClearOsduConsole = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearOsduConsole>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearOsduConsole>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getClearOsduConsoleMutationOptions(options));
+    }
 
 export const getListOsduKindsUrl = (params?: ListOsduKindsParams,) => {
   const normalizedParams = new URLSearchParams();

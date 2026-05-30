@@ -7,6 +7,12 @@
  */
 
 export * from './apiError';
+export * from './clearConsoleResult';
+export * from './consoleEntry';
+export * from './consoleEntryLevel';
+export * from './consoleEntryType';
+export * from './consoleLog';
+export * from './getOsduConsoleParams';
 export * from './healthStatus';
 export * from './listOsduKindsParams';
 export * from './listOsduLegalTagsParams';

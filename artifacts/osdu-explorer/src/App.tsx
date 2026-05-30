@@ -9,6 +9,7 @@ import SearchPage from "@/pages/search";
 import RecordPage from "@/pages/record";
 import SchemasPage from "@/pages/schemas";
 import LegalTagsPage from "@/pages/legal-tags";
+import ConsolePage from "@/pages/console";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,9 @@ function Router() {
       </Route>
       <Route path="/legal-tags">
         <Layout><LegalTagsPage /></Layout>
+      </Route>
+      <Route path="/console">
+        <Layout><ConsolePage /></Layout>
       </Route>
       <Route>
         <Layout><NotFound /></Layout>

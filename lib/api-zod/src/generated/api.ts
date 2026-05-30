@@ -225,6 +225,43 @@ export const ListOsduLegalTagsResponse = zod.object({
 
 
 /**
+ * @summary Get captured OSDU API console log entries
+ */
+export const getOsduConsoleQueryLimitDefault = 200;
+export const getOsduConsoleQueryOffsetDefault = 0;
+
+export const GetOsduConsoleQueryParams = zod.object({
+  "limit": zod.coerce.number().default(getOsduConsoleQueryLimitDefault),
+  "offset": zod.coerce.number().default(getOsduConsoleQueryOffsetDefault)
+})
+
+export const GetOsduConsoleResponse = zod.object({
+  "entries": zod.array(zod.object({
+  "id": zod.string(),
+  "timestamp": zod.string(),
+  "type": zod.enum(['token_fetch', 'api_request', 'error']),
+  "level": zod.enum(['info', 'warn', 'error']),
+  "method": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "requestBody": zod.unknown().nullish(),
+  "responseStatus": zod.number().nullish(),
+  "responseBody": zod.unknown().nullish(),
+  "durationMs": zod.number().nullish(),
+  "message": zod.string().nullish()
+})),
+  "total": zod.number()
+})
+
+
+/**
+ * @summary Clear all console log entries
+ */
+export const ClearOsduConsoleResponse = zod.object({
+  "cleared": zod.boolean()
+})
+
+
+/**
  * @summary List all kinds available in OSDU
  */
 export const listOsduKindsQueryLimitDefault = 100;

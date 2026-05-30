@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { addEntry } from "./console-store";
 
 export interface OsduConfig {
   baseUrl: string;
@@ -31,7 +32,6 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
   const cached = tokenCache.get(key);
 
   if (cached && Date.now() < cached.expiresAt) {
-    logger.debug("Using cached OSDU access token");
     return cached.accessToken;
   }
 
@@ -43,33 +43,88 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
     scope,
   });
 
+  const start = Date.now();
   logger.info({ tokenEndpoint: cfg.tokenEndpoint, clientId: cfg.clientId }, "Fetching OSDU access token");
 
-  const response = await fetch(cfg.tokenEndpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
+  let response: Response;
+  let responseBody: unknown;
+  try {
+    response = await fetch(cfg.tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    logger.error({ status: response.status, body: text }, "Failed to fetch OSDU access token");
-    throw new Error(`Token fetch failed (${response.status}): ${text}`);
+    const contentType = response.headers.get("content-type") ?? "";
+    responseBody = contentType.includes("application/json")
+      ? await response.json()
+      : await response.text();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    addEntry({
+      type: "token_fetch",
+      level: "error",
+      method: "POST",
+      url: cfg.tokenEndpoint,
+      requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+      responseStatus: null,
+      responseBody: null,
+      durationMs: Date.now() - start,
+      message: `Token fetch failed: ${message}`,
+    });
+    throw new Error(`Token fetch failed: ${message}`);
   }
 
-  const data = (await response.json()) as {
-    access_token: string;
-    expires_in?: number;
-    token_type?: string;
-  };
+  const durationMs = Date.now() - start;
+
+  if (!response.ok) {
+    addEntry({
+      type: "token_fetch",
+      level: "error",
+      method: "POST",
+      url: cfg.tokenEndpoint,
+      requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+      responseStatus: response.status,
+      responseBody,
+      durationMs,
+      message: `Token fetch failed with status ${response.status}`,
+    });
+    logger.error({ status: response.status }, "Failed to fetch OSDU access token");
+    throw new Error(`Token fetch failed (${response.status})`);
+  }
+
+  const data = responseBody as { access_token: string; expires_in?: number; token_type?: string };
 
   if (!data.access_token) {
+    addEntry({
+      type: "token_fetch",
+      level: "error",
+      method: "POST",
+      url: cfg.tokenEndpoint,
+      requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+      responseStatus: response.status,
+      responseBody,
+      durationMs,
+      message: "Token response missing access_token field",
+    });
     throw new Error("Token response missing access_token field");
   }
 
   const expiresIn = data.expires_in ?? 3600;
   const expiresAt = Date.now() + (expiresIn - 60) * 1000;
   tokenCache.set(key, { accessToken: data.access_token, expiresAt });
+
+  addEntry({
+    type: "token_fetch",
+    level: "info",
+    method: "POST",
+    url: cfg.tokenEndpoint,
+    requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
+    responseStatus: response.status,
+    responseBody: { token_type: data.token_type, expires_in: expiresIn },
+    durationMs,
+    message: `Access token obtained (expires in ${expiresIn}s)`,
+  });
 
   logger.info({ expiresIn }, "OSDU access token fetched and cached");
   return data.access_token;
@@ -98,33 +153,67 @@ export class OsduClient {
     path: string,
     options: FetchOptions = {}
   ): Promise<{ status: number; data: unknown }> {
-    const accessToken = await fetchAccessToken(this.config);
+    let accessToken: string;
+    try {
+      accessToken = await fetchAccessToken(this.config);
+    } catch (err) {
+      throw err;
+    }
+
     const url = this.buildUrl(path, options.params);
     const method = options.method ?? "GET";
 
-    const init: RequestInit = {
-      method,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "data-partition-id": this.config.partitionId,
-      },
-    };
-
-    if (options.body !== undefined) {
-      init.body = JSON.stringify(options.body);
-    }
-
     logger.info({ method, path }, "OSDU API request");
 
-    const response = await fetch(url, init);
+    const start = Date.now();
+    let response: Response;
     let data: unknown;
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      data = await response.json();
-    } else {
-      data = await response.text();
+
+    try {
+      response = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "data-partition-id": this.config.partitionId,
+        },
+        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      });
+
+      const contentType = response.headers.get("content-type") ?? "";
+      data = contentType.includes("application/json")
+        ? await response.json()
+        : await response.text();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addEntry({
+        type: "api_request",
+        level: "error",
+        method,
+        url,
+        requestBody: options.body ?? null,
+        responseStatus: null,
+        responseBody: null,
+        durationMs: Date.now() - start,
+        message: `Network error: ${message}`,
+      });
+      throw err;
     }
+
+    const durationMs = Date.now() - start;
+    const level = response.status >= 500 ? "error" : response.status >= 400 ? "warn" : "info";
+
+    addEntry({
+      type: "api_request",
+      level,
+      method,
+      url,
+      requestBody: options.body ?? null,
+      responseStatus: response.status,
+      responseBody: data,
+      durationMs,
+      message: null,
+    });
 
     return { status: response.status, data };
   }

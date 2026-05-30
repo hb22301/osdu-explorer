@@ -266,6 +266,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /osdu/console:
+    get:
+      operationId: getOsduConsole
+      tags: [osdu-config]
+      summary: Get captured OSDU API console log entries
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Console log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsoleLog"
+    delete:
+      operationId: clearOsduConsole
+      tags: [osdu-config]
+      summary: Clear all console log entries
+      responses:
+        "200":
+          description: Cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearConsoleResult"
+
   /osdu/kinds:
     get:
       operationId: listOsduKinds
@@ -497,6 +532,53 @@ components:
             type: string
         cursor:
           type: ["string", "null"]
+
+    ConsoleEntry:
+      type: object
+      required: [id, timestamp, type, level]
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+        type:
+          type: string
+          enum: [token_fetch, api_request, error]
+        level:
+          type: string
+          enum: [info, warn, error]
+        method:
+          type: ["string", "null"]
+        url:
+          type: ["string", "null"]
+        requestBody:
+          nullable: true
+        responseStatus:
+          type: ["integer", "null"]
+        responseBody:
+          nullable: true
+        durationMs:
+          type: ["integer", "null"]
+        message:
+          type: ["string", "null"]
+
+    ConsoleLog:
+      type: object
+      required: [entries, total]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsoleEntry"
+        total:
+          type: integer
+
+    ClearConsoleResult:
+      type: object
+      required: [cleared]
+      properties:
+        cleared:
+          type: boolean
 
     ApiError:
       type: object

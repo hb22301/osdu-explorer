@@ -5,6 +5,7 @@ import osduSearchRouter from "./osdu/search";
 import osduStorageRouter from "./osdu/storage";
 import osduSchemaRouter from "./osdu/schema";
 import osduLegalRouter from "./osdu/legal";
+import osduConsoleRouter from "./osdu/console";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(osduSearchRouter);
 router.use(osduStorageRouter);
 router.use(osduSchemaRouter);
 router.use(osduLegalRouter);
+router.use(osduConsoleRouter);
 
 export default router;

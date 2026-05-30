@@ -152,6 +152,52 @@ export interface OsduKindList {
   cursor?: string | null;
 }
 
+export type ConsoleEntryType = typeof ConsoleEntryType[keyof typeof ConsoleEntryType];
+
+
+export const ConsoleEntryType = {
+  token_fetch: 'token_fetch',
+  api_request: 'api_request',
+  error: 'error',
+} as const;
+
+export type ConsoleEntryLevel = typeof ConsoleEntryLevel[keyof typeof ConsoleEntryLevel];
+
+
+export const ConsoleEntryLevel = {
+  info: 'info',
+  warn: 'warn',
+  error: 'error',
+} as const;
+
+export interface ConsoleEntry {
+  id: string;
+  timestamp: string;
+  type: ConsoleEntryType;
+  level: ConsoleEntryLevel;
+  /** @nullable */
+  method?: string | null;
+  /** @nullable */
+  url?: string | null;
+  requestBody?: unknown | null;
+  /** @nullable */
+  responseStatus?: number | null;
+  responseBody?: unknown | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  message?: string | null;
+}
+
+export interface ConsoleLog {
+  entries: ConsoleEntry[];
+  total: number;
+}
+
+export interface ClearConsoleResult {
+  cleared: boolean;
+}
+
 export interface ApiError {
   error: string;
 }
@@ -167,6 +213,11 @@ offset?: number;
 
 export type ListOsduLegalTagsParams = {
 valid?: boolean;
+};
+
+export type GetOsduConsoleParams = {
+limit?: number;
+offset?: number;
 };
 
 export type ListOsduKindsParams = {
