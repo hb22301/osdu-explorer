@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -49,12 +50,13 @@ export default function ConnectPage() {
     saveConfig.mutate({ data: values });
   }
 
-  if (isLoading) return null;
+  useEffect(() => {
+    if (!isLoading && config?.configured) {
+      setLocation("/dashboard");
+    }
+  }, [isLoading, config?.configured, setLocation]);
 
-  if (config?.configured) {
-    setLocation("/dashboard");
-    return null;
-  }
+  if (isLoading || config?.configured) return null;
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">

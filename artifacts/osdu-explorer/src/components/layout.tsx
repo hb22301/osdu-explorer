@@ -1,20 +1,30 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { useGetOsduConfig, useClearOsduConfig } from "@workspace/api-client-react";
-import { Database, Search, ScrollText, Tags, LogOut, ChevronDown, Activity, Settings2, Terminal } from "lucide-react";
+import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduConsoleQueryKey } from "@workspace/api-client-react";
+import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ConsolePanel } from "@/components/console-panel";
+
+const CONSOLE_HEIGHT = 300;
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const { data: config, isLoading } = useGetOsduConfig();
   const clearConfig = useClearOsduConfig();
 
-  // Force dark mode on mount
+  // Poll console entry count for the badge (lightweight — just total)
+  const { data: consoleData } = useGetOsduConsole(
+    { limit: 1, offset: 0 },
+    { query: { refetchInterval: 3000, queryKey: getGetOsduConsoleQueryKey({ limit: 1, offset: 0 }) } }
+  );
+  const entryCount = consoleData?.total ?? 0;
+
   useEffect(() => {
-    document.documentElement.classList.add('dark');
+    document.documentElement.classList.add("dark");
   }, []);
 
-  // Redirect to connect page if not configured — must be in effect, not during render
   useEffect(() => {
     if (!isLoading && !config?.configured && location !== "/") {
       setLocation("/");
@@ -23,9 +33,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = () => {
     clearConfig.mutate(undefined, {
-      onSuccess: () => {
-        setLocation("/");
-      }
+      onSuccess: () => setLocation("/"),
     });
   };
 
@@ -34,14 +42,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Search", href: "/search", icon: Search },
     { label: "Schemas", href: "/schemas", icon: ScrollText },
     { label: "Legal Tags", href: "/legal-tags", icon: Tags },
-    { label: "Console", href: "/console", icon: Terminal },
   ];
 
   if (isLoading) {
-    return <div className="min-h-screen bg-background text-foreground flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        Loading...
+      </div>
+    );
   }
 
-  // Hide sidebar on connection screen
   if (location === "/") {
     return <div className="min-h-screen bg-background text-foreground">{children}</div>;
   }
@@ -54,14 +64,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Database className="w-5 h-5 text-primary mr-2" />
           <span className="font-bold tracking-tight">OSDU Explorer</span>
         </div>
-        
+
         <div className="flex-1 py-4 overflow-y-auto">
           <nav className="space-y-1 px-2">
             {navItems.map((item) => {
-              const isActive = location === item.href || location.startsWith(`${item.href}/`);
+              const isActive =
+                location === item.href || location.startsWith(`${item.href}/`);
               return (
-                <Link key={item.href} href={item.href} className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-                  <item.icon className={`w-4 h-4 mr-3 flex-shrink-0 ${isActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <item.icon
+                    className={`w-4 h-4 mr-3 flex-shrink-0 ${
+                      isActive ? "text-primary" : "text-muted-foreground"
+                    }`}
+                  />
                   {item.label}
                 </Link>
               );
@@ -69,27 +92,73 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
 
-        <div className="p-4 border-t border-border shrink-0 space-y-4">
+        <div className="p-4 border-t border-border shrink-0 space-y-3">
           <div className="space-y-1">
-            <p className="text-xs font-mono text-muted-foreground truncate" title={config?.baseUrl || ""}>
+            <p
+              className="text-xs font-mono text-muted-foreground truncate"
+              title={config?.baseUrl ?? ""}
+            >
               {config?.baseUrl}
             </p>
-            <p className="text-xs font-mono text-muted-foreground truncate" title={config?.partitionId || ""}>
+            <p
+              className="text-xs font-mono text-muted-foreground truncate"
+              title={config?.partitionId ?? ""}
+            >
               {config?.partitionId}
             </p>
           </div>
-          <Button variant="outline" className="w-full justify-start text-muted-foreground" size="sm" onClick={handleLogout}>
+          <Button
+            variant="outline"
+            className="w-full justify-start text-muted-foreground"
+            size="sm"
+            onClick={handleLogout}
+          >
             <LogOut className="w-4 h-4 mr-2" />
             Disconnect
           </Button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full min-w-0">
-        <main className="flex-1 overflow-auto bg-background">
+      {/* Right side: main content + console panel */}
+      <div className="flex-1 flex flex-col h-full min-w-0 min-h-0">
+        {/* Main content — shrinks when console is open */}
+        <main className="flex-1 overflow-auto bg-background min-h-0">
           {children}
         </main>
+
+        {/* Console panel — slides in above the toggle bar */}
+        {consoleOpen && (
+          <div className="shrink-0 border-t border-border" style={{ height: CONSOLE_HEIGHT }}>
+            <ConsolePanel height={CONSOLE_HEIGHT} />
+          </div>
+        )}
+
+        {/* Console toggle bar — always visible */}
+        <div
+          className="shrink-0 h-7 flex items-center gap-2 px-3 border-t border-border bg-card/80 cursor-pointer select-none hover:bg-muted/60 transition-colors"
+          onClick={() => setConsoleOpen((v) => !v)}
+          role="button"
+          aria-expanded={consoleOpen}
+          aria-label="Toggle console"
+        >
+          <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="text-[11px] font-medium text-muted-foreground">Console</span>
+          {entryCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-4 px-1.5 text-[10px] font-mono rounded-sm"
+            >
+              {entryCount}
+            </Badge>
+          )}
+          <div className="ml-auto text-muted-foreground">
+            {consoleOpen ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronUp className="w-3.5 h-3.5" />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

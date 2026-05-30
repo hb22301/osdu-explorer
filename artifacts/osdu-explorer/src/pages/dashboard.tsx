@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useGetOsduConfig } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,11 +8,13 @@ export default function DashboardPage() {
   const { data: config, isLoading } = useGetOsduConfig();
   const [, setLocation] = useLocation();
 
-  if (isLoading) return null;
-  if (!config?.configured) {
-    setLocation("/");
-    return null;
-  }
+  useEffect(() => {
+    if (!isLoading && !config?.configured) {
+      setLocation("/");
+    }
+  }, [isLoading, config?.configured, setLocation]);
+
+  if (isLoading || !config?.configured) return null;
 
   const quickActions = [
     {

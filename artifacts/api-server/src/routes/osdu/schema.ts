@@ -43,7 +43,12 @@ router.get("/osdu/schemas", async (req, res): Promise<void> => {
 
   const schemaData = data as { schemaInfos?: unknown[]; offset?: number; count?: number; totalCount?: number };
   const result = ListOsduSchemasResponse.parse({
-    schemaInfos: (schemaData.schemaInfos ?? []).map((s: unknown) => {
+    schemaInfos: (schemaData.schemaInfos ?? [])
+      .filter((s: unknown) => {
+        const info = s as Record<string, unknown>;
+        return (info.id ?? info.kind) != null;
+      })
+      .map((s: unknown) => {
       const info = s as Record<string, unknown>;
       return {
         kind: info.id ?? info.kind ?? null,
