@@ -307,7 +307,7 @@ components:
 
     OsduConfigInput:
       type: object
-      required: [baseUrl, partitionId, token]
+      required: [baseUrl, partitionId, tokenEndpoint, clientId, clientSecret]
       properties:
         baseUrl:
           type: string
@@ -315,9 +315,18 @@ components:
         partitionId:
           type: string
           description: Data partition ID
-        token:
+        tokenEndpoint:
           type: string
-          description: Bearer token for authentication
+          description: OAuth2 token endpoint URL (e.g. https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token)
+        clientId:
+          type: string
+          description: OAuth2 client ID
+        clientSecret:
+          type: string
+          description: OAuth2 client secret
+        scope:
+          type: string
+          description: OAuth2 scope (optional, defaults to clientId/.default)
 
     OsduConfigStatus:
       type: object
@@ -328,6 +337,10 @@ components:
         baseUrl:
           type: ["string", "null"]
         partitionId:
+          type: ["string", "null"]
+        tokenEndpoint:
+          type: ["string", "null"]
+        clientId:
           type: ["string", "null"]
 
     OsduSearchInput:

@@ -24,13 +24,18 @@ export const HealthCheckResponse = zod.object({
 export const SaveOsduConfigBody = zod.object({
   "baseUrl": zod.string().describe('OSDU platform base URL (e.g. https:\/\/myosdu.example.com)'),
   "partitionId": zod.string().describe('Data partition ID'),
-  "token": zod.string().describe('Bearer token for authentication')
+  "tokenEndpoint": zod.string().describe('OAuth2 token endpoint URL (e.g. https:\/\/login.microsoftonline.com\/{tenant}\/oauth2\/v2.0\/token)'),
+  "clientId": zod.string().describe('OAuth2 client ID'),
+  "clientSecret": zod.string().describe('OAuth2 client secret'),
+  "scope": zod.string().optional().describe('OAuth2 scope (optional, defaults to clientId\/.default)')
 })
 
 export const SaveOsduConfigResponse = zod.object({
   "configured": zod.boolean(),
   "baseUrl": zod.string().nullish(),
-  "partitionId": zod.string().nullish()
+  "partitionId": zod.string().nullish(),
+  "tokenEndpoint": zod.string().nullish(),
+  "clientId": zod.string().nullish()
 })
 
 
@@ -40,7 +45,9 @@ export const SaveOsduConfigResponse = zod.object({
 export const GetOsduConfigResponse = zod.object({
   "configured": zod.boolean(),
   "baseUrl": zod.string().nullish(),
-  "partitionId": zod.string().nullish()
+  "partitionId": zod.string().nullish(),
+  "tokenEndpoint": zod.string().nullish(),
+  "clientId": zod.string().nullish()
 })
 
 
@@ -50,7 +57,9 @@ export const GetOsduConfigResponse = zod.object({
 export const ClearOsduConfigResponse = zod.object({
   "configured": zod.boolean(),
   "baseUrl": zod.string().nullish(),
-  "partitionId": zod.string().nullish()
+  "partitionId": zod.string().nullish(),
+  "tokenEndpoint": zod.string().nullish(),
+  "clientId": zod.string().nullish()
 })
 
 

@@ -12,4 +12,8 @@ export interface OsduConfigStatus {
   baseUrl?: string | null;
   /** @nullable */
   partitionId?: string | null;
+  /** @nullable */
+  tokenEndpoint?: string | null;
+  /** @nullable */
+  clientId?: string | null;
 }

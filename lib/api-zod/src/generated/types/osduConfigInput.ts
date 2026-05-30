@@ -11,6 +11,12 @@ export interface OsduConfigInput {
   baseUrl: string;
   /** Data partition ID */
   partitionId: string;
-  /** Bearer token for authentication */
-  token: string;
+  /** OAuth2 token endpoint URL (e.g. https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token) */
+  tokenEndpoint: string;
+  /** OAuth2 client ID */
+  clientId: string;
+  /** OAuth2 client secret */
+  clientSecret: string;
+  /** OAuth2 scope (optional, defaults to clientId/.default) */
+  scope?: string;
 }

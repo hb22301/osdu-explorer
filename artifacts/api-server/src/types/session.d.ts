@@ -5,7 +5,10 @@ declare module "express-session" {
     osduConfig?: {
       baseUrl: string;
       partitionId: string;
-      token: string;
+      tokenEndpoint: string;
+      clientId: string;
+      clientSecret: string;
+      scope?: string;
     };
   }
 }

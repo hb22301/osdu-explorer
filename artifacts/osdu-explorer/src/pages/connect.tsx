@@ -3,17 +3,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useLocation } from "wouter";
 import { useSaveOsduConfig, useGetOsduConfig, getGetOsduConfigQueryKey } from "@workspace/api-client-react";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Database, Terminal, Shield } from "lucide-react";
+import { Database, Terminal, Shield, Key, Link as LinkIcon, User } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const formSchema = z.object({
   baseUrl: z.string().url({ message: "Please enter a valid URL" }),
   partitionId: z.string().min(1, { message: "Partition ID is required" }),
-  token: z.string().min(1, { message: "Bearer token is required" }),
+  tokenEndpoint: z.string().url({ message: "Please enter a valid token endpoint URL" }),
+  clientId: z.string().min(1, { message: "Client ID is required" }),
+  clientSecret: z.string().min(1, { message: "Client Secret is required" }),
+  scope: z.string().optional(),
 });
 
 export default function ConnectPage() {
@@ -26,7 +29,10 @@ export default function ConnectPage() {
     defaultValues: {
       baseUrl: "",
       partitionId: "",
-      token: "",
+      tokenEndpoint: "",
+      clientId: "",
+      clientSecret: "",
+      scope: "",
     },
   });
 
@@ -64,7 +70,7 @@ export default function ConnectPage() {
         <Card className="border-border/50 shadow-2xl bg-card">
           <CardHeader>
             <CardTitle>Connection Settings</CardTitle>
-            <CardDescription>Enter your OSDU credentials to begin</CardDescription>
+            <CardDescription>Enter your OAuth2 credentials to begin</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
@@ -103,16 +109,65 @@ export default function ConnectPage() {
                 />
                 <FormField
                   control={form.control}
-                  name="token"
+                  name="tokenEndpoint"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Bearer Token</FormLabel>
+                      <FormLabel>Token Endpoint</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <LinkIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input placeholder="https://login.microsoftonline.com/..." className="pl-9 font-mono text-sm" {...field} />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="clientId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client ID</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input placeholder="Client ID" className="pl-9 font-mono text-sm" {...field} />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="clientSecret"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Client Secret</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Key className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input type="password" placeholder="Client Secret" className="pl-9 font-mono text-sm" {...field} />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="scope"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Scope <span className="text-muted-foreground font-normal">(Optional)</span></FormLabel>
                       <FormControl>
                         <div className="relative">
                           <Shield className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input type="password" placeholder="ey..." className="pl-9 font-mono text-sm" {...field} />
+                          <Input placeholder="api://.../.default" className="pl-9 font-mono text-sm" {...field} />
                         </div>
                       </FormControl>
+                      <FormDescription>Defaults to clientId/.default</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

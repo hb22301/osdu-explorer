@@ -81,7 +81,7 @@ export default function DashboardPage() {
           <CardDescription>Current session information</CardDescription>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="flex flex-col space-y-1 p-4 rounded-lg bg-muted/50 border border-border/50">
               <dt className="text-sm font-medium text-muted-foreground">Platform URL</dt>
               <dd className="text-sm font-mono break-all">{config.baseUrl}</dd>
@@ -89,6 +89,14 @@ export default function DashboardPage() {
             <div className="flex flex-col space-y-1 p-4 rounded-lg bg-muted/50 border border-border/50">
               <dt className="text-sm font-medium text-muted-foreground">Partition ID</dt>
               <dd className="text-sm font-mono">{config.partitionId}</dd>
+            </div>
+            <div className="flex flex-col space-y-1 p-4 rounded-lg bg-muted/50 border border-border/50">
+              <dt className="text-sm font-medium text-muted-foreground">Token Endpoint</dt>
+              <dd className="text-sm font-mono break-all">{config.tokenEndpoint}</dd>
+            </div>
+            <div className="flex flex-col space-y-1 p-4 rounded-lg bg-muted/50 border border-border/50">
+              <dt className="text-sm font-medium text-muted-foreground">Client ID</dt>
+              <dd className="text-sm font-mono break-all">{config.clientId}</dd>
             </div>
           </dl>
         </CardContent>

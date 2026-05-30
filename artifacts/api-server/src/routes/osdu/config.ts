@@ -5,6 +5,7 @@ import {
   GetOsduConfigResponse,
   ClearOsduConfigResponse,
 } from "@workspace/api-zod";
+import { clearTokenCache } from "../../lib/osdu-client";
 
 const router: IRouter = Router();
 
@@ -14,6 +15,8 @@ router.get("/osdu/config", (req, res): void => {
     configured: !!cfg,
     baseUrl: cfg?.baseUrl ?? null,
     partitionId: cfg?.partitionId ?? null,
+    tokenEndpoint: cfg?.tokenEndpoint ?? null,
+    clientId: cfg?.clientId ?? null,
   });
   res.json(result);
 });
@@ -25,26 +28,42 @@ router.post("/osdu/config", (req, res): void => {
     return;
   }
 
+  const { baseUrl, partitionId, tokenEndpoint, clientId, clientSecret, scope } = parsed.data;
+
+  if (req.session.osduConfig) {
+    clearTokenCache(req.session.osduConfig);
+  }
+
   req.session.osduConfig = {
-    baseUrl: parsed.data.baseUrl,
-    partitionId: parsed.data.partitionId,
-    token: parsed.data.token,
+    baseUrl,
+    partitionId,
+    tokenEndpoint,
+    clientId,
+    clientSecret,
+    scope: scope ?? undefined,
   };
 
   const result = SaveOsduConfigResponse.parse({
     configured: true,
-    baseUrl: parsed.data.baseUrl,
-    partitionId: parsed.data.partitionId,
+    baseUrl,
+    partitionId,
+    tokenEndpoint,
+    clientId,
   });
   res.json(result);
 });
 
 router.delete("/osdu/config", (req, res): void => {
+  if (req.session.osduConfig) {
+    clearTokenCache(req.session.osduConfig);
+  }
   req.session.osduConfig = undefined;
   const result = ClearOsduConfigResponse.parse({
     configured: false,
     baseUrl: null,
     partitionId: null,
+    tokenEndpoint: null,
+    clientId: null,
   });
   res.json(result);
 });
