@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: OSDU Explorer API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: osdu-config
+    description: OSDU connection configuration
+  - name: osdu-search
+    description: OSDU Search API proxy
+  - name: osdu-storage
+    description: OSDU Storage API proxy
+  - name: osdu-schema
+    description: OSDU Schema API proxy
+  - name: osdu-legal
+    description: OSDU Legal API proxy
 paths:
   /healthz:
     get:
@@ -24,6 +34,267 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /osdu/config:
+    post:
+      operationId: saveOsduConfig
+      tags: [osdu-config]
+      summary: Save OSDU connection config
+      description: Stores the OSDU base URL, partition ID, and bearer token in the session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OsduConfigInput"
+      responses:
+        "200":
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduConfigStatus"
+    get:
+      operationId: getOsduConfig
+      tags: [osdu-config]
+      summary: Get current OSDU config status
+      responses:
+        "200":
+          description: Config status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduConfigStatus"
+    delete:
+      operationId: clearOsduConfig
+      tags: [osdu-config]
+      summary: Clear OSDU connection config
+      responses:
+        "200":
+          description: Config cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduConfigStatus"
+
+  /osdu/search:
+    post:
+      operationId: searchOsduRecords
+      tags: [osdu-search]
+      summary: Search OSDU records
+      description: Proxies a query to the OSDU Search API
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OsduSearchInput"
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduSearchResult"
+        "400":
+          description: Bad request or OSDU error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /osdu/records/{id}:
+    get:
+      operationId: getOsduRecord
+      tags: [osdu-storage]
+      summary: Get a specific OSDU record by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OSDU record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduRecord"
+        "404":
+          description: Record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /osdu/records/{id}/versions:
+    get:
+      operationId: getOsduRecordVersions
+      tags: [osdu-storage]
+      summary: Get versions of a record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Record versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduRecordVersions"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /osdu/schemas:
+    get:
+      operationId: listOsduSchemas
+      tags: [osdu-schema]
+      summary: List OSDU schemas
+      parameters:
+        - name: authority
+          in: query
+          schema:
+            type: string
+        - name: source
+          in: query
+          schema:
+            type: string
+        - name: entityType
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of schemas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduSchemaList"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /osdu/schemas/{kind}:
+    get:
+      operationId: getOsduSchema
+      tags: [osdu-schema]
+      summary: Get a specific schema by kind
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schema details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduSchema"
+        "404":
+          description: Schema not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /osdu/legal-tags:
+    get:
+      operationId: listOsduLegalTags
+      tags: [osdu-legal]
+      summary: List OSDU legal tags
+      parameters:
+        - name: valid
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of legal tags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduLegalTagList"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /osdu/kinds:
+    get:
+      operationId: listOsduKinds
+      tags: [osdu-storage]
+      summary: List all kinds available in OSDU
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of kinds
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OsduKindList"
+        "401":
+          description: Not configured or unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +305,189 @@ components:
       required:
         - status
 
+    OsduConfigInput:
+      type: object
+      required: [baseUrl, partitionId, token]
+      properties:
+        baseUrl:
+          type: string
+          description: OSDU platform base URL (e.g. https://myosdu.example.com)
+        partitionId:
+          type: string
+          description: Data partition ID
+        token:
+          type: string
+          description: Bearer token for authentication
+
+    OsduConfigStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        baseUrl:
+          type: ["string", "null"]
+        partitionId:
+          type: ["string", "null"]
+
+    OsduSearchInput:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: OSDU kind to search (e.g. "osdu:wks:well:1.0.0" or "*:*:*:*")
+        query:
+          type: ["string", "null"]
+          description: Lucene query string
+        limit:
+          type: integer
+          default: 10
+        offset:
+          type: integer
+          default: 0
+        returnedFields:
+          type: array
+          items:
+            type: string
+        sort:
+          type: ["object", "null"]
+          properties:
+            field:
+              type: array
+              items:
+                type: string
+            order:
+              type: array
+              items:
+                type: string
+
+    OsduRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        version:
+          type: ["integer", "null"]
+        acl:
+          type: object
+        legal:
+          type: object
+        data:
+          type: object
+        meta:
+          type: array
+          items:
+            type: object
+        ancestry:
+          type: object
+        tags:
+          type: object
+
+    OsduSearchResult:
+      type: object
+      required: [results, totalCount]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/OsduRecord"
+        totalCount:
+          type: integer
+        aggregations:
+          type: ["object", "null"]
+
+    OsduRecordVersions:
+      type: object
+      required: [recordId, versions]
+      properties:
+        recordId:
+          type: string
+        versions:
+          type: array
+          items:
+            type: integer
+
+    OsduSchemaInfo:
+      type: object
+      properties:
+        kind:
+          type: string
+        status:
+          type: string
+        createdBy:
+          type: ["string", "null"]
+        dateCreated:
+          type: ["string", "null"]
+        updatedBy:
+          type: ["string", "null"]
+        dateUpdated:
+          type: ["string", "null"]
+
+    OsduSchemaList:
+      type: object
+      required: [schemaInfos, offset, count, totalCount]
+      properties:
+        schemaInfos:
+          type: array
+          items:
+            $ref: "#/components/schemas/OsduSchemaInfo"
+        offset:
+          type: integer
+        count:
+          type: integer
+        totalCount:
+          type: integer
+
+    OsduSchema:
+      type: object
+      properties:
+        kind:
+          type: string
+        schema:
+          type: object
+        status:
+          type: string
+        createdBy:
+          type: ["string", "null"]
+        dateCreated:
+          type: ["string", "null"]
+
+    OsduLegalTag:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        properties:
+          type: object
+
+    OsduLegalTagList:
+      type: object
+      required: [legalTags]
+      properties:
+        legalTags:
+          type: array
+          items:
+            $ref: "#/components/schemas/OsduLegalTag"
+
+    OsduKindList:
+      type: object
+      required: [kinds]
+      properties:
+        kinds:
+          type: array
+          items:
+            type: string
+        cursor:
+          type: ["string", "null"]
+
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
