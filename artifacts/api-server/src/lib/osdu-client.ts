@@ -142,6 +142,25 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
   return data.access_token;
 }
 
+// Known OSDU paginated response array field names
+const OSDU_ARRAY_FIELDS = ["results", "schemaInfos", "legalTags", "records", "items"];
+
+function extractRecordCount(data: unknown): number | null {
+  if (data == null) return null;
+  if (Array.isArray(data)) return data.length;
+  if (typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    for (const field of OSDU_ARRAY_FIELDS) {
+      if (Array.isArray(obj[field])) return (obj[field] as unknown[]).length;
+    }
+    // Fallback: if there is exactly one top-level array, use its length
+    const arrays = Object.values(obj).filter(Array.isArray);
+    if (arrays.length === 1) return (arrays[0] as unknown[]).length;
+    return 1;
+  }
+  return 1;
+}
+
 export class OsduClient {
   constructor(private config: OsduConfig) {}
 
@@ -227,7 +246,7 @@ export class OsduClient {
     const durationMs = Date.now() - start;
     const level = response.status >= 500 ? "error" : response.status >= 400 ? "warn" : "info";
     const responseSize = data != null ? Buffer.byteLength(JSON.stringify(data), "utf8") : null;
-    const recordCount = Array.isArray(data) ? data.length : data != null ? 1 : null;
+    const recordCount = extractRecordCount(data);
 
     updateEntry(pendingEntry.id, {
       level,
