@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, Search, FileJson } from "lucide-react";
+import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 
 export default function SchemasPage() {
   const [authority, setAuthority] = useState("");
@@ -139,9 +140,7 @@ export default function SchemasPage() {
             ) : schemaDetails ? (
               <ScrollArea className="h-full rounded-md border border-border/50 bg-muted/30">
                 <div className="p-4">
-                  <pre className="text-xs font-mono text-foreground">
-                    {JSON.stringify(schemaDetails.schema, null, 2)}
-                  </pre>
+                  <JsonViewerToolbar json={JSON.stringify(schemaDetails.schema, null, 2)} />
                 </div>
               </ScrollArea>
             ) : (

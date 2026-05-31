@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KindCombobox } from "@/components/kind-combobox";
 import { RecordLookupDialog } from "@/components/record-lookup-dialog";
+import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -687,9 +688,7 @@ export default function SearchPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-auto min-h-0">
-            <pre className="text-[12px] font-mono bg-muted/50 rounded-lg p-4 border border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed">
-              {selected ? JSON.stringify(selected, null, 2) : ""}
-            </pre>
+            <JsonViewerToolbar json={selected ? JSON.stringify(selected, null, 2) : ""} />
           </div>
         </DialogContent>
       </Dialog>

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { HardDrive as StorageIcon, Loader2, AlertCircle } from "lucide-react";
+import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 
 export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string }) {
   const [open, setOpen] = useState(false);
@@ -103,9 +104,7 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
             </div>
           )}
           {!isError && data && (
-            <pre className="text-[12px] font-mono bg-muted/50 rounded-lg p-4 border border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed">
-              {JSON.stringify(data, null, 2)}
-            </pre>
+            <JsonViewerToolbar json={JSON.stringify(data, null, 2)} />
           )}
           {!isError && !data && !isFetching && recordId === "" && (
             <div className="py-10 text-center text-sm text-muted-foreground">
