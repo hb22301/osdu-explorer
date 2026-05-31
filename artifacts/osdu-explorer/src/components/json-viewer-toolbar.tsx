@@ -926,37 +926,45 @@ export function JsonViewerContent({
                       </div>
                     ) : result.columns && result.dataRows ? (
                       <div className="rounded-md border border-border/50 overflow-hidden">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="bg-muted/40">
-                              {result.columns.map((col) => (
-                                <TableHead key={col} className="whitespace-nowrap font-semibold text-xs py-2 px-3">
-                                  {col}
+                        <div className="overflow-auto" style={{ maxHeight: "60vh" }}>
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="bg-muted/40">
+                                <TableHead className="whitespace-nowrap font-semibold text-xs py-2 px-3 text-muted-foreground sticky left-0 bg-muted/40 z-10">
+                                  #
                                 </TableHead>
-                              ))}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {result.dataRows.map((row, rowIdx) => (
-                              <TableRow key={rowIdx} className="hover:bg-muted/30">
-                                {result.columns!.map((col, colIdx) => {
-                                  const val = row[colIdx];
-                                  return (
-                                    <TableCell key={col} className="text-xs py-1.5 px-3 tabular-nums">
-                                      {val === undefined || val === null
-                                        ? <span className="text-muted-foreground/40">—</span>
-                                        : typeof val === "number"
-                                          ? val
-                                          : typeof val === "object"
-                                            ? <span className="font-mono text-muted-foreground">{JSON.stringify(val)}</span>
-                                            : String(val)}
-                                    </TableCell>
-                                  );
-                                })}
+                                {result.columns.map((col) => (
+                                  <TableHead key={col} className="whitespace-nowrap font-semibold text-xs py-2 px-3">
+                                    {col}
+                                  </TableHead>
+                                ))}
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {result.dataRows.map((row, rowIdx) => (
+                                <TableRow key={rowIdx} className="hover:bg-muted/30">
+                                  <TableCell className="text-xs py-1.5 px-3 tabular-nums text-muted-foreground sticky left-0 bg-background z-10 border-r border-border/30">
+                                    {rowIdx + 1}
+                                  </TableCell>
+                                  {result.columns!.map((col, colIdx) => {
+                                    const val = row[colIdx];
+                                    return (
+                                      <TableCell key={col} className="text-xs py-1.5 px-3 tabular-nums">
+                                        {val === undefined || val === null
+                                          ? <span className="text-muted-foreground/40">—</span>
+                                          : typeof val === "number"
+                                            ? val
+                                            : typeof val === "object"
+                                              ? <span className="font-mono text-muted-foreground">{JSON.stringify(val)}</span>
+                                              : String(val)}
+                                      </TableCell>
+                                    );
+                                  })}
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                         <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground">
                           {result.dataRows.length} row{result.dataRows.length !== 1 ? "s" : ""} · {result.columns.length} column{result.columns.length !== 1 ? "s" : ""}
                         </div>
