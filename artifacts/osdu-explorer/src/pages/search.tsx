@@ -6,7 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2 } from "lucide-react";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
 
 type SortDir = "asc" | "desc";
@@ -239,6 +240,7 @@ export default function SearchPage() {
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
+  const [rowFilter, setRowFilter] = useState("");
   const limit = 50;
 
   const { recent, add: addRecent, clear: clearRecent } = useRecentSearches();
@@ -310,6 +312,17 @@ export default function SearchPage() {
       return sortDir === "asc" ? cmp : -cmp;
     });
   }, [searchMutation.data?.results, sortCol, sortDir]);
+
+  const filteredRows = useMemo(() => {
+    const term = rowFilter.trim().toLowerCase();
+    if (!term) return rows;
+    return rows.filter((row) =>
+      row.id.toLowerCase().includes(term) ||
+      row.kind.toLowerCase().includes(term) ||
+      row.name.toLowerCase().includes(term) ||
+      row.code.toLowerCase().includes(term)
+    );
+  }, [rows, rowFilter]);
 
   const total = searchMutation.data?.totalCount ?? 0;
 
@@ -396,8 +409,10 @@ export default function SearchPage() {
             <div>
               <CardTitle>Results</CardTitle>
               <CardDescription>
-                {total.toLocaleString()} record{total !== 1 ? "s" : ""} found
-                {rows.length > 0 && " — double-click a row to view full JSON"}
+                {rowFilter.trim()
+                  ? `Showing ${filteredRows.length.toLocaleString()} of ${rows.length.toLocaleString()} on this page (${total.toLocaleString()} total)`
+                  : `${total.toLocaleString()} record${total !== 1 ? "s" : ""} found`}
+                {rows.length > 0 && !rowFilter.trim() && " — double-click a row to view full JSON"}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -422,6 +437,27 @@ export default function SearchPage() {
           </CardHeader>
 
           <CardContent className="p-0">
+            <div className="px-4 py-2 border-t border-border flex items-center gap-2">
+              <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Input
+                placeholder="Filter by ID, kind, name, or code…"
+                value={rowFilter}
+                onChange={(e) => setRowFilter(e.target.value)}
+                className="h-7 text-xs py-0 border-0 shadow-none focus-visible:ring-0 bg-transparent placeholder:text-muted-foreground/60"
+              />
+              {rowFilter && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setRowFilter("")}
+                  title="Clear filter"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
             <div className="border-t border-border overflow-auto" style={{ maxHeight: "55vh" }}>
               <Table className="text-xs">
                 <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0] shadow-border">
@@ -439,14 +475,14 @@ export default function SearchPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.length === 0 && (
+                  {filteredRows.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={COLUMNS.length} className="text-center py-10 text-muted-foreground">
-                        No records found
+                        {rowFilter.trim() ? "No rows match the current filter" : "No records found"}
                       </TableCell>
                     </TableRow>
                   )}
-                  {rows.map((row, i) => (
+                  {filteredRows.map((row, i) => (
                     <TableRow
                       key={row.id + i}
                       className="cursor-pointer hover:bg-muted/50"
