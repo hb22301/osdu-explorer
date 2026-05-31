@@ -671,6 +671,24 @@ export default function SearchPage() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={!selectedRowId}
+                    onClick={() => {
+                      const row = rows.find((r) => r.id === selectedRowId);
+                      if (row) setSelected(row._raw);
+                    }}
+                    aria-label="View search result"
+                  >
+                    <SearchIcon className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Search result</TooltipContent>
+              </Tooltip>
               <RecordLookupDialog selectedId={selectedRowId ?? ""} />
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">Rows</span>
