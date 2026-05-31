@@ -3,7 +3,7 @@ import { useSearchOsduRecords, useListOsduKinds } from "@workspace/api-client-re
 import { LuceneQueryInput } from "@/components/lucene-query-input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { KindCombobox } from "@/components/kind-combobox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter } from "lucide-react";
@@ -347,17 +347,11 @@ export default function SearchPage() {
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 space-y-2">
             <label className="text-sm font-medium leading-none">Kind</label>
-            <Select value={kind} onValueChange={setKind}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select kind" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="*:*:*:*">Any kind (*:*:*:*)</SelectItem>
-                {kindsData?.kinds?.map((k) => (
-                  <SelectItem key={k} value={k}>{k}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <KindCombobox
+              value={kind}
+              onChange={setKind}
+              kinds={kindsData?.kinds ?? []}
+            />
           </div>
           <div className="flex-[2] space-y-2">
             <label className="text-sm font-medium leading-none">Lucene Query</label>
