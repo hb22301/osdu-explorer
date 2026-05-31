@@ -145,13 +145,13 @@ export function JsonViewerContent({
     [sharedViewerState],
   );
 
-  const parsedJson: JsonValue | null = (() => {
+  const parsedJson: JsonValue | null = useMemo(() => {
     try {
       return JSON.parse(json) as JsonValue;
     } catch {
       return null;
     }
-  })();
+  }, [json]);
 
   const showTree = viewMode === "tree" && parsedJson !== null;
 
@@ -160,7 +160,7 @@ export function JsonViewerContent({
     if (!showTree || !query || !parsedJson) return [];
     const raw = buildTreeMatches(parsedJson, "root", query);
     return raw.map((m, i) => ({ ...m, globalIndex: i }));
-  }, [showTree, query, parsedJson, json]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showTree, query, parsedJson]);
 
   // --- Raw mode matches ---
   const rawMatches: RawMatch[] = useMemo(() => {
@@ -531,7 +531,11 @@ export function JsonViewerContent({
       </div>
 
       {showTree ? (
-        <div ref={treeRef} className={cn(_isFullscreen && "flex-1 overflow-auto min-h-0 rounded-b-lg border border-t-0 border-border/40 bg-muted/50 p-4")}>
+        <div
+          ref={treeRef}
+          className={cn(_isFullscreen && "flex-1 overflow-auto min-h-0 rounded-b-lg border border-t-0 border-border/40 bg-muted/50 p-4")}
+          style={_isFullscreen ? { fontSize: `${fontSize}px` } : undefined}
+        >
           <JsonTreeView
             parsed={parsedJson}
             storageKey={storageKey}
