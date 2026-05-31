@@ -13,6 +13,7 @@ import {
   List,
   Maximize2,
   Minimize2,
+  ExternalLink,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
@@ -55,13 +56,14 @@ function buildRawSegments(text: string, matches: RawMatch[], activeIndex: number
 
 type ViewMode = "tree" | "raw";
 
-function JsonViewerContent({
+export function JsonViewerContent({
   json,
   className,
   storageKey,
   _isFullscreen = false,
   onMaximize,
-}: JsonViewerToolbarProps & { onMaximize?: () => void }) {
+  onPopOut,
+}: JsonViewerToolbarProps & { onMaximize?: () => void; onPopOut?: () => void }) {
   const preRef = useRef<HTMLPreElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -276,25 +278,45 @@ function JsonViewerContent({
           </Tooltip>
         )}
 
-        {!_isFullscreen && onMaximize && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 ml-auto"
-                onClick={onMaximize}
-                aria-label="Expand to full screen"
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Full screen</TooltipContent>
-          </Tooltip>
+        {!_isFullscreen && (onMaximize || onPopOut) && (
+          <div className="flex items-center gap-1 ml-auto">
+            {onMaximize && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={onMaximize}
+                    aria-label="Expand to full screen"
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Full screen</TooltipContent>
+              </Tooltip>
+            )}
+            {onPopOut && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={onPopOut}
+                    aria-label="Pop out in new tab"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Pop out in new tab</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         )}
 
         {searchOpen && (
-          <div className={cn("flex flex-1 items-center gap-1", !_isFullscreen && onMaximize ? "mr-0" : "ml-1")}>
+          <div className={cn("flex flex-1 items-center gap-1", !_isFullscreen && (onMaximize || onPopOut) ? "mr-0" : "ml-1")}>
             <Input
               ref={searchInputRef}
               value={query}
@@ -392,6 +414,16 @@ function JsonViewerContent({
   );
 }
 
+function handlePopOut(json: string, storageKey?: string) {
+  const dataKey = `osdu-json-popout-${Date.now()}`;
+  localStorage.setItem(dataKey, json);
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const params = new URLSearchParams({ data: dataKey });
+  if (storageKey) params.set("key", storageKey);
+  params.set("label", storageKey ?? "JSON");
+  window.open(`${base}/json-popout?${params.toString()}`, "_blank");
+}
+
 export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
@@ -402,6 +434,7 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
         className={className}
         storageKey={storageKey}
         onMaximize={() => setFullscreenOpen(true)}
+        onPopOut={() => handlePopOut(json, storageKey)}
       />
 
       <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
