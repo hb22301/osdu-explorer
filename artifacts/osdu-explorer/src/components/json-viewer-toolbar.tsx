@@ -387,8 +387,9 @@ export function JsonViewerContent({
     if (!selectedText || lookupLoading) return;
     setLookupLoading("storage");
     setLookupError(null);
+    const lookupId = selectedText.replace(/:+$/, "");
     try {
-      const res = await fetch(`/api/osdu/records/${encodeURIComponent(selectedText)}`);
+      const res = await fetch(`/api/osdu/records/${encodeURIComponent(lookupId)}`);
       if (res.status === 404) { setLookupError("Record not found"); return; }
       if (!res.ok) { setLookupError("Failed to fetch record"); return; }
       const data: unknown = await res.json();
@@ -405,11 +406,12 @@ export function JsonViewerContent({
     if (!selectedText || lookupLoading) return;
     setLookupLoading("search");
     setLookupError(null);
+    const lookupId = selectedText.replace(/:+$/, "");
     try {
       const res = await fetch("/api/osdu/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "*:*:*:*", query: `id:"${selectedText}"`, limit: 1 }),
+        body: JSON.stringify({ kind: "*:*:*:*", query: `id:"${lookupId}"`, limit: 1 }),
       });
       if (!res.ok) { setLookupError("Search failed"); return; }
       const data = await res.json() as { results: unknown[]; totalCount: number };
