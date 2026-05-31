@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,7 @@ interface JsonTreeNodeProps {
 
 const INDENT = 16;
 const AUTO_COLLAPSE_DEPTH = 2;
+const LS_PREFIX = "osdu-tree-state:";
 
 function isObject(v: JsonValue): v is { [key: string]: JsonValue } {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -190,15 +191,75 @@ function buildInitialCollapsed(value: JsonValue, path: string, depth: number): S
   return set;
 }
 
+function loadSavedState(storageKey: string): Set<string> | null {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + storageKey);
+    if (!raw) return null;
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return null;
+    return new Set(arr as string[]);
+  } catch {
+    return null;
+  }
+}
+
+function persistState(storageKey: string, collapsed: Set<string>) {
+  try {
+    localStorage.setItem(LS_PREFIX + storageKey, JSON.stringify([...collapsed]));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function hasSavedState(storageKey: string): boolean {
+  try {
+    return localStorage.getItem(LS_PREFIX + storageKey) !== null;
+  } catch {
+    return false;
+  }
+}
+
 interface JsonTreeViewProps {
   parsed: JsonValue;
+  storageKey?: string;
   className?: string;
 }
 
-export function JsonTreeView({ parsed, className }: JsonTreeViewProps) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
-    buildInitialCollapsed(parsed, "root", 0),
+export function JsonTreeView({ parsed, storageKey, className }: JsonTreeViewProps) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    if (storageKey) {
+      const saved = loadSavedState(storageKey);
+      if (saved) return saved;
+    }
+    return buildInitialCollapsed(parsed, "root", 0);
+  });
+
+  const [hasCustomLayout, setHasCustomLayout] = useState(() =>
+    storageKey ? hasSavedState(storageKey) : false,
   );
+
+  const prevStorageKeyRef = useRef(storageKey);
+  useEffect(() => {
+    if (prevStorageKeyRef.current !== storageKey) {
+      prevStorageKeyRef.current = storageKey;
+      if (storageKey) {
+        const saved = loadSavedState(storageKey);
+        if (saved) {
+          setCollapsed(saved);
+          setHasCustomLayout(true);
+        } else {
+          setCollapsed(buildInitialCollapsed(parsed, "root", 0));
+          setHasCustomLayout(false);
+        }
+      } else {
+        setCollapsed(buildInitialCollapsed(parsed, "root", 0));
+        setHasCustomLayout(false);
+      }
+    }
+  }, [storageKey, parsed]);
+
+  const storageKeyRef = useRef(storageKey);
+  storageKeyRef.current = storageKey;
 
   const handleToggle = useCallback((path: string) => {
     setCollapsed((prev) => {
@@ -208,15 +269,43 @@ export function JsonTreeView({ parsed, className }: JsonTreeViewProps) {
       } else {
         next.add(path);
       }
+      if (storageKeyRef.current) {
+        persistState(storageKeyRef.current, next);
+        setHasCustomLayout(true);
+      }
       return next;
     });
   }, []);
 
-  const expandAll = useCallback(() => setCollapsed(new Set()), []);
-  const collapseAll = useCallback(
-    () => setCollapsed(buildInitialCollapsed(parsed, "root", 0)),
-    [parsed],
-  );
+  const expandAll = useCallback(() => {
+    const next = new Set<string>();
+    if (storageKeyRef.current) {
+      persistState(storageKeyRef.current, next);
+      setHasCustomLayout(true);
+    }
+    setCollapsed(next);
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    const next = buildInitialCollapsed(parsed, "root", 0);
+    if (storageKeyRef.current) {
+      persistState(storageKeyRef.current, next);
+      setHasCustomLayout(true);
+    }
+    setCollapsed(next);
+  }, [parsed]);
+
+  const resetLayout = useCallback(() => {
+    if (storageKeyRef.current) {
+      try {
+        localStorage.removeItem(LS_PREFIX + storageKeyRef.current);
+      } catch {
+        // ignore
+      }
+    }
+    setHasCustomLayout(false);
+    setCollapsed(buildInitialCollapsed(parsed, "root", 0));
+  }, [parsed]);
 
   return (
     <div className={cn("flex flex-col", className)}>
@@ -234,6 +323,17 @@ export function JsonTreeView({ parsed, className }: JsonTreeViewProps) {
         >
           Collapse all
         </button>
+        {storageKey && hasCustomLayout && (
+          <>
+            <span>·</span>
+            <button
+              onClick={resetLayout}
+              className="hover:text-foreground underline-offset-2 hover:underline transition-colors"
+            >
+              Reset layout
+            </button>
+          </>
+        )}
       </div>
       <div className="bg-muted/50 rounded-b-lg p-3 border border-t-0 border-border/40 overflow-auto select-text">
         <JsonTreeNode

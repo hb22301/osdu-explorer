@@ -26,6 +26,7 @@ import { JsonTreeView, type JsonValue } from "@/components/json-tree-view";
 interface JsonViewerToolbarProps {
   json: string;
   className?: string;
+  storageKey?: string;
   /** Internal: when true the component is already inside the fullscreen overlay */
   _isFullscreen?: boolean;
 }
@@ -57,6 +58,7 @@ type ViewMode = "tree" | "raw";
 function JsonViewerContent({
   json,
   className,
+  storageKey,
   _isFullscreen = false,
   onMaximize,
 }: JsonViewerToolbarProps & { onMaximize?: () => void }) {
@@ -322,7 +324,7 @@ function JsonViewerContent({
 
       {showTree ? (
         <div ref={treeRef} className={cn(_isFullscreen && "flex-1 overflow-auto min-h-0 rounded-b-lg border border-t-0 border-border/40 bg-muted/50 p-4")}>
-          <JsonTreeView parsed={parsedJson} />
+          <JsonTreeView parsed={parsedJson} storageKey={storageKey} />
         </div>
       ) : (
         <pre
@@ -363,7 +365,7 @@ function JsonViewerContent({
   );
 }
 
-export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
   return (
@@ -371,6 +373,7 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
       <JsonViewerContent
         json={json}
         className={className}
+        storageKey={storageKey}
         onMaximize={() => setFullscreenOpen(true)}
       />
 
@@ -401,7 +404,7 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
             </Tooltip>
           </div>
           <div className="flex-1 overflow-hidden p-4">
-            <JsonViewerContent json={json} _isFullscreen className="h-full" />
+            <JsonViewerContent json={json} storageKey={storageKey} _isFullscreen className="h-full" />
           </div>
         </DialogContent>
       </Dialog>

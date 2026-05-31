@@ -140,7 +140,7 @@ export default function SchemasPage() {
             ) : schemaDetails ? (
               <ScrollArea className="h-full rounded-md border border-border/50 bg-muted/30">
                 <div className="p-4">
-                  <JsonViewerToolbar json={JSON.stringify(schemaDetails.schema, null, 2)} />
+                  <JsonViewerToolbar json={JSON.stringify(schemaDetails.schema, null, 2)} storageKey={selectedKind ?? undefined} />
                 </div>
               </ScrollArea>
             ) : (

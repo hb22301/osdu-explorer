@@ -104,7 +104,7 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
             </div>
           )}
           {!isError && data && (
-            <JsonViewerToolbar json={JSON.stringify(data, null, 2)} />
+            <JsonViewerToolbar json={JSON.stringify(data, null, 2)} storageKey={recordId || undefined} />
           )}
           {!isError && !data && !isFetching && recordId === "" && (
             <div className="py-10 text-center text-sm text-muted-foreground">

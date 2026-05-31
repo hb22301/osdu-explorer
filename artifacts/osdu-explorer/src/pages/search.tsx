@@ -688,7 +688,7 @@ export default function SearchPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 overflow-auto min-h-0">
-            <JsonViewerToolbar json={selected ? JSON.stringify(selected, null, 2) : ""} />
+            <JsonViewerToolbar json={selected ? JSON.stringify(selected, null, 2) : ""} storageKey={selected?.id as string | undefined} />
           </div>
         </DialogContent>
       </Dialog>
