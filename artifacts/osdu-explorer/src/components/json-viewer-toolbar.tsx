@@ -14,6 +14,7 @@ import {
   Maximize2,
   Minimize2,
   ExternalLink,
+  WrapText,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
@@ -75,6 +76,11 @@ export function JsonViewerContent({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [wordWrap, setWordWrap] = useState(true);
+  const [fontSize, setFontSize] = useState(12);
+
+  const MIN_FONT_SIZE = 10;
+  const MAX_FONT_SIZE = 20;
 
   const parsedJson: JsonValue | null = (() => {
     try {
@@ -278,6 +284,58 @@ export function JsonViewerContent({
           </Tooltip>
         )}
 
+        {_isFullscreen && (
+          <>
+            <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7", wordWrap && "bg-accent text-accent-foreground")}
+                  onClick={() => setWordWrap((v) => !v)}
+                  aria-label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+                >
+                  <WrapText className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{wordWrap ? "Disable word wrap" : "Enable word wrap"}</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setFontSize((s) => Math.max(MIN_FONT_SIZE, s - 1))}
+                  disabled={fontSize <= MIN_FONT_SIZE}
+                  aria-label="Decrease font size"
+                >
+                  <span className="text-[10px] font-bold font-mono leading-none select-none">A-</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Decrease font size</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setFontSize((s) => Math.min(MAX_FONT_SIZE, s + 1))}
+                  disabled={fontSize >= MAX_FONT_SIZE}
+                  aria-label="Increase font size"
+                >
+                  <span className="text-[13px] font-bold font-mono leading-none select-none">A+</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Increase font size</TooltipContent>
+            </Tooltip>
+          </>
+        )}
+
         {!_isFullscreen && (onMaximize || onPopOut) && (
           <div className="flex items-center gap-1 ml-auto">
             {onMaximize && (
@@ -379,9 +437,11 @@ export function JsonViewerContent({
         <pre
           ref={preRef}
           className={cn(
-            "text-[12px] font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed",
+            "font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 leading-relaxed",
+            wordWrap ? "whitespace-pre-wrap break-all" : "whitespace-pre overflow-x-auto",
             _isFullscreen && "flex-1 overflow-auto min-h-0",
           )}
+          style={{ fontSize: `${fontSize}px` }}
         >
           {rawMatches.length > 0
             ? rawSegments.map((seg, i) => {
