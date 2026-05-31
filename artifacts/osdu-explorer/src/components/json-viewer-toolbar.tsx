@@ -443,6 +443,7 @@ export function JsonViewerContent({
             treeMatches={searchOpen ? treeMatches : []}
             activeMatchIndex={searchOpen ? activeIndex : -1}
             onActiveRef={handleActiveTreeRef}
+            onMatchClick={searchOpen ? setActiveIndex : undefined}
             sharedState={sharedTreeState}
           />
         </div>

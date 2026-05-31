@@ -30,6 +30,7 @@ interface JsonTreeNodeProps {
   matchMap: Map<string, TreeMatch[]>;
   activeMatchIndex: number;
   onActiveRef: (el: HTMLElement | null) => void;
+  onMatchClick?: (globalIndex: number) => void;
 }
 
 const INDENT = 16;
@@ -51,12 +52,14 @@ function HighlightText({
   matches,
   activeMatchIndex,
   onActiveRef,
+  onMatchClick,
   className,
 }: {
   text: string;
   matches: TreeMatch[];
   activeMatchIndex: number;
   onActiveRef: (el: HTMLElement | null) => void;
+  onMatchClick?: (globalIndex: number) => void;
   className?: string;
 }) {
   if (matches.length === 0) {
@@ -76,12 +79,15 @@ function HighlightText({
       );
     }
     const isActive = m.globalIndex === activeMatchIndex;
+    const capturedIndex = m.globalIndex;
     nodes.push(
       <mark
         key={`m-${m.start}`}
         ref={isActive ? onActiveRef : undefined}
+        onClick={onMatchClick ? (e) => { e.stopPropagation(); onMatchClick(capturedIndex); } : undefined}
         className={cn(
           "rounded-sm",
+          onMatchClick && !isActive && "cursor-pointer",
           isActive
             ? "bg-orange-400/80 text-foreground"
             : "bg-yellow-300/70 text-foreground",
@@ -110,12 +116,14 @@ function LeafValue({
   matchMap,
   activeMatchIndex,
   onActiveRef,
+  onMatchClick,
 }: {
   value: JsonValue;
   path: string;
   matchMap: Map<string, TreeMatch[]>;
   activeMatchIndex: number;
   onActiveRef: (el: HTMLElement | null) => void;
+  onMatchClick?: (globalIndex: number) => void;
 }) {
   const matches = matchMap.get(`${path}::value`) ?? [];
 
@@ -126,6 +134,7 @@ function LeafValue({
         matches={matches}
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
         className="text-muted-foreground/70 italic"
       />
     );
@@ -137,6 +146,7 @@ function LeafValue({
         matches={matches}
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
         className={cn("font-medium", value ? "text-emerald-500" : "text-rose-400")}
       />
     );
@@ -148,6 +158,7 @@ function LeafValue({
         matches={matches}
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
         className="text-blue-400"
       />
     );
@@ -159,6 +170,7 @@ function LeafValue({
         matches={matches}
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
         className="text-amber-400/90 break-all"
       />
     );
@@ -173,6 +185,7 @@ function KeyLabel({
   matchMap,
   activeMatchIndex,
   onActiveRef,
+  onMatchClick,
 }: {
   keyName: string;
   isExpandable: boolean;
@@ -180,6 +193,7 @@ function KeyLabel({
   matchMap: Map<string, TreeMatch[]>;
   activeMatchIndex: number;
   onActiveRef: (el: HTMLElement | null) => void;
+  onMatchClick?: (globalIndex: number) => void;
 }) {
   const matches = matchMap.get(`${path}::key`) ?? [];
   const displayText = isExpandable || typeof keyName === "string" ? `"${keyName}"` : keyName;
@@ -191,6 +205,7 @@ function KeyLabel({
         matches={matches}
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
         className="text-violet-400/90 select-text"
       />
       <span className="text-violet-400/90 select-text">:{" "}</span>
@@ -210,6 +225,7 @@ function JsonTreeNode({
   matchMap,
   activeMatchIndex,
   onActiveRef,
+  onMatchClick,
 }: JsonTreeNodeProps) {
   const isCol = collapsed.has(path) && !forcedOpen.has(path);
   const isObj = isObject(value);
@@ -245,6 +261,7 @@ function JsonTreeNode({
         matchMap={matchMap}
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
       />
     ) : null;
 
@@ -262,6 +279,7 @@ function JsonTreeNode({
           matchMap={matchMap}
           activeMatchIndex={activeMatchIndex}
           onActiveRef={onActiveRef}
+          onMatchClick={onMatchClick}
         />
         {!isLast && <span className="text-muted-foreground/50">,</span>}
       </div>
@@ -315,6 +333,7 @@ function JsonTreeNode({
             matchMap={matchMap}
             activeMatchIndex={activeMatchIndex}
             onActiveRef={onActiveRef}
+            onMatchClick={onMatchClick}
           />
         ))}
       </div>
@@ -600,6 +619,7 @@ interface JsonTreeViewProps {
   treeMatches?: TreeMatch[];
   activeMatchIndex?: number;
   onActiveRef?: (el: HTMLElement | null) => void;
+  onMatchClick?: (globalIndex: number) => void;
   /** Controlled mode: shared collapsed state lifted by a parent (e.g. to sync inline + fullscreen). */
   sharedState?: TreeCollapsedState;
 }
@@ -611,6 +631,7 @@ export function JsonTreeView({
   treeMatches = [],
   activeMatchIndex = -1,
   onActiveRef,
+  onMatchClick,
   sharedState,
 }: JsonTreeViewProps) {
   const ownState = useTreeCollapsed(sharedState ? null : parsed, sharedState ? undefined : storageKey);
@@ -686,6 +707,7 @@ export function JsonTreeView({
           matchMap={matchMap}
           activeMatchIndex={activeMatchIndex}
           onActiveRef={handleActiveRef}
+          onMatchClick={onMatchClick}
         />
       </div>
     </div>
