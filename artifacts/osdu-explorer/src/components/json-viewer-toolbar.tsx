@@ -5,7 +5,7 @@ import {
   ClipboardCopy,
   Check,
   TextSelect,
-  Search,
+  TextSearch,
   X,
   ChevronUp,
   ChevronDown,
@@ -347,7 +347,7 @@ export function JsonViewerContent({
               onClick={toggleSearch}
               aria-label="Search"
             >
-              <Search className="h-3.5 w-3.5" />
+              <TextSearch className="h-3.5 w-3.5" />
               {badgeRendered && (
                 <span
                   className={cn(
