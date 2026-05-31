@@ -20,7 +20,18 @@ import {
   Database,
   Loader2,
   Terminal,
+  Waves,
 } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConsolePanel } from "@/components/console-panel";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
@@ -124,6 +135,13 @@ export function JsonViewerContent({
   const errorDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlayJson, setOverlayJson] = useState<string | null>(null);
   const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
+
+  type WdmsRow = { urn: string; status: "found" | "error"; data?: Record<string, unknown>; error?: string };
+  const [wdmsOpen, setWdmsOpen] = useState(false);
+  const [wdmsRows, setWdmsRows] = useState<WdmsRow[]>([]);
+  const [wdmsColumns, setWdmsColumns] = useState<string[]>([]);
+  const [wdmsLoading, setWdmsLoading] = useState(false);
+  const [wdmsError, setWdmsError] = useState<string | null>(null);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -315,11 +333,11 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, []);
 
-  // Auto-select full OSDU record ID on click.
-  // Format: <partition>:<data_type>[--<EntityType>]:<id>
-  // where data_type ∈ {master-data, reference-data, work-product-component, work-product}
-  // and <id> may contain any characters including colons.
+  // Auto-select full OSDU record ID or URN on click.
+  // OSDU format: <partition>:<data_type>[--<EntityType>]:<id>
+  // URN format: urn://<service>/<path>
   const OSDU_ID_RE = /^[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:.+$/;
+  const URN_RE = /^urn:\/\/.+$/;
   const handleContainerClick = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
@@ -328,19 +346,20 @@ export function JsonViewerContent({
     if (node.nodeType !== Node.TEXT_NODE) return;
     const text = node.textContent ?? "";
     const offset = range.startOffset;
-    // Expand left/right through characters that can appear in OSDU IDs
+    // Expand left/right through characters that can appear in OSDU IDs / URNs
     let start = offset;
     while (start > 0 && /[^\s"'\[\]{},]/.test(text[start - 1])) start--;
     let end = offset;
     while (end < text.length && /[^\s"'\[\]{},]/.test(text[end])) end++;
     // Strip leading non-alphanumeric chars (e.g. surrounding punctuation)
     const raw = text.slice(start, end);
-    const token = raw.replace(/^[^a-zA-Z0-9]+/, "");
-    if (OSDU_ID_RE.test(token)) {
-      const tokenStart = text.indexOf(token, start);
+    const token = raw.replace(/^[^a-zA-Z0-9u]+/, "").replace(/^(?=[a-z])/, "");
+    const cleanToken = raw.startsWith("urn") ? raw : raw.replace(/^[^a-zA-Z0-9]+/, "");
+    if (OSDU_ID_RE.test(cleanToken) || URN_RE.test(cleanToken)) {
+      const tokenStart = text.indexOf(cleanToken, start);
       const newRange = document.createRange();
       newRange.setStart(node, tokenStart);
-      newRange.setEnd(node, tokenStart + token.length);
+      newRange.setEnd(node, tokenStart + cleanToken.length);
       sel.removeAllRanges();
       sel.addRange(newRange);
     }
@@ -424,6 +443,53 @@ export function JsonViewerContent({
       setLookupLoading(null);
     }
   }, [selectedText, lookupLoading]);
+
+  // Extract URN strings from selectedText (handles single string or JSON array of strings)
+  const URN_EXTRACT_RE = /urn:\/\/[^\s"'\[\]{},\n\\]+/g;
+  const selectedUrns = useMemo(() => {
+    if (!selectedText) return [];
+    const matches = [...selectedText.matchAll(URN_EXTRACT_RE)];
+    return [...new Set(matches.map((m) => m[0]))];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedText]);
+
+  const handleWdmsSearch = useCallback(async () => {
+    if (selectedUrns.length === 0 || wdmsLoading) return;
+    setWdmsLoading(true);
+    setWdmsError(null);
+    setWdmsRows([]);
+    setWdmsColumns([]);
+    try {
+      const res = await fetch("/api/osdu/wdms/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urns: selectedUrns }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setWdmsError(err.error ?? "WDMS request failed");
+        setWdmsOpen(true);
+        return;
+      }
+      const json = await res.json() as { results: Array<{ urn: string; status: "found" | "error"; data?: Record<string, unknown>; error?: string }> };
+      const rows = json.results;
+      // Derive columns: union of all keys from all found rows' data
+      const colSet = new Set<string>();
+      for (const row of rows) {
+        if (row.status === "found" && row.data) {
+          Object.keys(row.data).forEach((k) => colSet.add(k));
+        }
+      }
+      setWdmsColumns(["urn", ...Array.from(colSet)]);
+      setWdmsRows(rows);
+      setWdmsOpen(true);
+    } catch {
+      setWdmsError("Failed to connect to WDMS");
+      setWdmsOpen(true);
+    } finally {
+      setWdmsLoading(false);
+    }
+  }, [selectedUrns, wdmsLoading]);
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -654,6 +720,30 @@ export function JsonViewerContent({
                 {selectedText ? "Search by ID" : "Select text to search by ID"}
               </TooltipContent>
             </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7 transition-opacity", selectedUrns.length === 0 || wdmsLoading ? "opacity-40 pointer-events-none" : "")}
+                  onClick={() => { void handleWdmsSearch(); }}
+                  aria-label="Search Wellbore DMS"
+                  disabled={selectedUrns.length === 0 || wdmsLoading}
+                >
+                  {wdmsLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Waves className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {selectedUrns.length > 0
+                  ? `Search Wellbore DMS (${selectedUrns.length} URN${selectedUrns.length > 1 ? "s" : ""})`
+                  : "Select a URN to search Wellbore DMS"}
+              </TooltipContent>
+            </Tooltip>
           </>
         )}
 
@@ -797,6 +887,76 @@ export function JsonViewerContent({
             : displayJson}
         </pre>
       )}
+
+      {/* Wellbore DMS results dialog */}
+      <Dialog open={wdmsOpen} onOpenChange={setWdmsOpen}>
+        <DialogContent className="max-w-5xl w-full flex flex-col gap-3" style={{ maxHeight: "85vh" }}>
+          <DialogTitle className="flex items-center gap-2">
+            <Waves className="h-4 w-4 text-cyan-500" />
+            Wellbore DMS Results
+            {wdmsRows.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">{wdmsRows.length} record{wdmsRows.length !== 1 ? "s" : ""}</Badge>
+            )}
+          </DialogTitle>
+          {wdmsError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {wdmsError}
+            </div>
+          )}
+          {!wdmsError && wdmsRows.length === 0 && (
+            <div className="text-xs text-muted-foreground py-4 text-center">No results returned.</div>
+          )}
+          {wdmsRows.length > 0 && (
+            <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: "65vh" }}>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {wdmsColumns.map((col) => (
+                      <TableHead key={col} className="whitespace-nowrap font-semibold capitalize text-xs">
+                        {col === "urn" ? "URN" : col.replace(/([A-Z])/g, " $1").trim()}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {wdmsRows.map((row, i) => (
+                    <TableRow key={i}>
+                      {wdmsColumns.map((col) => {
+                        if (col === "urn") {
+                          return (
+                            <TableCell key={col} className="font-mono text-xs text-cyan-500 break-all max-w-xs">
+                              {row.urn}
+                            </TableCell>
+                          );
+                        }
+                        if (row.status === "error") {
+                          return col === wdmsColumns[1] ? (
+                            <TableCell key={col} colSpan={wdmsColumns.length - 1} className="text-xs text-destructive italic">
+                              {row.error ?? "Error fetching data"}
+                            </TableCell>
+                          ) : null;
+                        }
+                        const val = row.data?.[col];
+                        const display =
+                          val === undefined || val === null
+                            ? <span className="text-muted-foreground/50">—</span>
+                            : typeof val === "object"
+                              ? <span className="font-mono text-xs text-muted-foreground">{JSON.stringify(val)}</span>
+                              : <span className="text-xs">{String(val)}</span>;
+                        return (
+                          <TableCell key={col} className="max-w-xs truncate">
+                            {display}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

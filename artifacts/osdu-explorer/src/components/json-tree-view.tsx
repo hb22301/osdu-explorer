@@ -166,14 +166,24 @@ function LeafValue({
   }
   if (typeof value === "string") {
     return (
-      <HighlightText
-        text={`"${value}"`}
-        matches={matches}
-        activeMatchIndex={activeMatchIndex}
-        onActiveRef={onActiveRef}
-        onMatchClick={onMatchClick}
-        className="text-amber-400/90 break-all"
-      />
+      <span
+        onClick={(e) => {
+          const range = document.createRange();
+          range.selectNodeContents(e.currentTarget);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }}
+      >
+        <HighlightText
+          text={`"${value}"`}
+          matches={matches}
+          activeMatchIndex={activeMatchIndex}
+          onActiveRef={onActiveRef}
+          onMatchClick={onMatchClick}
+          className="text-amber-400/90 break-all"
+        />
+      </span>
     );
   }
   return null;
