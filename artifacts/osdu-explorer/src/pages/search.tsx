@@ -403,6 +403,19 @@ export default function SearchPage() {
         </form>
       </div>
 
+      {searchMutation.isError && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="pt-6">
+            <p className="text-sm text-destructive font-medium">Search failed</p>
+            <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
+              {searchMutation.error instanceof Error
+                ? searchMutation.error.message
+                : "An unexpected error occurred. Check the Console for details."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {searchMutation.data && (
         <Card className="border-border/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">

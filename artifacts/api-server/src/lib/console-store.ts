@@ -44,7 +44,10 @@ export function updateEntry(
   id: string,
   updates: Partial<Omit<ConsoleEntry, "id" | "timestamp">>
 ): void {
-  const idx = entries.findLastIndex((e) => e.id === id);
+  let idx = -1;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].id === id) { idx = i; break; }
+  }
   if (idx !== -1) {
     entries[idx] = { ...entries[idx], ...updates };
   }

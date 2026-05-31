@@ -42,11 +42,22 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
   }
 
   const osduData = data as { results?: unknown[]; totalCount?: number; aggregations?: unknown };
-  const result = SearchOsduRecordsResponse.parse({
-    results: osduData.results ?? [],
-    totalCount: osduData.totalCount ?? 0,
-    aggregations: osduData.aggregations ?? null,
-  });
+
+  let result: ReturnType<typeof SearchOsduRecordsResponse.parse>;
+  try {
+    result = SearchOsduRecordsResponse.parse({
+      results: osduData.results ?? [],
+      totalCount: osduData.totalCount ?? 0,
+      aggregations: osduData.aggregations ?? null,
+    });
+  } catch (parseErr) {
+    req.log.warn({ parseErr, data }, "OSDU search response failed Zod validation — returning raw");
+    result = {
+      results: (osduData.results ?? []) as ReturnType<typeof SearchOsduRecordsResponse.parse>["results"],
+      totalCount: typeof osduData.totalCount === "number" ? osduData.totalCount : 0,
+      aggregations: null,
+    };
+  }
 
   res.json(result);
 });
