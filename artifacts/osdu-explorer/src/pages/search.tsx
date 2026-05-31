@@ -278,7 +278,7 @@ export default function SearchPage() {
   const [limit, setLimit] = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem("osdu-explorer:page-size"));
-      return [10, 25, 50, 100].includes(v) ? v : 50;
+      return [10, 25, 50, 100, 500, 1000].includes(v) ? v : 50;
     } catch { return 50; }
   });
 
@@ -558,7 +558,7 @@ export default function SearchPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {[10, 25, 50, 100].map((n) => (
+                    {[10, 25, 50, 100, 500, 1000].map((n) => (
                       <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
                     ))}
                   </SelectContent>
