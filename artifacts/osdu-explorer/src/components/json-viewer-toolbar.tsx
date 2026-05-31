@@ -1,9 +1,20 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ClipboardCopy, Check, TextSelect, Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import {
+  ClipboardCopy,
+  Check,
+  TextSelect,
+  Search,
+  X,
+  ChevronUp,
+  ChevronDown,
+  Code,
+  List,
+} from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { JsonTreeView, type JsonValue } from "@/components/json-tree-view";
 
 interface JsonViewerToolbarProps {
   json: string;
@@ -32,26 +43,40 @@ function buildSegments(text: string, matches: Match[], activeIndex: number) {
   return segments;
 }
 
+type ViewMode = "tree" | "raw";
+
 export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
   const preRef = useRef<HTMLPreElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const activeMatchRef = useRef<HTMLElement>(null);
 
+  const [viewMode, setViewMode] = useState<ViewMode>("tree");
   const [copied, setCopied] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Match[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
 
+  const parsedJson: JsonValue | null = (() => {
+    try {
+      return JSON.parse(json) as JsonValue;
+    } catch {
+      return null;
+    }
+  })();
+
+  const showTree = viewMode === "tree" && !searchOpen && parsedJson !== null;
+
   const handleSelectAll = useCallback(() => {
-    const pre = preRef.current;
-    if (!pre) return;
+    const target = showTree ? treeRef.current : preRef.current;
+    if (!target) return;
     const range = document.createRange();
-    range.selectNodeContents(pre);
+    range.selectNodeContents(target);
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
-  }, []);
+  }, [showTree]);
 
   const handleCopy = useCallback(() => {
     void navigator.clipboard.writeText(json).then(() => {
@@ -69,6 +94,10 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
       }
       return !prev;
     });
+  }, []);
+
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => (prev === "tree" ? "raw" : "tree"));
   }, []);
 
   useEffect(() => {
@@ -184,6 +213,32 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
           <TooltipContent>Find</TooltipContent>
         </Tooltip>
 
+        {parsedJson !== null && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-7 w-7",
+                  viewMode === "tree" && !searchOpen && "bg-accent text-accent-foreground",
+                )}
+                onClick={toggleViewMode}
+                aria-label={viewMode === "tree" ? "Switch to raw view" : "Switch to tree view"}
+              >
+                {viewMode === "tree" ? (
+                  <Code className="h-3.5 w-3.5" />
+                ) : (
+                  <List className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {viewMode === "tree" ? "Raw view" : "Tree view"}
+            </TooltipContent>
+          </Tooltip>
+        )}
+
         {searchOpen && (
           <div className="ml-1 flex flex-1 items-center gap-1">
             <Input
@@ -234,36 +289,42 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
         )}
       </div>
 
-      <pre
-        ref={preRef}
-        className="text-[12px] font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed"
-      >
-        {matches.length > 0
-          ? segments.map((seg, i) => {
-              if (seg.highlight) {
-                segmentMatchIndex++;
-                const isActive = seg.active;
-                const capturedIndex = segmentMatchIndex;
-                return (
-                  <mark
-                    key={i}
-                    ref={isActive ? activeMatchRef : undefined}
-                    onClick={() => setActiveIndex(capturedIndex)}
-                    className={cn(
-                      "rounded-sm cursor-pointer",
-                      isActive
-                        ? "bg-orange-400/80 text-foreground"
-                        : "bg-yellow-300/70 text-foreground",
-                    )}
-                  >
-                    {seg.text}
-                  </mark>
-                );
-              }
-              return <span key={i}>{seg.text}</span>;
-            })
-          : json}
-      </pre>
+      {showTree ? (
+        <div ref={treeRef}>
+          <JsonTreeView parsed={parsedJson} />
+        </div>
+      ) : (
+        <pre
+          ref={preRef}
+          className="text-[12px] font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed"
+        >
+          {matches.length > 0
+            ? segments.map((seg, i) => {
+                if (seg.highlight) {
+                  segmentMatchIndex++;
+                  const isActive = seg.active;
+                  const capturedIndex = segmentMatchIndex;
+                  return (
+                    <mark
+                      key={i}
+                      ref={isActive ? activeMatchRef : undefined}
+                      onClick={() => setActiveIndex(capturedIndex)}
+                      className={cn(
+                        "rounded-sm cursor-pointer",
+                        isActive
+                          ? "bg-orange-400/80 text-foreground"
+                          : "bg-yellow-300/70 text-foreground",
+                      )}
+                    >
+                      {seg.text}
+                    </mark>
+                  );
+                }
+                return <span key={i}>{seg.text}</span>;
+              })
+            : json}
+        </pre>
+      )}
     </div>
   );
 }
