@@ -11,7 +11,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Search as SearchIcon, Loader2, AlertCircle } from "lucide-react";
+import { HardDrive as StorageIcon, Loader2, AlertCircle } from "lucide-react";
 
 export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string }) {
   const [open, setOpen] = useState(false);
@@ -54,12 +54,12 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
         <TooltipTrigger asChild>
           <DialogTrigger asChild>
             <Button variant="outline" size="icon" className="h-8 w-8">
-              <SearchIcon className="h-4 w-4" />
-              <span className="sr-only">Search</span>
+              <StorageIcon className="h-4 w-4" />
+              <span className="sr-only">Storage</span>
             </Button>
           </DialogTrigger>
         </TooltipTrigger>
-        <TooltipContent>Search</TooltipContent>
+        <TooltipContent>Storage</TooltipContent>
       </Tooltip>
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
@@ -87,7 +87,7 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
             {isFetching ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <SearchIcon className="h-4 w-4" />
+              <StorageIcon className="h-4 w-4" />
             )}
             <span className="ml-1">Fetch</span>
           </Button>
