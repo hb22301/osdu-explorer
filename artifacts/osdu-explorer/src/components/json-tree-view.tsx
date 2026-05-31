@@ -168,10 +168,45 @@ function LeafValue({
     return (
       <span
         onClick={(e) => {
-          const range = document.createRange();
-          range.selectNodeContents(e.currentTarget);
+          // Select the value text, stripping surrounding quotes and a trailing ":" if present
+          const rendered = `"${value}"`;
+          const selectStart = 1; // skip opening "
+          const selectEnd = rendered.length - 1 - (value.endsWith(":") ? 1 : 0); // skip closing " and optional trailing :
+
           const sel = window.getSelection();
           sel?.removeAllRanges();
+
+          // Walk all text nodes inside the element to map character positions to DOM nodes
+          const textNodes: Text[] = [];
+          const walker = document.createTreeWalker(e.currentTarget, NodeFilter.SHOW_TEXT);
+          let node: Node | null;
+          while ((node = walker.nextNode())) textNodes.push(node as Text);
+
+          let charPos = 0;
+          let startNode: Text | null = null, startOffset = 0;
+          let endNode: Text | null = null, endOffset = 0;
+
+          for (const tn of textNodes) {
+            const len = tn.textContent?.length ?? 0;
+            if (!startNode && charPos + len > selectStart) {
+              startNode = tn;
+              startOffset = selectStart - charPos;
+            }
+            if (!endNode && charPos + len >= selectEnd) {
+              endNode = tn;
+              endOffset = selectEnd - charPos;
+              break;
+            }
+            charPos += len;
+          }
+
+          const range = document.createRange();
+          if (startNode && endNode) {
+            range.setStart(startNode, startOffset);
+            range.setEnd(endNode, endOffset);
+          } else {
+            range.selectNodeContents(e.currentTarget);
+          }
           sel?.addRange(range);
         }}
       >
