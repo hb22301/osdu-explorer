@@ -309,6 +309,32 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, []);
 
+  // Auto-select full OSDU token (partition:type:id) on click
+  const handleContainerClick = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE) return;
+    const text = node.textContent ?? "";
+    const offset = range.startOffset;
+    let start = offset;
+    while (start > 0 && /[\w.\-:]/.test(text[start - 1])) start--;
+    let end = offset;
+    while (end < text.length && /[\w.\-:]/.test(text[end])) end++;
+    // Strip leading/trailing non-word chars (e.g. surrounding quotes or colons)
+    const token = text.slice(start, end).replace(/^[:\-.]+|[:\-.]+$/g, "");
+    // Must have at least 2 colons (3 segments) to be an OSDU-style ID
+    if (/^[a-zA-Z0-9][\w-]*(?::[\w.-]+){2,}$/.test(token)) {
+      const tokenStart = text.indexOf(token, start);
+      const newRange = document.createRange();
+      newRange.setStart(node, tokenStart);
+      newRange.setEnd(node, tokenStart + token.length);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    }
+  }, []);
+
   // Track text selection within the viewer (fullscreen only)
   useEffect(() => {
     if (!_isFullscreen) return;
@@ -390,7 +416,7 @@ export function JsonViewerContent({
   let rawSegmentMatchIndex = -1;
 
   return (
-    <div ref={containerRef} className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)}>
+    <div ref={containerRef} className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)} onClick={handleContainerClick}>
       {_isFullscreen && lookupError && (
         <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive animate-in fade-in slide-in-from-top-1 duration-150">
           <span className="flex-1">{lookupError}</span>
