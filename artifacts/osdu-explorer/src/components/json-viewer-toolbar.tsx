@@ -15,6 +15,7 @@ import {
   Minimize2,
   ExternalLink,
   WrapText,
+  ArrowLeft,
   Search,
   Database,
   Loader2,
@@ -115,6 +116,8 @@ export function JsonViewerContent({
   const [lookupLoading, setLookupLoading] = useState<"search" | "storage" | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const errorDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [overlayJson, setOverlayJson] = useState<string | null>(null);
+  const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -156,13 +159,15 @@ export function JsonViewerContent({
     [sharedViewerState],
   );
 
+  const displayJson = overlayJson ?? json;
+
   const parsedJson: JsonValue | null = useMemo(() => {
     try {
-      return JSON.parse(json) as JsonValue;
+      return JSON.parse(displayJson) as JsonValue;
     } catch {
       return null;
     }
-  }, [json]);
+  }, [displayJson]);
 
   const showTree = viewMode === "tree" && parsedJson !== null;
 
@@ -176,7 +181,7 @@ export function JsonViewerContent({
   // --- Raw mode matches ---
   const rawMatches: RawMatch[] = useMemo(() => {
     if (showTree || !query) return [];
-    const lower = json.toLowerCase();
+    const lower = displayJson.toLowerCase();
     const q = query.toLowerCase();
     const found: RawMatch[] = [];
     let idx = 0;
@@ -187,7 +192,7 @@ export function JsonViewerContent({
       idx = pos + q.length;
     }
     return found;
-  }, [showTree, query, json]);
+  }, [showTree, query, displayJson]);
 
   const totalMatches = showTree ? treeMatches.length : rawMatches.length;
 
@@ -234,7 +239,7 @@ export function JsonViewerContent({
   const handleCopy = useCallback(() => {
     const sel = window.getSelection();
     const selectedText = sel && sel.toString().length > 0 ? sel.toString() : null;
-    void navigator.clipboard.writeText(selectedText ?? json).then(() => {
+    void navigator.clipboard.writeText(selectedText ?? displayJson).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -350,13 +355,14 @@ export function JsonViewerContent({
       if (res.status === 404) { setLookupError("Record not found"); return; }
       if (!res.ok) { setLookupError("Failed to fetch record"); return; }
       const data: unknown = await res.json();
-      openRecordInPopout(JSON.stringify(data, null, 2), selectedText);
+      setOverlayJson(JSON.stringify(data, null, 2));
+      setOverlayLabel(selectedText);
     } catch {
       setLookupError("Failed to fetch record");
     } finally {
       setLookupLoading(null);
     }
-  }, [selectedText, lookupLoading, openRecordInPopout]);
+  }, [selectedText, lookupLoading]);
 
   const handleSearchLookup = useCallback(async () => {
     if (!selectedText || lookupLoading) return;
@@ -371,15 +377,16 @@ export function JsonViewerContent({
       if (!res.ok) { setLookupError("Search failed"); return; }
       const data = await res.json() as { results: unknown[]; totalCount: number };
       if (data.totalCount === 0 || data.results.length === 0) { setLookupError("No results found"); return; }
-      openRecordInPopout(JSON.stringify(data.results[0], null, 2), selectedText);
+      setOverlayJson(JSON.stringify(data.results[0], null, 2));
+      setOverlayLabel(selectedText);
     } catch {
       setLookupError("Search failed");
     } finally {
       setLookupLoading(null);
     }
-  }, [selectedText, lookupLoading, openRecordInPopout]);
+  }, [selectedText, lookupLoading]);
 
-  const rawSegments = buildRawSegments(json, rawMatches, activeIndex);
+  const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
 
   return (
@@ -491,6 +498,30 @@ export function JsonViewerContent({
 
         {_isFullscreen && (
           <>
+            {overlayJson && (
+              <>
+                <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => { setOverlayJson(null); setOverlayLabel(null); }}
+                      aria-label="Back to original"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Back to original</TooltipContent>
+                </Tooltip>
+                {overlayLabel && (
+                  <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">
+                    {overlayLabel}
+                  </span>
+                )}
+              </>
+            )}
             <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -682,12 +713,12 @@ export function JsonViewerContent({
         >
           <JsonTreeView
             parsed={parsedJson}
-            storageKey={storageKey}
+            storageKey={overlayJson ? (overlayLabel ?? undefined) : storageKey}
             treeMatches={searchOpen ? treeMatches : []}
             activeMatchIndex={searchOpen ? activeIndex : -1}
             onActiveRef={handleActiveTreeRef}
             onMatchClick={searchOpen ? setActiveIndex : undefined}
-            sharedState={sharedTreeState}
+            sharedState={overlayJson ? undefined : sharedTreeState}
           />
         </div>
       ) : (
@@ -724,7 +755,7 @@ export function JsonViewerContent({
                 }
                 return <span key={i}>{seg.text}</span>;
               })
-            : json}
+            : displayJson}
         </pre>
       )}
     </div>
