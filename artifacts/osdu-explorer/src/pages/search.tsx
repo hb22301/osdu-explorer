@@ -8,7 +8,7 @@ import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3 } from "lucide-react";
 import {
   DropdownMenu,
@@ -877,12 +877,17 @@ export default function SearchPage() {
       <Dialog open={selected !== null} onOpenChange={(open) => { if (!open) setSelected(null); }}>
         <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="font-mono text-sm truncate pr-8" title={selected?.id}>
-              {selected?.id ?? "Record"}
-            </DialogTitle>
+            <DialogTitle>Record from Search Service</DialogTitle>
+            <DialogDescription className="font-mono text-xs truncate" title={selected?.id ?? undefined}>
+              {selected?.id}
+            </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-auto min-h-0">
-            <JsonViewerToolbar json={selected ? JSON.stringify(selected, null, 2) : ""} storageKey={selected?.id as string | undefined} />
+            <JsonViewerToolbar
+              json={selected ? JSON.stringify(selected, null, 2) : ""}
+              storageKey={selected?.id as string | undefined}
+              title="Record from Search Service"
+            />
           </div>
         </DialogContent>
       </Dialog>

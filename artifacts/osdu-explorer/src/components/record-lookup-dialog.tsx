@@ -64,7 +64,7 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
       </Tooltip>
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle>Search Record by ID</DialogTitle>
+          <DialogTitle>Record from Storage Service</DialogTitle>
           <DialogDescription>
             Enter a record ID to fetch and view its complete JSON.
           </DialogDescription>
@@ -104,7 +104,7 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
             </div>
           )}
           {!isError && data && (
-            <JsonViewerToolbar json={JSON.stringify(data, null, 2)} storageKey={recordId || undefined} />
+            <JsonViewerToolbar json={JSON.stringify(data, null, 2)} storageKey={recordId || undefined} title="Record from Storage Service" />
           )}
           {!isError && !data && !isFetching && recordId === "" && (
             <div className="py-10 text-center text-sm text-muted-foreground">

@@ -36,6 +36,8 @@ interface JsonViewerToolbarProps {
   json: string;
   className?: string;
   storageKey?: string;
+  /** Label shown in the fullscreen overlay header */
+  title?: string;
   /** Internal: when true the component is already inside the fullscreen overlay */
   _isFullscreen?: boolean;
 }
@@ -592,7 +594,7 @@ type SyncMessage =
   | { type: "query"; value: string }
   | { type: "searchOpen"; value: boolean };
 
-export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
   const parsedJson: JsonValue | null = (() => {
@@ -695,9 +697,9 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
             if (e.key === "Escape") setFullscreenOpen(false);
           }}
         >
-          <DialogTitle className="sr-only">Full-screen JSON viewer</DialogTitle>
+          <DialogTitle className="sr-only">{title ?? "Full-screen JSON viewer"}</DialogTitle>
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
-            <span className="text-xs text-muted-foreground font-mono">JSON</span>
+            <span className="text-sm font-medium text-foreground">{title ?? "JSON"}</span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
