@@ -19,6 +19,7 @@ interface FetchOptions {
   method?: string;
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined>;
+  headers?: Record<string, string>;
 }
 
 const tokenCache = new Map<string, TokenCacheEntry>();
@@ -54,12 +55,14 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
     const start = Date.now();
     logger.info({ tokenEndpoint: cfg.tokenEndpoint, clientId: cfg.clientId }, "Fetching OSDU access token");
 
+    const tokenReqHeaders: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
+
     let response: Response;
     let responseBody: unknown;
     try {
       response = await fetch(cfg.tokenEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: tokenReqHeaders,
         body: body.toString(),
       });
 
@@ -74,8 +77,10 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
         level: "error",
         method: "POST",
         url: cfg.tokenEndpoint,
+        requestHeaders: tokenReqHeaders,
         requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
         responseStatus: null,
+        responseHeaders: null,
         responseBody: null,
         durationMs: Date.now() - start,
         responseSize: null,
@@ -87,6 +92,7 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
     }
 
     const durationMs = Date.now() - start;
+    const tokenRespHeaders = headersToObject(response.headers);
 
     if (!response.ok) {
       addEntry({
@@ -94,8 +100,10 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
         level: "error",
         method: "POST",
         url: cfg.tokenEndpoint,
+        requestHeaders: tokenReqHeaders,
         requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
         responseStatus: response.status,
+        responseHeaders: tokenRespHeaders,
         responseBody,
         durationMs,
         responseSize: null,
@@ -115,8 +123,10 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
         level: "error",
         method: "POST",
         url: cfg.tokenEndpoint,
+        requestHeaders: tokenReqHeaders,
         requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
         responseStatus: response.status,
+        responseHeaders: tokenRespHeaders,
         responseBody,
         durationMs,
         responseSize: null,
@@ -136,8 +146,10 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
       level: "info",
       method: "POST",
       url: cfg.tokenEndpoint,
+      requestHeaders: tokenReqHeaders,
       requestBody: { grant_type: "client_credentials", client_id: cfg.clientId, scope },
       responseStatus: response.status,
+      responseHeaders: tokenRespHeaders,
       responseBody: { token_type: data.token_type, expires_in: expiresIn },
       durationMs,
       responseSize: null,
@@ -155,6 +167,14 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
   promise.finally(() => tokenInflight.delete(key));
 
   return promise;
+}
+
+function headersToObject(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
 }
 
 // Known OSDU paginated response array field names
@@ -213,14 +233,23 @@ export class OsduClient {
 
     const start = Date.now();
 
+    const reqHeaders: Record<string, string> = {
+      Authorization: "Bearer [redacted]",
+      "Content-Type": "application/json",
+      "data-partition-id": this.config.partitionId,
+      ...options.headers,
+    };
+
     // Write the entry immediately so it appears in the console before the response arrives
     const pendingEntry = addEntry({
       type: "api_request",
       level: "info",
       method,
       url,
+      requestHeaders: reqHeaders,
       requestBody: options.body ?? null,
       responseStatus: null,
+      responseHeaders: null,
       responseBody: null,
       durationMs: null,
       responseSize: null,
@@ -236,9 +265,9 @@ export class OsduClient {
       response = await fetch(url, {
         method,
         headers: {
+          ...reqHeaders,
+          // Use the real token for the actual request (not the redacted one logged above)
           Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          "data-partition-id": this.config.partitionId,
         },
         ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       });
@@ -266,6 +295,7 @@ export class OsduClient {
     updateEntry(pendingEntry.id, {
       level,
       responseStatus: response.status,
+      responseHeaders: headersToObject(response.headers),
       responseBody: data,
       durationMs,
       responseSize,

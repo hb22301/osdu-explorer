@@ -26,8 +26,10 @@ interface ConsoleEntryRowProps {
     level: string;
     method?: string | null;
     url?: string | null;
+    requestHeaders?: Record<string, string> | null;
     requestBody?: unknown;
     responseStatus?: number | null;
+    responseHeaders?: Record<string, string> | null;
     responseBody?: unknown;
     durationMs?: number | null;
     responseSize?: number | null;
@@ -39,7 +41,7 @@ interface ConsoleEntryRowProps {
 
 function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const hasBody = entry.requestBody || entry.responseBody;
+  const hasBody = entry.requestHeaders || entry.requestBody || entry.responseHeaders || entry.responseBody;
 
   const levelColor =
     {
@@ -160,30 +162,60 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
 
         <CollapsibleContent className="mt-2 pl-5">
           <div className="grid grid-cols-2 gap-3 pb-1">
-            {entry.requestBody != null && (
-              <div className="space-y-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Request
+            {/* Request column */}
+            <div className="space-y-2">
+              {entry.requestHeaders != null && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Request Headers
+                  </div>
+                  <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-32 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
+                    {Object.entries(entry.requestHeaders)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join("\n")}
+                  </pre>
                 </div>
-                <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-40 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
-                  {typeof entry.requestBody === "object"
-                    ? JSON.stringify(entry.requestBody, null, 2)
-                    : String(entry.requestBody)}
-                </pre>
-              </div>
-            )}
-            {entry.responseBody != null && (
-              <div className="space-y-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Response
+              )}
+              {entry.requestBody != null && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Request Body
+                  </div>
+                  <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-40 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
+                    {typeof entry.requestBody === "object"
+                      ? JSON.stringify(entry.requestBody, null, 2)
+                      : String(entry.requestBody)}
+                  </pre>
                 </div>
-                <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-40 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
-                  {typeof entry.responseBody === "object"
-                    ? JSON.stringify(entry.responseBody, null, 2)
-                    : String(entry.responseBody)}
-                </pre>
-              </div>
-            )}
+              )}
+            </div>
+            {/* Response column */}
+            <div className="space-y-2">
+              {entry.responseHeaders != null && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Response Headers
+                  </div>
+                  <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-32 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
+                    {Object.entries(entry.responseHeaders)
+                      .map(([k, v]) => `${k}: ${v}`)
+                      .join("\n")}
+                  </pre>
+                </div>
+              )}
+              {entry.responseBody != null && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Response Body
+                  </div>
+                  <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-40 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
+                    {typeof entry.responseBody === "object"
+                      ? JSON.stringify(entry.responseBody, null, 2)
+                      : String(entry.responseBody)}
+                  </pre>
+                </div>
+              )}
+            </div>
           </div>
         </CollapsibleContent>
       </div>

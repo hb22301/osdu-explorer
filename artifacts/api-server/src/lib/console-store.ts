@@ -8,8 +8,10 @@ export interface ConsoleEntry {
   level: ConsoleEntryLevel;
   method: string | null;
   url: string | null;
+  requestHeaders: Record<string, string> | null;
   requestBody: unknown | null;
   responseStatus: number | null;
+  responseHeaders: Record<string, string> | null;
   responseBody: unknown | null;
   durationMs: number | null;
   responseSize: number | null;

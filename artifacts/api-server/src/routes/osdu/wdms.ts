@@ -34,7 +34,9 @@ router.post("/osdu/wdms/fetch", async (req, res): Promise<void> => {
     ids.map(async (id) => {
       const path = `/api/os-wellbore-ddms/ddms/v3/wellboretrajectories/${encodeURIComponent(id)}/data`;
       try {
-        const { status, data } = await client.fetch(path);
+        const { status, data } = await client.fetch(path, {
+          headers: { Accept: "application/json" },
+        });
         if (status === 200 && data) {
           const record = data as Record<string, unknown>;
           return { urn: id, status: "found" as const, data: record };
