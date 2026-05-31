@@ -23,7 +23,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { JsonTreeView, buildTreeMatches, type JsonValue, type TreeMatch } from "@/components/json-tree-view";
+import {
+  JsonTreeView,
+  buildTreeMatches,
+  useTreeCollapsed,
+  type JsonValue,
+  type TreeMatch,
+  type TreeCollapsedState,
+} from "@/components/json-tree-view";
 
 interface JsonViewerToolbarProps {
   json: string;
@@ -64,7 +71,12 @@ export function JsonViewerContent({
   _isFullscreen = false,
   onMaximize,
   onPopOut,
-}: JsonViewerToolbarProps & { onMaximize?: () => void; onPopOut?: () => void }) {
+  sharedTreeState,
+}: JsonViewerToolbarProps & {
+  onMaximize?: () => void;
+  onPopOut?: () => void;
+  sharedTreeState?: TreeCollapsedState;
+}) {
   const preRef = useRef<HTMLPreElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -431,6 +443,7 @@ export function JsonViewerContent({
             treeMatches={searchOpen ? treeMatches : []}
             activeMatchIndex={searchOpen ? activeIndex : -1}
             onActiveRef={handleActiveTreeRef}
+            sharedState={sharedTreeState}
           />
         </div>
       ) : (
@@ -487,6 +500,17 @@ function handlePopOut(json: string, storageKey?: string) {
 export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
 
+  const parsedJson: JsonValue | null = (() => {
+    try {
+      return JSON.parse(json) as JsonValue;
+    } catch {
+      return null;
+    }
+  })();
+
+  // Shared collapse state — lifted here so inline and fullscreen views stay in sync.
+  const sharedTreeState = useTreeCollapsed(parsedJson, storageKey);
+
   return (
     <>
       <JsonViewerContent
@@ -495,6 +519,7 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
         storageKey={storageKey}
         onMaximize={() => setFullscreenOpen(true)}
         onPopOut={() => handlePopOut(json, storageKey)}
+        sharedTreeState={sharedTreeState}
       />
 
       <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
@@ -524,7 +549,13 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
             </Tooltip>
           </div>
           <div className="flex-1 overflow-hidden p-4">
-            <JsonViewerContent json={json} storageKey={storageKey} _isFullscreen className="h-full" />
+            <JsonViewerContent
+              json={json}
+              storageKey={storageKey}
+              _isFullscreen
+              className="h-full"
+              sharedTreeState={sharedTreeState}
+            />
           </div>
         </DialogContent>
       </Dialog>

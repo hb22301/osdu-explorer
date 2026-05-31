@@ -329,7 +329,7 @@ function JsonTreeNode({
   );
 }
 
-function buildInitialCollapsed(value: JsonValue, path: string, depth: number): Set<string> {
+export function buildInitialCollapsed(value: JsonValue, path: string, depth: number): Set<string> {
   const set = new Set<string>();
   if (depth >= AUTO_COLLAPSE_DEPTH) {
     set.add(path);
@@ -353,7 +353,7 @@ function buildInitialCollapsed(value: JsonValue, path: string, depth: number): S
   return set;
 }
 
-function loadSavedState(storageKey: string): Set<string> | null {
+export function loadSavedState(storageKey: string): Set<string> | null {
   try {
     const raw = localStorage.getItem(LS_PREFIX + storageKey);
     if (!raw) return null;
@@ -365,7 +365,7 @@ function loadSavedState(storageKey: string): Set<string> | null {
   }
 }
 
-function persistState(storageKey: string, collapsed: Set<string>) {
+export function persistState(storageKey: string, collapsed: Set<string>) {
   try {
     localStorage.setItem(LS_PREFIX + storageKey, JSON.stringify([...collapsed]));
   } catch {
@@ -373,12 +373,114 @@ function persistState(storageKey: string, collapsed: Set<string>) {
   }
 }
 
-function hasSavedState(storageKey: string): boolean {
+export function hasSavedState(storageKey: string): boolean {
   try {
     return localStorage.getItem(LS_PREFIX + storageKey) !== null;
   } catch {
     return false;
   }
+}
+
+export function clearSavedState(storageKey: string) {
+  try {
+    localStorage.removeItem(LS_PREFIX + storageKey);
+  } catch {
+    // ignore
+  }
+}
+
+export interface TreeCollapsedState {
+  collapsed: Set<string>;
+  hasCustomLayout: boolean;
+  handleToggle: (path: string) => void;
+  expandAll: () => void;
+  collapseAll: () => void;
+  resetLayout: () => void;
+}
+
+/** Manages the collapse/expand state for a JSON tree, with optional localStorage persistence. */
+export function useTreeCollapsed(
+  parsed: JsonValue | null,
+  storageKey?: string,
+): TreeCollapsedState {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    if (storageKey) {
+      const saved = loadSavedState(storageKey);
+      if (saved) return saved;
+    }
+    return parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>();
+  });
+
+  const [hasCustomLayout, setHasCustomLayout] = useState(() =>
+    storageKey ? hasSavedState(storageKey) : false,
+  );
+
+  const prevStorageKeyRef = useRef(storageKey);
+  useEffect(() => {
+    if (prevStorageKeyRef.current !== storageKey) {
+      prevStorageKeyRef.current = storageKey;
+      if (storageKey) {
+        const saved = loadSavedState(storageKey);
+        if (saved) {
+          setCollapsed(saved);
+          setHasCustomLayout(true);
+        } else {
+          setCollapsed(parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>());
+          setHasCustomLayout(false);
+        }
+      } else {
+        setCollapsed(parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>());
+        setHasCustomLayout(false);
+      }
+    }
+  }, [storageKey, parsed]);
+
+  const storageKeyRef = useRef(storageKey);
+  storageKeyRef.current = storageKey;
+
+  const handleToggle = useCallback((path: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      if (storageKeyRef.current) {
+        persistState(storageKeyRef.current, next);
+        setHasCustomLayout(true);
+      }
+      return next;
+    });
+  }, []);
+
+  const expandAll = useCallback(() => {
+    const next = new Set<string>();
+    if (storageKeyRef.current) {
+      persistState(storageKeyRef.current, next);
+      setHasCustomLayout(true);
+    }
+    setCollapsed(next);
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    const next = parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>();
+    if (storageKeyRef.current) {
+      persistState(storageKeyRef.current, next);
+      setHasCustomLayout(true);
+    }
+    setCollapsed(next);
+  }, [parsed]);
+
+  const resetLayout = useCallback(() => {
+    if (storageKeyRef.current) {
+      clearSavedState(storageKeyRef.current);
+    }
+    setHasCustomLayout(false);
+    setCollapsed(parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>());
+  }, [parsed]);
+
+  return { collapsed, hasCustomLayout, handleToggle, expandAll, collapseAll, resetLayout };
 }
 
 /** Walk the JSON tree in DFS order and collect all key/value text matches. */
@@ -442,6 +544,8 @@ interface JsonTreeViewProps {
   treeMatches?: TreeMatch[];
   activeMatchIndex?: number;
   onActiveRef?: (el: HTMLElement | null) => void;
+  /** Controlled mode: shared collapsed state lifted by a parent (e.g. to sync inline + fullscreen). */
+  sharedState?: TreeCollapsedState;
 }
 
 export function JsonTreeView({
@@ -451,87 +555,12 @@ export function JsonTreeView({
   treeMatches = [],
   activeMatchIndex = -1,
   onActiveRef,
+  sharedState,
 }: JsonTreeViewProps) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    if (storageKey) {
-      const saved = loadSavedState(storageKey);
-      if (saved) return saved;
-    }
-    return buildInitialCollapsed(parsed, "root", 0);
-  });
+  const ownState = useTreeCollapsed(sharedState ? null : parsed, sharedState ? undefined : storageKey);
 
-  const [hasCustomLayout, setHasCustomLayout] = useState(() =>
-    storageKey ? hasSavedState(storageKey) : false,
-  );
-
-  const prevStorageKeyRef = useRef(storageKey);
-  useEffect(() => {
-    if (prevStorageKeyRef.current !== storageKey) {
-      prevStorageKeyRef.current = storageKey;
-      if (storageKey) {
-        const saved = loadSavedState(storageKey);
-        if (saved) {
-          setCollapsed(saved);
-          setHasCustomLayout(true);
-        } else {
-          setCollapsed(buildInitialCollapsed(parsed, "root", 0));
-          setHasCustomLayout(false);
-        }
-      } else {
-        setCollapsed(buildInitialCollapsed(parsed, "root", 0));
-        setHasCustomLayout(false);
-      }
-    }
-  }, [storageKey, parsed]);
-
-  const storageKeyRef = useRef(storageKey);
-  storageKeyRef.current = storageKey;
-
-  const handleToggle = useCallback((path: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      if (storageKeyRef.current) {
-        persistState(storageKeyRef.current, next);
-        setHasCustomLayout(true);
-      }
-      return next;
-    });
-  }, []);
-
-  const expandAll = useCallback(() => {
-    const next = new Set<string>();
-    if (storageKeyRef.current) {
-      persistState(storageKeyRef.current, next);
-      setHasCustomLayout(true);
-    }
-    setCollapsed(next);
-  }, []);
-
-  const collapseAll = useCallback(() => {
-    const next = buildInitialCollapsed(parsed, "root", 0);
-    if (storageKeyRef.current) {
-      persistState(storageKeyRef.current, next);
-      setHasCustomLayout(true);
-    }
-    setCollapsed(next);
-  }, [parsed]);
-
-  const resetLayout = useCallback(() => {
-    if (storageKeyRef.current) {
-      try {
-        localStorage.removeItem(LS_PREFIX + storageKeyRef.current);
-      } catch {
-        // ignore
-      }
-    }
-    setHasCustomLayout(false);
-    setCollapsed(buildInitialCollapsed(parsed, "root", 0));
-  }, [parsed]);
+  const { collapsed, hasCustomLayout, handleToggle, expandAll, collapseAll, resetLayout } =
+    sharedState ?? ownState;
 
   const matchMap = useMemo(() => {
     const map = new Map<string, TreeMatch[]>();
@@ -577,7 +606,7 @@ export function JsonTreeView({
         >
           Collapse all
         </button>
-        {storageKey && hasCustomLayout && (
+        {(sharedState ? sharedState.hasCustomLayout : (storageKey && hasCustomLayout)) && (
           <>
             <span>·</span>
             <button
