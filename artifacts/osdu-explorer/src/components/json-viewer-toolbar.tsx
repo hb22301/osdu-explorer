@@ -101,6 +101,9 @@ export function JsonViewerContent({
   const [activeIndex, setActiveIndex] = useState(0);
   const [wordWrap, setWordWrap] = useState(true);
   const [fontSize, setFontSize] = useState(12);
+  const [badgeRendered, setBadgeRendered] = useState(false);
+  const [badgeExiting, setBadgeExiting] = useState(false);
+  const badgeExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -181,6 +184,31 @@ export function JsonViewerContent({
   useEffect(() => {
     setActiveIndex(0);
   }, [treeMatches, rawMatches]);
+
+  // Animate badge in/out when match count crosses zero
+  const hasMatches = totalMatches > 0 && !!query;
+  useEffect(() => {
+    if (hasMatches) {
+      if (badgeExitTimerRef.current) {
+        clearTimeout(badgeExitTimerRef.current);
+        badgeExitTimerRef.current = null;
+      }
+      setBadgeExiting(false);
+      setBadgeRendered(true);
+    } else if (badgeRendered) {
+      setBadgeExiting(true);
+      badgeExitTimerRef.current = setTimeout(() => {
+        setBadgeRendered(false);
+        setBadgeExiting(false);
+        badgeExitTimerRef.current = null;
+      }, 160);
+    }
+    return () => {
+      if (badgeExitTimerRef.current) {
+        clearTimeout(badgeExitTimerRef.current);
+      }
+    };
+  }, [hasMatches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelectAll = useCallback(() => {
     const target = showTree ? treeRef.current : preRef.current;
@@ -315,8 +343,15 @@ export function JsonViewerContent({
               aria-label="Search"
             >
               <Search className="h-3.5 w-3.5" />
-              {totalMatches > 0 && query && (
-                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground pointer-events-none select-none">
+              {badgeRendered && (
+                <span
+                  className={cn(
+                    "absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground pointer-events-none select-none",
+                    badgeExiting
+                      ? "animate-out fade-out zoom-out-75 duration-150 motion-reduce:duration-0"
+                      : "animate-in fade-in zoom-in-75 duration-150 motion-reduce:duration-0",
+                  )}
+                >
                   {totalMatches > 99 ? "99+" : totalMatches}
                 </span>
               )}
