@@ -464,6 +464,49 @@ export function getSavedLayoutCount(): number {
   return lruRead().length;
 }
 
+const LS_MIGRATION_FLAG = "osdu-tree-state-migration-v1";
+
+/**
+ * One-time migration: scans localStorage for orphan `osdu-tree-state:*` keys
+ * that predate the LRU index and ingests them into the index. Extras beyond
+ * MAX_SAVED_LAYOUTS are deleted. A version flag prevents this from running
+ * more than once.
+ */
+export function migrateLegacyLayouts(): void {
+  try {
+    if (localStorage.getItem(LS_MIGRATION_FLAG)) return;
+
+    const lru = lruRead();
+
+    // Collect orphan keys — present in storage but absent from the index.
+    const indexed = new Set(lru);
+    const orphans: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const rawKey = localStorage.key(i);
+      if (!rawKey?.startsWith(LS_PREFIX)) continue;
+      const storageKey = rawKey.slice(LS_PREFIX.length);
+      if (!indexed.has(storageKey)) {
+        orphans.push(storageKey);
+      }
+    }
+
+    if (orphans.length > 0) {
+      // Append orphans to the end of the LRU list (treated as least-recently-used).
+      const merged = [...lru, ...orphans];
+      // Trim to cap, removing oldest (tail) entries.
+      const overflow = merged.splice(MAX_SAVED_LAYOUTS);
+      for (const key of overflow) {
+        localStorage.removeItem(LS_PREFIX + key);
+      }
+      localStorage.setItem(LS_LRU_KEY, JSON.stringify(merged));
+    }
+
+    localStorage.setItem(LS_MIGRATION_FLAG, "1");
+  } catch {
+    // Never let migration errors break the app.
+  }
+}
+
 export function getSavedLayoutsSize(): number {
   const lru = lruRead();
   const lruRaw = localStorage.getItem(LS_LRU_KEY) ?? "";

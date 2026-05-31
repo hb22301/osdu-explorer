@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -11,6 +12,7 @@ import SchemasPage from "@/pages/schemas";
 import LegalTagsPage from "@/pages/legal-tags";
 import JsonPopoutPage from "@/pages/json-popout";
 import NotFound from "@/pages/not-found";
+import { migrateLegacyLayouts } from "@/components/json-tree-view";
 
 const queryClient = new QueryClient();
 
@@ -44,6 +46,10 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    migrateLegacyLayouts();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
