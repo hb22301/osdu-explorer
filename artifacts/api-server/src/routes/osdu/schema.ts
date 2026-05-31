@@ -50,13 +50,15 @@ router.get("/osdu/schemas", async (req, res): Promise<void> => {
       })
       .map((s: unknown) => {
       const info = s as Record<string, unknown>;
+      const si = info.schemaInfo as Record<string, unknown> | undefined;
       return {
         kind: info.id ?? info.kind ?? null,
-        status: (info.schemaInfo as Record<string, unknown> | undefined)?.status ?? info.status ?? null,
-        createdBy: (info.schemaInfo as Record<string, unknown> | undefined)?.createdBy ?? info.createdBy ?? null,
-        dateCreated: (info.schemaInfo as Record<string, unknown> | undefined)?.dateCreated ?? info.dateCreated ?? null,
-        updatedBy: (info.schemaInfo as Record<string, unknown> | undefined)?.updatedBy ?? info.updatedBy ?? null,
-        dateUpdated: (info.schemaInfo as Record<string, unknown> | undefined)?.dateUpdated ?? info.dateUpdated ?? null,
+        status: si?.status ?? info.status ?? null,
+        scope: si?.scope ?? info.scope ?? null,
+        createdBy: si?.createdBy ?? info.createdBy ?? null,
+        dateCreated: si?.dateCreated ?? info.dateCreated ?? null,
+        updatedBy: si?.updatedBy ?? info.updatedBy ?? null,
+        dateUpdated: si?.dateUpdated ?? info.dateUpdated ?? null,
       };
     }),
     offset: schemaData.offset ?? 0,

@@ -105,6 +105,8 @@ export interface OsduSchemaInfo {
   kind?: string;
   status?: string;
   /** @nullable */
+  scope?: string | null;
+  /** @nullable */
   createdBy?: string | null;
   /** @nullable */
   dateCreated?: string | null;

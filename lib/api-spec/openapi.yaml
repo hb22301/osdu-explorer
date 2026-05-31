@@ -465,6 +465,8 @@ components:
           type: string
         status:
           type: string
+        scope:
+          type: ["string", "null"]
         createdBy:
           type: ["string", "null"]
         dateCreated:

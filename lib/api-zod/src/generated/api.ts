@@ -177,6 +177,7 @@ export const ListOsduSchemasResponse = zod.object({
   "schemaInfos": zod.array(zod.object({
   "kind": zod.string().optional(),
   "status": zod.string().optional(),
+  "scope": zod.string().nullish(),
   "createdBy": zod.string().nullish(),
   "dateCreated": zod.string().nullish(),
   "updatedBy": zod.string().nullish(),
