@@ -4,6 +4,7 @@ import { LuceneQueryInput } from "@/components/lucene-query-input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KindCombobox } from "@/components/kind-combobox";
+import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter } from "lucide-react";
@@ -423,6 +424,7 @@ export default function SearchPage() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <RecordLookupDialog />
               <Button
                 variant="outline" size="sm"
                 onClick={() => handlePageChange(Math.max(0, offset - limit))}
