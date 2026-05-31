@@ -128,7 +128,7 @@ export default function SchemasPage() {
   const [limit, setLimit]   = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem("osdu-schemas:page-size"));
-      return [25, 50, 100, 250, 500].includes(v) ? v : 100;
+      return [25, 50, 100, 250, 500, 1000, 2000].includes(v) ? v : 100;
     } catch { return 100; }
   });
 
@@ -393,7 +393,7 @@ export default function SchemasPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[25, 50, 100, 250, 500].map((n) => (
+                  {[25, 50, 100, 250, 500, 1000, 2000].map((n) => (
                     <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
                   ))}
                 </SelectContent>
@@ -516,7 +516,7 @@ export default function SchemasPage() {
       {/* Fullscreen schema viewer */}
       {viewingId !== null && (
         <JsonViewerToolbar
-          json={schemaDetails ? JSON.stringify(schemaDetails.schema, null, 2) : "{}"}
+          json={schemaDetails ? JSON.stringify(schemaDetails, null, 2) : "{}"}
           storageKey={viewingId}
           title={viewingId}
           defaultFullscreen
