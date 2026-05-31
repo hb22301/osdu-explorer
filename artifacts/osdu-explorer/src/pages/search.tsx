@@ -9,7 +9,7 @@ import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter } from "lucide-react";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { format } from "date-fns";
@@ -38,6 +38,37 @@ const COLUMNS: Col[] = [
 
 const COL_WIDTHS_KEY = "osdu-explorer:col-widths";
 const MAX_COL_WIDTH = 800;
+
+const COL_ORDER_KEY = "osdu-explorer:col-order";
+
+function loadColOrder(): ColKey[] {
+  const defaults = COLUMNS.map((c) => c.key);
+  try {
+    const raw = localStorage.getItem(COL_ORDER_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as ColKey[];
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === defaults.length &&
+      defaults.every((k) => parsed.includes(k))
+    ) return parsed;
+  } catch { /* ignore */ }
+  return defaults;
+}
+
+const CELL_CLASS: Record<ColKey, string> = {
+  id:         "font-mono truncate",
+  version:    "font-mono tabular-nums truncate",
+  kind:       "font-mono truncate",
+  name:       "truncate",
+  code:       "font-mono truncate",
+  createdBy:  "truncate",
+  createTime: "font-mono tabular-nums truncate",
+  modifyBy:   "truncate",
+  modifyTime: "font-mono tabular-nums truncate",
+};
+
+const CELL_HAS_TITLE = new Set<ColKey>(["id", "kind", "name", "code", "createdBy", "modifyBy"]);
 
 function clampWidth(col: Col, v: number): number {
   return Math.min(MAX_COL_WIDTH, Math.max(col.minWidth, v));
@@ -272,7 +303,10 @@ export default function SearchPage() {
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [colWidths, setColWidths] = useState<Record<ColKey, number>>(loadColWidths);
+  const [colOrder, setColOrder] = useState<ColKey[]>(loadColOrder);
+  const [dragOverCol, setDragOverCol] = useState<ColKey | null>(null);
   const resizing = useRef<{ key: ColKey; startX: number; startW: number } | null>(null);
+  const dragColRef = useRef<ColKey | null>(null);
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [rowFilter, setRowFilter] = useState("");
@@ -409,6 +443,48 @@ export default function SearchPage() {
     },
     [persistColWidths],
   );
+
+  const orderedCols = useMemo(
+    () => colOrder.map((k) => COLUMNS.find((c) => c.key === k)!),
+    [colOrder],
+  );
+
+  const persistColOrder = useCallback((order: ColKey[]) => {
+    try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
+  }, []);
+
+  const handleColDragStart = useCallback((e: React.DragEvent, key: ColKey) => {
+    dragColRef.current = key;
+    e.dataTransfer.effectAllowed = "move";
+  }, []);
+
+  const handleColDragOver = useCallback((e: React.DragEvent, key: ColKey) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragColRef.current && dragColRef.current !== key) setDragOverCol(key);
+  }, []);
+
+  const handleColDrop = useCallback((e: React.DragEvent, targetKey: ColKey) => {
+    e.preventDefault();
+    const src = dragColRef.current;
+    if (!src || src === targetKey) { setDragOverCol(null); return; }
+    setColOrder((prev) => {
+      const next = [...prev];
+      const from = next.indexOf(src);
+      const to = next.indexOf(targetKey);
+      next.splice(from, 1);
+      next.splice(to, 0, src);
+      persistColOrder(next);
+      return next;
+    });
+    setDragOverCol(null);
+    dragColRef.current = null;
+  }, [persistColOrder]);
+
+  const handleColDragEnd = useCallback(() => {
+    setDragOverCol(null);
+    dragColRef.current = null;
+  }, []);
 
   const handleSortClick = (col: ColKey) => {
     if (sortCol === col) {
@@ -612,22 +688,35 @@ export default function SearchPage() {
                 className="text-xs"
                 style={{
                   tableLayout: "fixed",
-                  width: COLUMNS.reduce((sum, c) => sum + colWidths[c.key], 0),
+                  width: orderedCols.reduce((sum, c) => sum + colWidths[c.key], 0),
                 }}
               >
                 <colgroup>
-                  {COLUMNS.map((col) => (
+                  {orderedCols.map((col) => (
                     <col key={col.key} style={{ width: colWidths[col.key] }} />
                   ))}
                 </colgroup>
                 <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0] shadow-border">
                   <TableRow>
-                    {COLUMNS.map((col) => (
+                    {orderedCols.map((col) => (
                       <TableHead
                         key={col.key}
-                        className="relative cursor-pointer select-none whitespace-nowrap overflow-hidden hover:text-foreground transition-colors"
+                        className={`relative cursor-pointer select-none whitespace-nowrap overflow-hidden hover:text-foreground transition-colors${dragOverCol === col.key ? " border-l-2 border-neon" : ""}`}
                         onClick={() => handleSortClick(col.key)}
+                        onDragOver={(e) => handleColDragOver(e, col.key)}
+                        onDrop={(e) => handleColDrop(e, col.key)}
+                        onDragLeave={() => setDragOverCol(null)}
                       >
+                        <span
+                          draggable
+                          onDragStart={(e) => { e.stopPropagation(); handleColDragStart(e, col.key); }}
+                          onDragEnd={handleColDragEnd}
+                          onClick={(e) => e.stopPropagation()}
+                          title="Drag to reorder column"
+                          className="inline-flex items-center mr-1 cursor-grab active:cursor-grabbing opacity-25 hover:opacity-60 transition-opacity align-middle shrink-0"
+                        >
+                          <GripVertical className="h-3 w-3" />
+                        </span>
                         <span className="truncate align-middle">{col.label}</span>
                         <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
                         <span
@@ -662,15 +751,18 @@ export default function SearchPage() {
                       onClick={() => setSelectedRowId(row.id !== "—" ? row.id : null)}
                       onDoubleClick={() => setSelected(row._raw)}
                     >
-                      <TableCell className="font-mono truncate" title={row.id}>{row.id}</TableCell>
-                      <TableCell className="font-mono tabular-nums truncate">{row.version}</TableCell>
-                      <TableCell className="font-mono truncate" title={row.kind}>{row.kind}</TableCell>
-                      <TableCell className="truncate" title={row.name}>{row.name}</TableCell>
-                      <TableCell className="font-mono truncate" title={row.code}>{row.code}</TableCell>
-                      <TableCell className="truncate" title={row.createdBy}>{row.createdBy}</TableCell>
-                      <TableCell className="font-mono tabular-nums truncate">{row.createTime}</TableCell>
-                      <TableCell className="truncate" title={row.modifyBy}>{row.modifyBy}</TableCell>
-                      <TableCell className="font-mono tabular-nums truncate">{row.modifyTime}</TableCell>
+                      {orderedCols.map((col) => {
+                        const val = (row as Record<ColKey, string>)[col.key];
+                        return (
+                          <TableCell
+                            key={col.key}
+                            className={CELL_CLASS[col.key]}
+                            title={CELL_HAS_TITLE.has(col.key) ? val : undefined}
+                          >
+                            {val}
+                          </TableCell>
+                        );
+                      })}
                     </TableRow>
                   ))}
                 </TableBody>
