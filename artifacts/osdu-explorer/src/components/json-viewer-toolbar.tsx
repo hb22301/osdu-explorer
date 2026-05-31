@@ -11,14 +11,23 @@ import {
   ChevronDown,
   Code,
   List,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { JsonTreeView, type JsonValue } from "@/components/json-tree-view";
 
 interface JsonViewerToolbarProps {
   json: string;
   className?: string;
+  /** Internal: when true the component is already inside the fullscreen overlay */
+  _isFullscreen?: boolean;
 }
 
 interface Match {
@@ -45,7 +54,12 @@ function buildSegments(text: string, matches: Match[], activeIndex: number) {
 
 type ViewMode = "tree" | "raw";
 
-export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
+function JsonViewerContent({
+  json,
+  className,
+  _isFullscreen = false,
+  onMaximize,
+}: JsonViewerToolbarProps & { onMaximize?: () => void }) {
   const preRef = useRef<HTMLPreElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -162,7 +176,7 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
   let segmentMatchIndex = -1;
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
+    <div className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)}>
       <div className="flex items-center gap-1 rounded-t-md border border-border/40 bg-muted/30 px-2 py-1">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -239,8 +253,25 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
           </Tooltip>
         )}
 
+        {!_isFullscreen && onMaximize && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 ml-auto"
+                onClick={onMaximize}
+                aria-label="Expand to full screen"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Full screen</TooltipContent>
+          </Tooltip>
+        )}
+
         {searchOpen && (
-          <div className="ml-1 flex flex-1 items-center gap-1">
+          <div className={cn("flex flex-1 items-center gap-1", !_isFullscreen && onMaximize ? "mr-0" : "ml-1")}>
             <Input
               ref={searchInputRef}
               value={query}
@@ -290,13 +321,16 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
       </div>
 
       {showTree ? (
-        <div ref={treeRef}>
+        <div ref={treeRef} className={cn(_isFullscreen && "flex-1 overflow-auto min-h-0 rounded-b-lg border border-t-0 border-border/40 bg-muted/50 p-4")}>
           <JsonTreeView parsed={parsedJson} />
         </div>
       ) : (
         <pre
           ref={preRef}
-          className="text-[12px] font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed"
+          className={cn(
+            "text-[12px] font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 whitespace-pre-wrap break-all leading-relaxed",
+            _isFullscreen && "flex-1 overflow-auto min-h-0",
+          )}
         >
           {matches.length > 0
             ? segments.map((seg, i) => {
@@ -326,5 +360,51 @@ export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
         </pre>
       )}
     </div>
+  );
+}
+
+export function JsonViewerToolbar({ json, className }: JsonViewerToolbarProps) {
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+
+  return (
+    <>
+      <JsonViewerContent
+        json={json}
+        className={className}
+        onMaximize={() => setFullscreenOpen(true)}
+      />
+
+      <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
+        <DialogContent
+          className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0"
+          aria-describedby={undefined}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setFullscreenOpen(false);
+          }}
+        >
+          <DialogTitle className="sr-only">Full-screen JSON viewer</DialogTitle>
+          <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+            <span className="text-xs text-muted-foreground font-mono">JSON</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setFullscreenOpen(false)}
+                  aria-label="Exit full screen"
+                >
+                  <Minimize2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Exit full screen</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex-1 overflow-hidden p-4">
+            <JsonViewerContent json={json} _isFullscreen className="h-full" />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
