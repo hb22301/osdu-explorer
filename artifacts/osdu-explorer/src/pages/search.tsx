@@ -9,7 +9,16 @@ import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical } from "lucide-react";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { format } from "date-fns";
@@ -69,6 +78,22 @@ const CELL_CLASS: Record<ColKey, string> = {
 };
 
 const CELL_HAS_TITLE = new Set<ColKey>(["id", "kind", "name", "code", "createdBy", "modifyBy"]);
+
+const COL_VISIBLE_KEY = "osdu-explorer:col-visible";
+
+function loadColVisible(): Record<ColKey, boolean> {
+  const all = Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
+  try {
+    const raw = localStorage.getItem(COL_VISIBLE_KEY);
+    if (!raw) return all;
+    const parsed = JSON.parse(raw) as Partial<Record<ColKey, boolean>>;
+    for (const c of COLUMNS) {
+      if (typeof parsed[c.key] === "boolean") all[c.key] = parsed[c.key]!;
+    }
+    if (COLUMNS.every((c) => !all[c.key])) return Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
+  } catch { /* ignore */ }
+  return all;
+}
 
 function clampWidth(col: Col, v: number): number {
   return Math.min(MAX_COL_WIDTH, Math.max(col.minWidth, v));
@@ -304,6 +329,7 @@ export default function SearchPage() {
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [colWidths, setColWidths] = useState<Record<ColKey, number>>(loadColWidths);
   const [colOrder, setColOrder] = useState<ColKey[]>(loadColOrder);
+  const [colVisible, setColVisible] = useState<Record<ColKey, boolean>>(loadColVisible);
   const [dragOverCol, setDragOverCol] = useState<ColKey | null>(null);
   const resizing = useRef<{ key: ColKey; startX: number; startW: number } | null>(null);
   const dragColRef = useRef<ColKey | null>(null);
@@ -445,9 +471,27 @@ export default function SearchPage() {
   );
 
   const orderedCols = useMemo(
-    () => colOrder.map((k) => COLUMNS.find((c) => c.key === k)!),
-    [colOrder],
+    () => colOrder.filter((k) => colVisible[k]).map((k) => COLUMNS.find((c) => c.key === k)!),
+    [colOrder, colVisible],
   );
+
+  const visibleCount = useMemo(() => Object.values(colVisible).filter(Boolean).length, [colVisible]);
+
+  const toggleColVisible = useCallback((key: ColKey) => {
+    setColVisible((prev) => {
+      const currentlyVisible = Object.values(prev).filter(Boolean).length;
+      if (prev[key] && currentlyVisible <= 1) return prev;
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem(COL_VISIBLE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const showAllCols = useCallback(() => {
+    const next = Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
+    setColVisible(next);
+    try { localStorage.setItem(COL_VISIBLE_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+  }, []);
 
   const persistColOrder = useCallback((order: ColKey[]) => {
     try { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(order)); } catch { /* ignore */ }
@@ -682,6 +726,46 @@ export default function SearchPage() {
                   <X className="h-3 w-3" />
                 </Button>
               )}
+              <div className="ml-auto shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
+                      <Columns3 className="h-3.5 w-3.5" />
+                      Columns
+                      {visibleCount < COLUMNS.length && (
+                        <span className="text-muted-foreground">({visibleCount}/{COLUMNS.length})</span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuLabel className="text-xs">Toggle columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {colOrder.map((key) => {
+                      const col = COLUMNS.find((c) => c.key === key)!;
+                      const isLast = visibleCount === 1 && colVisible[key];
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={key}
+                          checked={colVisible[key]}
+                          onCheckedChange={() => !isLast && toggleColVisible(key)}
+                          disabled={isLast}
+                          className="text-xs"
+                        >
+                          {col.label}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                    {visibleCount < COLUMNS.length && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-xs" onSelect={showAllCols}>
+                          Show all columns
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
             <div className="border-t border-border overflow-auto" style={{ maxHeight: "55vh" }}>
               <Table
