@@ -15,6 +15,9 @@ import {
   Minimize2,
   ExternalLink,
   WrapText,
+  Search,
+  Database,
+  Loader2,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
@@ -90,6 +93,7 @@ export function JsonViewerContent({
   sharedTreeState?: TreeCollapsedState;
   sharedViewerState?: SharedViewerState;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -106,6 +110,11 @@ export function JsonViewerContent({
   const [badgeRendered, setBadgeRendered] = useState(false);
   const [badgeExiting, setBadgeExiting] = useState(false);
   const badgeExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [selectedText, setSelectedText] = useState("");
+  const [lookupLoading, setLookupLoading] = useState<"search" | "storage" | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const errorDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -295,11 +304,98 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, []);
 
+  // Track text selection within the viewer (fullscreen only)
+  useEffect(() => {
+    if (!_isFullscreen) return;
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      const text = sel?.toString().trim() ?? "";
+      if (text && containerRef.current && sel?.rangeCount) {
+        const range = sel.getRangeAt(0);
+        if (containerRef.current.contains(range.commonAncestorContainer)) {
+          setSelectedText(text);
+          return;
+        }
+      }
+      setSelectedText("");
+    };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [_isFullscreen]);
+
+  // Auto-dismiss lookup error after 4 seconds
+  useEffect(() => {
+    if (!lookupError) return;
+    if (errorDismissTimerRef.current) clearTimeout(errorDismissTimerRef.current);
+    errorDismissTimerRef.current = setTimeout(() => setLookupError(null), 4000);
+    return () => {
+      if (errorDismissTimerRef.current) clearTimeout(errorDismissTimerRef.current);
+    };
+  }, [lookupError]);
+
+  const openRecordInPopout = useCallback((recordJson: string, label: string) => {
+    const dataKey = `osdu-json-popout-${Date.now()}`;
+    localStorage.setItem(dataKey, recordJson);
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const params = new URLSearchParams({ data: dataKey, label });
+    window.open(`${base}/json-popout?${params.toString()}`, "_blank");
+  }, []);
+
+  const handleStorageLookup = useCallback(async () => {
+    if (!selectedText || lookupLoading) return;
+    setLookupLoading("storage");
+    setLookupError(null);
+    try {
+      const res = await fetch(`/api/osdu/records/${encodeURIComponent(selectedText)}`);
+      if (res.status === 404) { setLookupError("Record not found"); return; }
+      if (!res.ok) { setLookupError("Failed to fetch record"); return; }
+      const data: unknown = await res.json();
+      openRecordInPopout(JSON.stringify(data, null, 2), selectedText);
+    } catch {
+      setLookupError("Failed to fetch record");
+    } finally {
+      setLookupLoading(null);
+    }
+  }, [selectedText, lookupLoading, openRecordInPopout]);
+
+  const handleSearchLookup = useCallback(async () => {
+    if (!selectedText || lookupLoading) return;
+    setLookupLoading("search");
+    setLookupError(null);
+    try {
+      const res = await fetch("/api/osdu/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "*:*:*:*", query: `id:"${selectedText}"`, limit: 1 }),
+      });
+      if (!res.ok) { setLookupError("Search failed"); return; }
+      const data = await res.json() as { results: unknown[]; totalCount: number };
+      if (data.totalCount === 0 || data.results.length === 0) { setLookupError("No results found"); return; }
+      openRecordInPopout(JSON.stringify(data.results[0], null, 2), selectedText);
+    } catch {
+      setLookupError("Search failed");
+    } finally {
+      setLookupLoading(null);
+    }
+  }, [selectedText, lookupLoading, openRecordInPopout]);
+
   const rawSegments = buildRawSegments(json, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
 
   return (
-    <div className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)}>
+    <div ref={containerRef} className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)}>
+      {_isFullscreen && lookupError && (
+        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive animate-in fade-in slide-in-from-top-1 duration-150">
+          <span className="flex-1">{lookupError}</span>
+          <button
+            onClick={() => setLookupError(null)}
+            className="shrink-0 rounded p-0.5 hover:bg-destructive/20 transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       <div className={cn(
         "flex items-center gap-1 rounded-t-md border border-border/40 px-2 py-1",
         _isFullscreen
@@ -441,6 +537,52 @@ export function JsonViewerContent({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Increase font size</TooltipContent>
+            </Tooltip>
+
+            <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7 transition-opacity", !selectedText || lookupLoading ? "opacity-40 pointer-events-none" : "")}
+                  onClick={() => { void handleStorageLookup(); }}
+                  aria-label="Look up selected text in Storage"
+                  disabled={!selectedText || !!lookupLoading}
+                >
+                  {lookupLoading === "storage" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Database className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {selectedText ? "Look up in Storage" : "Select text to look up in Storage"}
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-7 w-7 transition-opacity", !selectedText || lookupLoading ? "opacity-40 pointer-events-none" : "")}
+                  onClick={() => { void handleSearchLookup(); }}
+                  aria-label="Search for selected text"
+                  disabled={!selectedText || !!lookupLoading}
+                >
+                  {lookupLoading === "search" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {selectedText ? "Search by ID" : "Select text to search by ID"}
+              </TooltipContent>
             </Tooltip>
           </>
         )}
