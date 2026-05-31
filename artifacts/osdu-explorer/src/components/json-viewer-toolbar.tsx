@@ -298,7 +298,12 @@ export function JsonViewerContent({
 
   return (
     <div className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)}>
-      <div className="flex items-center gap-1 rounded-t-md border border-border/40 bg-muted/30 px-2 py-1">
+      <div className={cn(
+        "flex items-center gap-1 rounded-t-md border border-border/40 px-2 py-1",
+        _isFullscreen
+          ? "bg-muted/30"
+          : "sticky top-0 z-10 bg-card/95 backdrop-blur-sm",
+      )}>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
