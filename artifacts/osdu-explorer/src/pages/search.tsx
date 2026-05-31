@@ -494,9 +494,8 @@ export default function SearchPage() {
                 className="shrink-0 bg-neon text-black hover:bg-neon/90 border-neon/80 focus-visible:ring-neon/60"
               >
                 {searchMutation.isPending
-                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  : <SearchIcon className="h-4 w-4 mr-2" />}
-                Search
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <SearchIcon className="h-4 w-4" />}
               </Button>
             </div>
           </div>
