@@ -53,13 +53,13 @@ router.get("/osdu/schemas", async (req, res): Promise<void> => {
         const info = s as Record<string, unknown>;
         const identity = info.schemaIdentity as Record<string, unknown> | undefined;
         return {
-          kind:        identity?.id  ?? info.id  ?? info.kind  ?? null,
-          status:      info.status      ?? null,
-          scope:       info.scope       ?? null,
-          createdBy:   info.createdBy   ?? null,
-          dateCreated: info.dateCreated ?? null,
-          updatedBy:   info.updatedBy   ?? null,
-          dateUpdated: info.dateUpdated ?? null,
+          kind:        identity?.id  ?? info.id  ?? info.kind  ?? undefined,
+          status:      info.status      ?? undefined,
+          scope:       info.scope       ?? undefined,
+          createdBy:   info.createdBy   ?? undefined,
+          dateCreated: info.dateCreated ?? undefined,
+          updatedBy:   info.updatedBy   ?? undefined,
+          dateUpdated: info.dateUpdated ?? undefined,
         };
       }),
     offset: schemaData.offset ?? 0,
@@ -102,9 +102,9 @@ router.get("/osdu/schemas/:kind", async (req, res): Promise<void> => {
   const result = GetOsduSchemaResponse.parse({
     kind:        identity?.id  ?? schemaData.id  ?? schemaData.kind  ?? kind,
     schema:      schemaData.schema ?? {},
-    status:      schemaData.status      ?? null,
-    createdBy:   schemaData.createdBy   ?? null,
-    dateCreated: schemaData.dateCreated ?? null,
+    status:      schemaData.status      ?? undefined,
+    createdBy:   schemaData.createdBy   ?? undefined,
+    dateCreated: schemaData.dateCreated ?? undefined,
   });
 
   res.json(result);
