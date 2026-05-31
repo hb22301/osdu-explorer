@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { JsonTreeView, type JsonValue } from "@/components/json-tree-view";
+import { JsonTreeView, buildTreeMatches, type JsonValue, type TreeMatch } from "@/components/json-tree-view";
 
 interface JsonViewerToolbarProps {
   json: string;
@@ -31,12 +31,12 @@ interface JsonViewerToolbarProps {
   _isFullscreen?: boolean;
 }
 
-interface Match {
+interface RawMatch {
   start: number;
   end: number;
 }
 
-function buildSegments(text: string, matches: Match[], activeIndex: number) {
+function buildRawSegments(text: string, matches: RawMatch[], activeIndex: number) {
   if (matches.length === 0) return [{ text, highlight: false, active: false }];
   const segments: { text: string; highlight: boolean; active: boolean }[] = [];
   let cursor = 0;
@@ -65,13 +65,13 @@ function JsonViewerContent({
   const preRef = useRef<HTMLPreElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const activeMatchRef = useRef<HTMLElement>(null);
+  const activeRawMatchRef = useRef<HTMLElement>(null);
+  const activeTreeMatchRef = useRef<HTMLElement | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
   const [copied, setCopied] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<Match[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
 
   const parsedJson: JsonValue | null = (() => {
@@ -82,7 +82,37 @@ function JsonViewerContent({
     }
   })();
 
-  const showTree = viewMode === "tree" && !searchOpen && parsedJson !== null;
+  const showTree = viewMode === "tree" && parsedJson !== null;
+
+  // --- Tree mode matches ---
+  const treeMatches: TreeMatch[] = useMemo(() => {
+    if (!showTree || !query || !parsedJson) return [];
+    const raw = buildTreeMatches(parsedJson, "root", query);
+    return raw.map((m, i) => ({ ...m, globalIndex: i }));
+  }, [showTree, query, parsedJson, json]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Raw mode matches ---
+  const rawMatches: RawMatch[] = useMemo(() => {
+    if (showTree || !query) return [];
+    const lower = json.toLowerCase();
+    const q = query.toLowerCase();
+    const found: RawMatch[] = [];
+    let idx = 0;
+    while (idx < lower.length) {
+      const pos = lower.indexOf(q, idx);
+      if (pos === -1) break;
+      found.push({ start: pos, end: pos + q.length });
+      idx = pos + q.length;
+    }
+    return found;
+  }, [showTree, query, json]);
+
+  const totalMatches = showTree ? treeMatches.length : rawMatches.length;
+
+  // Reset active index when matches change
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [treeMatches, rawMatches]);
 
   const handleSelectAll = useCallback(() => {
     const target = showTree ? treeRef.current : preRef.current;
@@ -105,7 +135,6 @@ function JsonViewerContent({
     setSearchOpen((prev) => {
       if (prev) {
         setQuery("");
-        setMatches([]);
         setActiveIndex(0);
       }
       return !prev;
@@ -122,41 +151,29 @@ function JsonViewerContent({
     }
   }, [searchOpen]);
 
+  // Scroll active raw match into view
   useEffect(() => {
-    if (!query) {
-      setMatches([]);
-      setActiveIndex(0);
-      return;
+    if (!showTree && activeRawMatchRef.current) {
+      activeRawMatchRef.current.scrollIntoView({ block: "nearest" });
     }
-    const lower = json.toLowerCase();
-    const q = query.toLowerCase();
-    const found: Match[] = [];
-    let idx = 0;
-    while (idx < lower.length) {
-      const pos = lower.indexOf(q, idx);
-      if (pos === -1) break;
-      found.push({ start: pos, end: pos + q.length });
-      idx = pos + q.length;
-    }
-    setMatches(found);
-    setActiveIndex(0);
-  }, [query, json]);
+  }, [activeIndex, rawMatches, showTree]);
 
+  // Scroll active tree match into view
   useEffect(() => {
-    if (activeMatchRef.current) {
-      activeMatchRef.current.scrollIntoView({ block: "nearest" });
+    if (showTree && activeTreeMatchRef.current) {
+      activeTreeMatchRef.current.scrollIntoView({ block: "nearest" });
     }
-  }, [activeIndex, matches]);
+  }, [activeIndex, treeMatches, showTree]);
 
   const goNext = useCallback(() => {
-    if (matches.length === 0) return;
-    setActiveIndex((i) => (i + 1) % matches.length);
-  }, [matches]);
+    if (totalMatches === 0) return;
+    setActiveIndex((i) => (i + 1) % totalMatches);
+  }, [totalMatches]);
 
   const goPrev = useCallback(() => {
-    if (matches.length === 0) return;
-    setActiveIndex((i) => (i - 1 + matches.length) % matches.length);
-  }, [matches]);
+    if (totalMatches === 0) return;
+    setActiveIndex((i) => (i - 1 + totalMatches) % totalMatches);
+  }, [totalMatches]);
 
   const handleSearchKey = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -174,8 +191,12 @@ function JsonViewerContent({
     [toggleSearch, goNext, goPrev],
   );
 
-  const segments = buildSegments(json, matches, activeIndex);
-  let segmentMatchIndex = -1;
+  const handleActiveTreeRef = useCallback((el: HTMLElement | null) => {
+    activeTreeMatchRef.current = el;
+  }, []);
+
+  const rawSegments = buildRawSegments(json, rawMatches, activeIndex);
+  let rawSegmentMatchIndex = -1;
 
   return (
     <div className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)}>
@@ -237,7 +258,7 @@ function JsonViewerContent({
                 size="icon"
                 className={cn(
                   "h-7 w-7",
-                  viewMode === "tree" && !searchOpen && "bg-accent text-accent-foreground",
+                  viewMode === "tree" && "bg-accent text-accent-foreground",
                 )}
                 onClick={toggleViewMode}
                 aria-label={viewMode === "tree" ? "Switch to raw view" : "Switch to tree view"}
@@ -283,18 +304,18 @@ function JsonViewerContent({
               className="h-6 flex-1 px-2 py-0 text-xs font-mono"
             />
             <span className="min-w-[4rem] text-center text-xs text-muted-foreground">
-              {matches.length === 0
+              {totalMatches === 0
                 ? query
                   ? "No results"
                   : ""
-                : `${activeIndex + 1} / ${matches.length}`}
+                : `${activeIndex + 1} / ${totalMatches}`}
             </span>
             <Button
               variant="ghost"
               size="icon"
               className="h-6 w-6"
               onClick={goPrev}
-              disabled={matches.length === 0}
+              disabled={totalMatches === 0}
               aria-label="Previous match"
             >
               <ChevronUp className="h-3 w-3" />
@@ -304,7 +325,7 @@ function JsonViewerContent({
               size="icon"
               className="h-6 w-6"
               onClick={goNext}
-              disabled={matches.length === 0}
+              disabled={totalMatches === 0}
               aria-label="Next match"
             >
               <ChevronDown className="h-3 w-3" />
@@ -324,7 +345,13 @@ function JsonViewerContent({
 
       {showTree ? (
         <div ref={treeRef} className={cn(_isFullscreen && "flex-1 overflow-auto min-h-0 rounded-b-lg border border-t-0 border-border/40 bg-muted/50 p-4")}>
-          <JsonTreeView parsed={parsedJson} storageKey={storageKey} />
+          <JsonTreeView
+            parsed={parsedJson}
+            storageKey={storageKey}
+            treeMatches={searchOpen ? treeMatches : []}
+            activeMatchIndex={searchOpen ? activeIndex : -1}
+            onActiveRef={handleActiveTreeRef}
+          />
         </div>
       ) : (
         <pre
@@ -334,16 +361,16 @@ function JsonViewerContent({
             _isFullscreen && "flex-1 overflow-auto min-h-0",
           )}
         >
-          {matches.length > 0
-            ? segments.map((seg, i) => {
+          {rawMatches.length > 0
+            ? rawSegments.map((seg, i) => {
                 if (seg.highlight) {
-                  segmentMatchIndex++;
+                  rawSegmentMatchIndex++;
                   const isActive = seg.active;
-                  const capturedIndex = segmentMatchIndex;
+                  const capturedIndex = rawSegmentMatchIndex;
                   return (
                     <mark
                       key={i}
-                      ref={isActive ? activeMatchRef : undefined}
+                      ref={isActive ? activeRawMatchRef : undefined}
                       onClick={() => setActiveIndex(capturedIndex)}
                       className={cn(
                         "rounded-sm cursor-pointer",
