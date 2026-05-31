@@ -35,6 +35,8 @@ interface JsonTreeNodeProps {
 const INDENT = 16;
 const AUTO_COLLAPSE_DEPTH = 2;
 const LS_PREFIX = "osdu-tree-state:";
+const LS_LRU_KEY = "osdu-tree-state-lru";
+const MAX_SAVED_LAYOUTS = 100;
 
 function isObject(v: JsonValue): v is { [key: string]: JsonValue } {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -353,12 +355,47 @@ export function buildInitialCollapsed(value: JsonValue, path: string, depth: num
   return set;
 }
 
+function lruRead(): string[] {
+  try {
+    const raw = localStorage.getItem(LS_LRU_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function lruTouch(storageKey: string): void {
+  try {
+    const lru = lruRead().filter((k) => k !== storageKey);
+    lru.unshift(storageKey);
+    const overflow = lru.splice(MAX_SAVED_LAYOUTS);
+    for (const key of overflow) {
+      localStorage.removeItem(LS_PREFIX + key);
+    }
+    localStorage.setItem(LS_LRU_KEY, JSON.stringify(lru));
+  } catch {
+    // ignore
+  }
+}
+
+function lruRemove(storageKey: string): void {
+  try {
+    const lru = lruRead().filter((k) => k !== storageKey);
+    localStorage.setItem(LS_LRU_KEY, JSON.stringify(lru));
+  } catch {
+    // ignore
+  }
+}
+
 export function loadSavedState(storageKey: string): Set<string> | null {
   try {
     const raw = localStorage.getItem(LS_PREFIX + storageKey);
     if (!raw) return null;
     const arr = JSON.parse(raw) as unknown;
     if (!Array.isArray(arr)) return null;
+    lruTouch(storageKey);
     return new Set(arr as string[]);
   } catch {
     return null;
@@ -368,6 +405,7 @@ export function loadSavedState(storageKey: string): Set<string> | null {
 export function persistState(storageKey: string, collapsed: Set<string>) {
   try {
     localStorage.setItem(LS_PREFIX + storageKey, JSON.stringify([...collapsed]));
+    lruTouch(storageKey);
   } catch {
     // ignore quota errors
   }
@@ -384,9 +422,27 @@ export function hasSavedState(storageKey: string): boolean {
 export function clearSavedState(storageKey: string) {
   try {
     localStorage.removeItem(LS_PREFIX + storageKey);
+    lruRemove(storageKey);
   } catch {
     // ignore
   }
+}
+
+export function clearAllSavedLayouts(): number {
+  try {
+    const lru = lruRead();
+    for (const key of lru) {
+      localStorage.removeItem(LS_PREFIX + key);
+    }
+    localStorage.removeItem(LS_LRU_KEY);
+    return lru.length;
+  } catch {
+    return 0;
+  }
+}
+
+export function getSavedLayoutCount(): number {
+  return lruRead().length;
 }
 
 export interface TreeCollapsedState {

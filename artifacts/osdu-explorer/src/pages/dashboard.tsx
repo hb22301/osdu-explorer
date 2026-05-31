@@ -1,12 +1,23 @@
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useGetOsduConfig } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, ScrollText, Tags, Server, ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Search, ScrollText, Tags, Server, ArrowRight, LayoutPanelLeft, Trash2 } from "lucide-react";
+import { clearAllSavedLayouts, getSavedLayoutCount } from "@/components/json-tree-view";
 
 export default function DashboardPage() {
   const { data: config, isLoading } = useGetOsduConfig();
   const [, setLocation] = useLocation();
+  const [layoutCount, setLayoutCount] = useState(() => getSavedLayoutCount());
+  const [cleared, setCleared] = useState(false);
+
+  const handleClearLayouts = useCallback(() => {
+    clearAllSavedLayouts();
+    setLayoutCount(0);
+    setCleared(true);
+    setTimeout(() => setCleared(false), 3000);
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !config?.configured) {
@@ -74,6 +85,43 @@ export default function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      <Card className="border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <LayoutPanelLeft className="h-5 w-5 text-muted-foreground" />
+            Saved Layouts
+          </CardTitle>
+          <CardDescription>
+            Tree expand/collapse layouts are saved per record to restore your view across sessions.
+            Only the 100 most recently accessed are kept.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4 p-4 rounded-lg bg-muted/50 border border-border/50">
+            <div>
+              <p className="text-sm font-medium">
+                {layoutCount === 0 ? "No saved layouts" : `${layoutCount} saved layout${layoutCount !== 1 ? "s" : ""}`}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {layoutCount === 0
+                  ? "Layouts will be saved as you expand and collapse records."
+                  : "Clearing removes all saved expand/collapse state."}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearLayouts}
+              disabled={layoutCount === 0}
+              className="shrink-0 gap-2"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {cleared ? "Cleared" : "Clear all"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-border/50">
         <CardHeader>
