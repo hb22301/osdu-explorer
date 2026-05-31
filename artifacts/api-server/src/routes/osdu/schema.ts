@@ -46,21 +46,22 @@ router.get("/osdu/schemas", async (req, res): Promise<void> => {
     schemaInfos: (schemaData.schemaInfos ?? [])
       .filter((s: unknown) => {
         const info = s as Record<string, unknown>;
-        return (info.id ?? info.kind) != null;
+        const identity = info.schemaIdentity as Record<string, unknown> | undefined;
+        return (identity?.id ?? info.id ?? info.kind) != null;
       })
       .map((s: unknown) => {
-      const info = s as Record<string, unknown>;
-      const si = info.schemaInfo as Record<string, unknown> | undefined;
-      return {
-        kind: info.id ?? info.kind ?? null,
-        status: si?.status ?? info.status ?? null,
-        scope: si?.scope ?? info.scope ?? null,
-        createdBy: si?.createdBy ?? info.createdBy ?? null,
-        dateCreated: si?.dateCreated ?? info.dateCreated ?? null,
-        updatedBy: si?.updatedBy ?? info.updatedBy ?? null,
-        dateUpdated: si?.dateUpdated ?? info.dateUpdated ?? null,
-      };
-    }),
+        const info = s as Record<string, unknown>;
+        const identity = info.schemaIdentity as Record<string, unknown> | undefined;
+        return {
+          kind:        identity?.id  ?? info.id  ?? info.kind  ?? null,
+          status:      info.status      ?? null,
+          scope:       info.scope       ?? null,
+          createdBy:   info.createdBy   ?? null,
+          dateCreated: info.dateCreated ?? null,
+          updatedBy:   info.updatedBy   ?? null,
+          dateUpdated: info.dateUpdated ?? null,
+        };
+      }),
     offset: schemaData.offset ?? 0,
     count: schemaData.count ?? 0,
     totalCount: schemaData.totalCount ?? 0,
@@ -97,12 +98,13 @@ router.get("/osdu/schemas/:kind", async (req, res): Promise<void> => {
   }
 
   const schemaData = data as Record<string, unknown>;
+  const identity = schemaData.schemaIdentity as Record<string, unknown> | undefined;
   const result = GetOsduSchemaResponse.parse({
-    kind: schemaData.id ?? schemaData.kind ?? kind,
-    schema: schemaData.schema ?? {},
-    status: (schemaData.schemaInfo as Record<string, unknown> | undefined)?.status ?? schemaData.status ?? null,
-    createdBy: (schemaData.schemaInfo as Record<string, unknown> | undefined)?.createdBy ?? schemaData.createdBy ?? null,
-    dateCreated: (schemaData.schemaInfo as Record<string, unknown> | undefined)?.dateCreated ?? schemaData.dateCreated ?? null,
+    kind:        identity?.id  ?? schemaData.id  ?? schemaData.kind  ?? kind,
+    schema:      schemaData.schema ?? {},
+    status:      schemaData.status      ?? null,
+    createdBy:   schemaData.createdBy   ?? null,
+    dateCreated: schemaData.dateCreated ?? null,
   });
 
   res.json(result);

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useListOsduSchemas, getListOsduSchemasQueryKey, useGetOsduSchema } from "@workspace/api-client-react";
+import { useListOsduSchemas, useGetOsduSchema } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -145,16 +145,13 @@ export default function SchemasPage() {
   const dragColRef    = useRef<ColKey | null>(null);
   const endResizeRef  = useRef<(() => void) | null>(null);
 
-  const { data: schemasData, isLoading, isError, error } = useListOsduSchemas(
-    {
-      authority:  params.authority  || undefined,
-      source:     params.source     || undefined,
-      entityType: params.entityType || undefined,
-      limit,
-      offset,
-    },
-    { query: { queryKey: getListOsduSchemasQueryKey({ ...params, limit, offset }) } }
-  );
+  const { data: schemasData, isLoading, isError, error } = useListOsduSchemas({
+    authority:  params.authority  || undefined,
+    source:     params.source     || undefined,
+    entityType: params.entityType || undefined,
+    limit,
+    offset,
+  });
 
   const { data: schemaDetails } = useGetOsduSchema(
     encodeURIComponent(viewingId ?? ""),
