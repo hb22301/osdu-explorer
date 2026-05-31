@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown } from "lucide-react";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check } from "lucide-react";
 import { format } from "date-fns";
 
 type SortDir = "asc" | "desc";
@@ -94,6 +94,32 @@ function SortIcon({ col, sortCol, sortDir }: { col: ColKey; sortCol: ColKey | nu
     : <ArrowDown className="ml-1 h-3 w-3 inline" />;
 }
 
+const KIND_QUERY_EXAMPLES: Record<string, string> = {
+  well:      'data.WellName:"Volve" AND data.CountryName:"Norway"',
+  wellbore:  'data.WellboreName:"Volve-1" AND data.VerticalMeasurement.VerticalMeasurementID:"*KB*"',
+  welllog:   'data.Name:"GR Log" AND data.CurveID:"*GR*"',
+  seismic:   'data.Name:"3D Survey" AND data.SeismicDomainTypeID:"*Time*"',
+  survey:    'data.SurveyName:"Block 34" AND data.ProjectedCRSID:"*WGS84*"',
+  field:     'data.FieldName:"Volve" AND data.GeoPoliticalEntityID:"*Norway*"',
+  facility:  'data.FacilityName:"Platform A" AND data.FacilityTypeID:"*Wellhead*"',
+  document:  'data.DocumentTitle:"Well Report" AND data.DocumentTypeID:"*Completion*"',
+  dataset:   'data.Name:"Seismic Dataset" AND data.DatasetProperties.FileSourceInfo.FileSize:[1000 TO *]',
+};
+
+const GENERIC_EXAMPLE = 'data.ProjectName:"MyProject"';
+
+function getQueryExample(kind: string): string {
+  if (!kind || kind === "*:*:*:*") return GENERIC_EXAMPLE;
+  const lower = kind.toLowerCase();
+  const entries = Object.entries(KIND_QUERY_EXAMPLES).sort(
+    ([a], [b]) => b.length - a.length
+  );
+  for (const [key, example] of entries) {
+    if (lower.includes(key)) return example;
+  }
+  return GENERIC_EXAMPLE;
+}
+
 export default function SearchPage() {
   const [kind, setKind]   = useState("*:*:*:*");
   const [query, setQuery] = useState("");
@@ -101,10 +127,21 @@ export default function SearchPage() {
   const [sortCol, setSortCol] = useState<ColKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<RawRecord | null>(null);
+  const [copied, setCopied] = useState(false);
   const limit = 50;
 
   const { data: kindsData } = useListOsduKinds({ limit: 1000 });
   const searchMutation = useSearchOsduRecords();
+
+  const queryPlaceholder = useMemo(() => getQueryExample(kind), [kind]);
+
+  const handleCopy = () => {
+    const text = query || queryPlaceholder;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -141,49 +178,71 @@ export default function SearchPage() {
   const total = searchMutation.data?.totalCount ?? 0;
 
   return (
-    <div className="p-8 max-w-full mx-auto space-y-6">
+    <div className="p-8 max-w-full mx-auto space-y-6 isolate">
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Record Search</h1>
-        <p className="text-muted-foreground">Search and explore records in the OSDU data platform.</p>
+        <h1
+          className="text-3xl font-bold tracking-tight text-neon"
+          style={{ textShadow: "0 0 24px hsl(180 100% 55% / 0.45), 0 0 8px hsl(180 100% 55% / 0.25)" }}
+        >
+          Record Search
+        </h1>
+        <p
+          className="text-muted-foreground pl-3"
+          style={{ borderLeft: "2px solid hsl(180 100% 55% / 0.5)" }}
+        >
+          Search and explore records in the OSDU data platform.
+        </p>
       </div>
 
-      <Card className="border-border/50">
-        <CardContent className="pt-6">
-          <form onSubmit={handleSearch} className="flex gap-4">
-            <div className="flex-1 space-y-2">
-              <label className="text-sm font-medium leading-none">Kind</label>
-              <Select value={kind} onValueChange={setKind}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select kind" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="*:*:*:*">Any kind (*:*:*:*)</SelectItem>
-                  {kindsData?.kinds?.map((k) => (
-                    <SelectItem key={k} value={k}>{k}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <div className="glass-card p-6">
+        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1 space-y-2">
+            <label className="text-sm font-medium leading-none">Kind</label>
+            <Select value={kind} onValueChange={setKind}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select kind" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="*:*:*:*">Any kind (*:*:*:*)</SelectItem>
+                {kindsData?.kinds?.map((k) => (
+                  <SelectItem key={k} value={k}>{k}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-[2] space-y-2">
+            <label className="text-sm font-medium leading-none">Lucene Query</label>
+            <div className="flex gap-2">
+              <Input
+                placeholder={queryPlaceholder}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="font-mono text-sm focus-visible:ring-neon/60"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handleCopy}
+                title="Copy query"
+                className={`shrink-0 focus-visible:ring-neon/60 ${copied ? "text-neon" : "text-muted-foreground hover:text-neon"}`}
+              >
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </Button>
+              <Button
+                type="submit"
+                disabled={searchMutation.isPending}
+                className="shrink-0 bg-neon text-black hover:bg-neon/90 border-neon/80 focus-visible:ring-neon/60"
+              >
+                {searchMutation.isPending
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <SearchIcon className="h-4 w-4 mr-2" />}
+                Search
+              </Button>
             </div>
-            <div className="flex-[2] space-y-2">
-              <label className="text-sm font-medium leading-none">Lucene Query</label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="e.g. data.ProjectName: 'MyProject'"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="font-mono text-sm"
-                />
-                <Button type="submit" disabled={searchMutation.isPending}>
-                  {searchMutation.isPending
-                    ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    : <SearchIcon className="h-4 w-4 mr-2" />}
-                  Search
-                </Button>
-              </div>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+          </div>
+        </form>
+      </div>
 
       {searchMutation.data && (
         <Card className="border-border/50">

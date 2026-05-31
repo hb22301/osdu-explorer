@@ -5,6 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --color-neon: hsl(var(--neon));
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-border: hsl(var(--border));
@@ -188,6 +189,8 @@
   --chart-3: 197 37% 24%;
   --chart-4: 43 74% 66%;
   --chart-5: 27 87% 67%;
+
+  --neon: 180 100% 55%;
 }
 
 @layer base {
@@ -221,6 +224,18 @@
  * need to be distinguished from eachother visually.
  */
 @layer utilities {
+
+  .glass-card {
+    background: hsl(222 47% 9% / 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--neon) / 0.25);
+    box-shadow:
+      0 0 0 1px hsl(var(--neon) / 0.10),
+      0 8px 32px hsl(222 47% 4% / 0.6),
+      0 2px 8px hsl(var(--neon) / 0.08);
+    border-radius: var(--radius-lg);
+  }
 
   /* Hide ugly search cancel button in Chrome until we can style it properly */
   input[type="search"]::-webkit-search-cancel-button {
