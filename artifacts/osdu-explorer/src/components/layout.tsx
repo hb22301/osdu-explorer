@@ -4,6 +4,7 @@ import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduCons
 import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConsolePanel } from "@/components/console-panel";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
@@ -68,9 +69,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { label: "Dashboard", href: "/dashboard", icon: Activity },
-    { label: "Search", href: "/search", icon: Search },
-    { label: "Schemas", href: "/schemas", icon: ScrollText },
     { label: "Legal Tags", href: "/legal-tags", icon: Tags },
+    { label: "Schemas", href: "/schemas", icon: ScrollText },
+    { label: "Search", href: "/search", icon: Search },
   ];
 
   if (isLoading) {
@@ -88,65 +89,59 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
       {/* Sidebar */}
-      <div className="w-64 border-r border-border bg-card flex flex-col h-full shrink-0">
-        <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
-          <Database className="w-5 h-5 text-primary mr-2" />
-          <span className="font-bold tracking-tight">OSDU Navigator</span>
-        </div>
+      <TooltipProvider delayDuration={200}>
+        <div className="w-14 border-r border-border bg-card flex flex-col h-full shrink-0 items-center">
+          <div className="h-14 flex items-center justify-center border-b border-border w-full shrink-0">
+            <Database className="w-5 h-5 text-primary" />
+          </div>
 
-        <div className="flex-1 py-4 overflow-y-auto">
-          <nav className="space-y-1 px-2">
+          <div className="flex-1 py-3 w-full flex flex-col items-center gap-1">
             {navItems.map((item) => {
               const isActive =
                 location === item.href || location.startsWith(`${item.href}/`);
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <item.icon
-                    className={`w-4 h-4 mr-3 flex-shrink-0 ${
-                      isActive ? "text-primary" : "text-muted-foreground"
-                    }`}
-                  />
-                  {item.label}
-                </Link>
+                <Tooltip key={item.href}>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={item.href}
+                      className={`flex items-center justify-center w-9 h-9 rounded-md transition-colors ${
+                        isActive
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <item.icon className="w-4 h-4 flex-shrink-0" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{item.label}</TooltipContent>
+                </Tooltip>
               );
             })}
-          </nav>
-        </div>
-
-        <div className="p-4 border-t border-border shrink-0 space-y-3">
-          <div className="space-y-1">
-            <p
-              className="text-xs font-mono text-muted-foreground truncate"
-              title={config?.baseUrl ?? ""}
-            >
-              {config?.baseUrl}
-            </p>
-            <p
-              className="text-xs font-mono text-muted-foreground truncate"
-              title={config?.partitionId ?? ""}
-            >
-              {config?.partitionId}
-            </p>
           </div>
-          <Button
-            variant="outline"
-            className="w-full justify-start text-muted-foreground"
-            size="sm"
-            onClick={handleLogout}
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Disconnect
-          </Button>
+
+          <div className="pb-3 w-full flex flex-col items-center gap-1 border-t border-border pt-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-9 h-9 text-muted-foreground hover:text-foreground"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <div className="text-xs space-y-0.5">
+                  <div className="font-medium">Disconnect</div>
+                  {config?.baseUrl && <div className="font-mono text-muted-foreground">{config.baseUrl}</div>}
+                  {config?.partitionId && <div className="font-mono text-muted-foreground">{config.partitionId}</div>}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
 
       {/* Right side: main content + console panel */}
       <div className="flex-1 flex flex-col h-full min-w-0 min-h-0">
