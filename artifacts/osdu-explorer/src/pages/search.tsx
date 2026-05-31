@@ -239,6 +239,7 @@ export default function SearchPage() {
   const [sortCol, setSortCol] = useState<ColKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<RawRecord | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [rowFilter, setRowFilter] = useState("");
@@ -326,6 +327,12 @@ export default function SearchPage() {
   }, [rows, rowFilter]);
 
   const total = searchMutation.data?.totalCount ?? 0;
+
+  useEffect(() => {
+    if (selectedRowId !== null && !rows.some((r) => r.id === selectedRowId)) {
+      setSelectedRowId(null);
+    }
+  }, [rows, selectedRowId]);
 
   return (
     <div className="p-8 max-w-full mx-auto space-y-6 isolate">
@@ -420,11 +427,11 @@ export default function SearchPage() {
                 {rowFilter.trim()
                   ? `Showing ${filteredRows.length.toLocaleString()} of ${rows.length.toLocaleString()} on this page (${total.toLocaleString()} total)`
                   : `${total.toLocaleString()} record${total !== 1 ? "s" : ""} found`}
-                {rows.length > 0 && !rowFilter.trim() && " — double-click a row to view full JSON"}
+                {rows.length > 0 && !rowFilter.trim() && " — click a row to select, then Search; double-click for full JSON"}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <RecordLookupDialog />
+              <RecordLookupDialog selectedId={selectedRowId ?? ""} />
               <Button
                 variant="outline" size="sm"
                 onClick={() => handlePageChange(Math.max(0, offset - limit))}
@@ -494,7 +501,9 @@ export default function SearchPage() {
                   {filteredRows.map((row, i) => (
                     <TableRow
                       key={row.id + i}
-                      className="cursor-pointer hover:bg-muted/50"
+                      data-state={selectedRowId === row.id ? "selected" : undefined}
+                      className="cursor-pointer hover:bg-muted/50 data-[state=selected]:bg-neon/10 data-[state=selected]:hover:bg-neon/15"
+                      onClick={() => setSelectedRowId(row.id !== "—" ? row.id : null)}
                       onDoubleClick={() => setSelected(row._raw)}
                     >
                       <TableCell className="font-mono truncate max-w-[220px]" title={row.id}>{row.id}</TableCell>

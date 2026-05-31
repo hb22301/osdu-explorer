@@ -10,11 +10,12 @@ import {
   DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { FileSearch, Loader2, AlertCircle } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Search as SearchIcon, Loader2, AlertCircle } from "lucide-react";
 
-export function RecordLookupDialog({ initialId = "" }: { initialId?: string }) {
+export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string }) {
   const [open, setOpen] = useState(false);
-  const [input, setInput] = useState(initialId);
+  const [input, setInput] = useState("");
   const [recordId, setRecordId] = useState("");
 
   const { data, isFetching, isError, error, refetch } = useGetOsduRecord(recordId, {
@@ -37,19 +38,29 @@ export function RecordLookupDialog({ initialId = "" }: { initialId?: string }) {
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
-    if (!next) {
-      setInput(initialId);
+    if (next) {
+      const seed = selectedId.trim();
+      setInput(seed);
+      setRecordId(seed);
+    } else {
+      setInput("");
       setRecordId("");
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <FileSearch className="h-4 w-4 mr-1" /> Search Record
-        </Button>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="icon" className="h-8 w-8">
+              <SearchIcon className="h-4 w-4" />
+              <span className="sr-only">Search</span>
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Search</TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Search Record by ID</DialogTitle>
@@ -76,7 +87,7 @@ export function RecordLookupDialog({ initialId = "" }: { initialId?: string }) {
             {isFetching ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <FileSearch className="h-4 w-4" />
+              <SearchIcon className="h-4 w-4" />
             )}
             <span className="ml-1">Fetch</span>
           </Button>
