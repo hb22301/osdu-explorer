@@ -315,7 +315,11 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, []);
 
-  // Auto-select full OSDU token (partition:type:id) on click
+  // Auto-select full OSDU record ID on click.
+  // Format: <partition>:<data_type>[--<EntityType>]:<id>
+  // where data_type ∈ {master-data, reference-data, work-product-component, work-product}
+  // and <id> may contain any characters including colons.
+  const OSDU_ID_RE = /^[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:.+$/;
   const handleContainerClick = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
@@ -324,14 +328,15 @@ export function JsonViewerContent({
     if (node.nodeType !== Node.TEXT_NODE) return;
     const text = node.textContent ?? "";
     const offset = range.startOffset;
+    // Expand left/right through characters that can appear in OSDU IDs
     let start = offset;
-    while (start > 0 && /[\w.\-:]/.test(text[start - 1])) start--;
+    while (start > 0 && /[^\s"'\[\]{},]/.test(text[start - 1])) start--;
     let end = offset;
-    while (end < text.length && /[\w.\-:]/.test(text[end])) end++;
-    // Strip leading/trailing non-word chars (e.g. surrounding quotes or colons)
-    const token = text.slice(start, end).replace(/^[:\-.]+|[:\-.]+$/g, "");
-    // Must have at least 2 colons (3 segments) to be an OSDU-style ID
-    if (/^[a-zA-Z0-9][\w-]*(?::[\w.-]+){2,}$/.test(token)) {
+    while (end < text.length && /[^\s"'\[\]{},]/.test(text[end])) end++;
+    // Strip leading non-alphanumeric chars (e.g. surrounding punctuation)
+    const raw = text.slice(start, end);
+    const token = raw.replace(/^[^a-zA-Z0-9]+/, "");
+    if (OSDU_ID_RE.test(token)) {
       const tokenStart = text.indexOf(token, start);
       const newRange = document.createRange();
       newRange.setStart(node, tokenStart);
