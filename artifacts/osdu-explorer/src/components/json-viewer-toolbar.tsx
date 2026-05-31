@@ -152,13 +152,13 @@ export function JsonViewerContent({
   }, [json]);
 
   const toggleSearch = useCallback(() => {
-    setSearchOpen((prev) => {
-      if (prev) {
-        setQuery("");
-        setActiveIndex(0);
-      }
-      return !prev;
-    });
+    setSearchOpen((prev) => !prev);
+  }, []);
+
+  const closeAndClearSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery("");
+    setActiveIndex(0);
   }, []);
 
   const toggleViewMode = useCallback(() => {
@@ -260,11 +260,16 @@ export function JsonViewerContent({
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-7 w-7", searchOpen && "bg-accent text-accent-foreground")}
+              className={cn("h-7 w-7 relative", searchOpen && "bg-accent text-accent-foreground")}
               onClick={toggleSearch}
               aria-label="Search"
             >
               <Search className="h-3.5 w-3.5" />
+              {totalMatches > 0 && query && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground pointer-events-none select-none">
+                  {totalMatches > 99 ? "99+" : totalMatches}
+                </span>
+              )}
             </Button>
           </TooltipTrigger>
           <TooltipContent>Find</TooltipContent>
@@ -426,7 +431,7 @@ export function JsonViewerContent({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={toggleSearch}
+              onClick={closeAndClearSearch}
               aria-label="Close search"
             >
               <X className="h-3 w-3" />
