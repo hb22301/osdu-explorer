@@ -333,11 +333,9 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, []);
 
-  // Auto-select full OSDU record ID or URN on click.
+  // Auto-select full OSDU record ID on click.
   // OSDU format: <partition>:<data_type>[--<EntityType>]:<id>
-  // URN format: urn://<service>/<path>
   const OSDU_ID_RE = /^[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:.+$/;
-  const URN_RE = /^urn:\/\/.+$/;
   const handleContainerClick = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
@@ -346,16 +344,13 @@ export function JsonViewerContent({
     if (node.nodeType !== Node.TEXT_NODE) return;
     const text = node.textContent ?? "";
     const offset = range.startOffset;
-    // Expand left/right through characters that can appear in OSDU IDs / URNs
+    // Expand left/right through characters that can appear in OSDU IDs
     let start = offset;
     while (start > 0 && /[^\s"'\[\]{},]/.test(text[start - 1])) start--;
     let end = offset;
     while (end < text.length && /[^\s"'\[\]{},]/.test(text[end])) end++;
-    // Strip leading non-alphanumeric chars (e.g. surrounding punctuation)
-    const raw = text.slice(start, end);
-    const token = raw.replace(/^[^a-zA-Z0-9u]+/, "").replace(/^(?=[a-z])/, "");
-    const cleanToken = raw.startsWith("urn") ? raw : raw.replace(/^[^a-zA-Z0-9]+/, "");
-    if (OSDU_ID_RE.test(cleanToken) || URN_RE.test(cleanToken)) {
+    const cleanToken = text.slice(start, end).replace(/^[^a-zA-Z0-9]+/, "");
+    if (OSDU_ID_RE.test(cleanToken)) {
       const tokenStart = text.indexOf(cleanToken, start);
       const newRange = document.createRange();
       newRange.setStart(node, tokenStart);
@@ -444,12 +439,12 @@ export function JsonViewerContent({
     }
   }, [selectedText, lookupLoading]);
 
-  // Extract URN strings from selectedText (handles single string or JSON array of strings)
-  const URN_EXTRACT_RE = /urn:\/\/[^\s"'\[\]{},\n\\]+/g;
+  // Extract OSDU record IDs from selectedText (handles single ID or text containing multiple IDs)
+  const OSDU_ID_EXTRACT_RE = /[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:[^\s"'\[\]{},\n\\]+/g;
   const selectedUrns = useMemo(() => {
     if (!selectedText) return [];
-    const matches = [...selectedText.matchAll(URN_EXTRACT_RE)];
-    return [...new Set(matches.map((m) => m[0]))];
+    const matches = [...selectedText.matchAll(OSDU_ID_EXTRACT_RE)];
+    return [...new Set(matches.map((m) => m[0].replace(/:+$/, "")))];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedText]);
 

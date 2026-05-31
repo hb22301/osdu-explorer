@@ -20,47 +20,37 @@ router.post("/osdu/wdms/fetch", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Request body must include a non-empty 'urns' array." });
     return;
   }
-  const urns = ((body as Record<string, unknown>).urns as unknown[])
+  const ids = ((body as Record<string, unknown>).urns as unknown[])
     .filter((u): u is string => typeof u === "string" && u.length > 0)
     .slice(0, 50);
-  if (urns.length === 0) {
-    res.status(400).json({ error: "No valid URN strings provided." });
+  if (ids.length === 0) {
+    res.status(400).json({ error: "No valid record ID strings provided." });
     return;
   }
 
   const client = getOsduClient(cfg);
 
   const results = await Promise.all(
-    urns.map(async (urn) => {
-      // Parse UUID from urn://service/uuid:{uuid} or urn://service/{uuid}
-      const uuidMatch = urn.match(/uuid:([0-9a-f-]{36})/i) ?? urn.match(/\/([0-9a-f-]{36})\/?$/i);
-      const id = uuidMatch ? uuidMatch[1] : urn;
-
-      // Try common OSDU Wellbore DDMS API paths in order
-      const candidates = [
-        `/api/os-wellbore-ddms/ddms/v3/welllogs/${encodeURIComponent(id)}`,
-        `/api/os-wellbore-ddms/ddms/v3/wellbores/${encodeURIComponent(id)}`,
-        `/api/os-wellbore-ddms/ddms/v2/welllogs/${encodeURIComponent(id)}`,
-        `/api/os-wellbore-ddms/ddms/v2/wellbores/${encodeURIComponent(id)}`,
-      ];
-
-      for (const path of candidates) {
-        try {
-          const { status, data } = await client.fetch(path);
-          if (status === 200 && data) {
-            const record = data as Record<string, unknown>;
-            // Flatten: if the response wraps data in a `data` field, hoist it
-            const flat = record.data && typeof record.data === "object" && !Array.isArray(record.data)
-              ? { ...(record.data as Record<string, unknown>), _id: record.id, _kind: record.kind }
-              : record;
-            return { urn, status: "found" as const, data: flat };
-          }
-        } catch {
-          // try next path
+    ids.map(async (id) => {
+      const path = `/api/os-wellbore-ddms/ddms/v3/wellboretrajectories/${encodeURIComponent(id)}/data`;
+      try {
+        const { status, data } = await client.fetch(path);
+        if (status === 200 && data) {
+          const record = data as Record<string, unknown>;
+          return { urn: id, status: "found" as const, data: record };
         }
+        return {
+          urn: id,
+          status: "error" as const,
+          error: `HTTP ${status} from WDMS for ${id}`,
+        };
+      } catch (err) {
+        return {
+          urn: id,
+          status: "error" as const,
+          error: err instanceof Error ? err.message : `Failed to fetch WDMS data for ${id}`,
+        };
       }
-
-      return { urn, status: "error" as const, error: `No WDMS record found for ${id}` };
     }),
   );
 
