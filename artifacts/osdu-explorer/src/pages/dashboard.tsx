@@ -58,7 +58,7 @@ export default function DashboardPage() {
     <div className="p-8 max-w-6xl mx-auto space-y-8">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
-        <p className="text-muted-foreground">Welcome to OSDU Explorer. You are connected to {config.partitionId}.</p>
+        <p className="text-muted-foreground">Welcome to OSDU Navigator. You are connected to {config.partitionId}.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

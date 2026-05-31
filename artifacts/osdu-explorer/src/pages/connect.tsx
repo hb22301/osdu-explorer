@@ -65,7 +65,7 @@ export default function ConnectPage() {
           <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center mb-4">
             <Database className="w-6 h-6 text-primary" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">OSDU Explorer</h1>
+          <h1 className="text-3xl font-bold tracking-tight">OSDU Navigator</h1>
           <p className="text-muted-foreground">Connect to your data platform</p>
         </div>
 

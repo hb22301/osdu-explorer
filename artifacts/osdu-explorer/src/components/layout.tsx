@@ -91,7 +91,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="w-64 border-r border-border bg-card flex flex-col h-full shrink-0">
         <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
           <Database className="w-5 h-5 text-primary mr-2" />
-          <span className="font-bold tracking-tight">OSDU Explorer</span>
+          <span className="font-bold tracking-tight">OSDU Navigator</span>
         </div>
 
         <div className="flex-1 py-4 overflow-y-auto">
