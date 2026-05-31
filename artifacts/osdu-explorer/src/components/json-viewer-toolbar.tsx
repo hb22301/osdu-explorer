@@ -64,6 +64,15 @@ function buildRawSegments(text: string, matches: RawMatch[], activeIndex: number
 
 type ViewMode = "tree" | "raw";
 
+interface SharedViewerState {
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+  query: string;
+  onQueryChange: (q: string) => void;
+  searchOpen: boolean;
+  onSearchOpenChange: (open: boolean) => void;
+}
+
 export function JsonViewerContent({
   json,
   className,
@@ -72,10 +81,12 @@ export function JsonViewerContent({
   onMaximize,
   onPopOut,
   sharedTreeState,
+  sharedViewerState,
 }: JsonViewerToolbarProps & {
   onMaximize?: () => void;
   onPopOut?: () => void;
   sharedTreeState?: TreeCollapsedState;
+  sharedViewerState?: SharedViewerState;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
@@ -83,16 +94,53 @@ export function JsonViewerContent({
   const activeRawMatchRef = useRef<HTMLElement>(null);
   const activeTreeMatchRef = useRef<HTMLElement | null>(null);
 
-  const [viewMode, setViewMode] = useState<ViewMode>("tree");
+  const [localViewMode, setLocalViewMode] = useState<ViewMode>("tree");
   const [copied, setCopied] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [localSearchOpen, setLocalSearchOpen] = useState(false);
+  const [localQuery, setLocalQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [wordWrap, setWordWrap] = useState(true);
   const [fontSize, setFontSize] = useState(12);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
+
+  const viewMode = sharedViewerState ? sharedViewerState.viewMode : localViewMode;
+  const searchOpen = sharedViewerState ? sharedViewerState.searchOpen : localSearchOpen;
+  const query = sharedViewerState ? sharedViewerState.query : localQuery;
+
+  const setViewMode = useCallback(
+    (mode: ViewMode) => {
+      if (sharedViewerState) {
+        sharedViewerState.onViewModeChange(mode);
+      } else {
+        setLocalViewMode(mode);
+      }
+    },
+    [sharedViewerState],
+  );
+
+  const setSearchOpen = useCallback(
+    (open: boolean) => {
+      if (sharedViewerState) {
+        sharedViewerState.onSearchOpenChange(open);
+      } else {
+        setLocalSearchOpen(open);
+      }
+    },
+    [sharedViewerState],
+  );
+
+  const setQuery = useCallback(
+    (q: string) => {
+      if (sharedViewerState) {
+        sharedViewerState.onQueryChange(q);
+      } else {
+        setLocalQuery(q);
+      }
+    },
+    [sharedViewerState],
+  );
 
   const parsedJson: JsonValue | null = (() => {
     try {
@@ -152,18 +200,18 @@ export function JsonViewerContent({
   }, [json]);
 
   const toggleSearch = useCallback(() => {
-    setSearchOpen((prev) => !prev);
-  }, []);
+    setSearchOpen(!searchOpen);
+  }, [searchOpen, setSearchOpen]);
 
   const closeAndClearSearch = useCallback(() => {
     setSearchOpen(false);
     setQuery("");
     setActiveIndex(0);
-  }, []);
+  }, [setSearchOpen, setQuery]);
 
   const toggleViewMode = useCallback(() => {
-    setViewMode((prev) => (prev === "tree" ? "raw" : "tree"));
-  }, []);
+    setViewMode(viewMode === "tree" ? "raw" : "tree");
+  }, [viewMode, setViewMode]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -517,6 +565,20 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
   // Shared collapse state — lifted here so inline and fullscreen views stay in sync.
   const sharedTreeState = useTreeCollapsed(parsedJson, storageKey);
 
+  // Shared viewer state — lifted here so inline and fullscreen views stay in sync.
+  const [viewMode, setViewMode] = useState<ViewMode>("tree");
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const sharedViewerState: SharedViewerState = {
+    viewMode,
+    onViewModeChange: setViewMode,
+    query,
+    onQueryChange: setQuery,
+    searchOpen,
+    onSearchOpenChange: setSearchOpen,
+  };
+
   return (
     <>
       <JsonViewerContent
@@ -526,6 +588,7 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
         onMaximize={() => setFullscreenOpen(true)}
         onPopOut={() => handlePopOut(json, storageKey)}
         sharedTreeState={sharedTreeState}
+        sharedViewerState={sharedViewerState}
       />
 
       <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
@@ -561,6 +624,7 @@ export function JsonViewerToolbar({ json, className, storageKey }: JsonViewerToo
               _isFullscreen
               className="h-full"
               sharedTreeState={sharedTreeState}
+              sharedViewerState={sharedViewerState}
             />
           </div>
         </DialogContent>
