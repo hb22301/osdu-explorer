@@ -89,8 +89,8 @@ function HighlightText({
           "rounded-sm",
           onMatchClick && !isActive && "cursor-pointer",
           isActive
-            ? "bg-orange-400/80 text-foreground"
-            : "bg-yellow-300/70 text-foreground",
+            ? "bg-orange-400/70 dark:bg-orange-400/80"
+            : "bg-yellow-400/50 dark:bg-yellow-300/70",
         )}
       >
         {text.slice(m.start, m.end)}
