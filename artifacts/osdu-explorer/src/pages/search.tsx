@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useSearchOsduRecords, useListOsduKinds } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check } from "lucide-react";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 
 type SortDir = "asc" | "desc";
@@ -50,6 +50,53 @@ interface FlatRow {
   createTime: string;
   modifyBy: string;
   modifyTime: string;
+}
+
+interface RecentSearch {
+  kind: string;
+  query: string;
+  ts: number;
+}
+
+const STORAGE_KEY = "osdu-explorer:recent-searches";
+const MAX_RECENT = 10;
+
+function loadRecentSearches(): RecentSearch[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RecentSearch[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentSearches(searches: RecentSearch[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(searches));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function useRecentSearches() {
+  const [recent, setRecent] = useState<RecentSearch[]>(loadRecentSearches);
+
+  const add = useCallback((kind: string, query: string) => {
+    setRecent((prev) => {
+      const entry: RecentSearch = { kind, query, ts: Date.now() };
+      const filtered = prev.filter((r) => !(r.kind === kind && r.query === query));
+      const next = [entry, ...filtered].slice(0, MAX_RECENT);
+      saveRecentSearches(next);
+      return next;
+    });
+  }, []);
+
+  const clear = useCallback(() => {
+    saveRecentSearches([]);
+    setRecent([]);
+  }, []);
+
+  return { recent, add, clear };
 }
 
 function fmtDate(val: unknown): string {
@@ -120,6 +167,69 @@ function getQueryExample(kind: string): string {
   return GENERIC_EXAMPLE;
 }
 
+function RecentSearchesDropdown({
+  recent,
+  onSelect,
+  onClear,
+  onClose,
+}: {
+  recent: RecentSearch[];
+  onSelect: (r: RecentSearch) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Recent searches</span>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+            onClick={onClear}
+            title="Clear history"
+          >
+            <Trash2 className="h-3 w-3 mr-1" />
+            Clear
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground"
+            onClick={onClose}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+      <ul className="max-h-56 overflow-y-auto py-1">
+        {recent.map((r, i) => (
+          <li key={i}>
+            <button
+              type="button"
+              className="w-full flex items-start gap-2 px-3 py-2 text-left hover:bg-muted/60 transition-colors"
+              onClick={() => onSelect(r)}
+            >
+              <Clock className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-mono text-neon/80 truncate">{r.kind}</div>
+                {r.query ? (
+                  <div className="text-xs font-mono text-foreground/70 truncate">{r.query}</div>
+                ) : (
+                  <div className="text-xs text-muted-foreground italic">no filter</div>
+                )}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function SearchPage() {
   const [kind, setKind]   = useState("*:*:*:*");
   const [query, setQuery] = useState("");
@@ -128,12 +238,27 @@ export default function SearchPage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
   const limit = 50;
+
+  const { recent, add: addRecent, clear: clearRecent } = useRecentSearches();
+  const queryWrapRef = useRef<HTMLDivElement>(null);
 
   const { data: kindsData } = useListOsduKinds({ limit: 1000 });
   const searchMutation = useSearchOsduRecords();
 
   const queryPlaceholder = useMemo(() => getQueryExample(kind), [kind]);
+
+  useEffect(() => {
+    if (!showRecent) return;
+    function handleClick(e: MouseEvent) {
+      if (queryWrapRef.current && !queryWrapRef.current.contains(e.target as Node)) {
+        setShowRecent(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showRecent]);
 
   const handleCopy = () => {
     const text = query || queryPlaceholder;
@@ -146,7 +271,18 @@ export default function SearchPage() {
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setOffset(0);
+    setShowRecent(false);
+    addRecent(kind, query);
     searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: 0 } });
+  };
+
+  const handleSelectRecent = (r: RecentSearch) => {
+    setKind(r.kind);
+    setQuery(r.query);
+    setShowRecent(false);
+    setOffset(0);
+    addRecent(r.kind, r.query);
+    searchMutation.mutate({ data: { kind: r.kind, query: r.query || undefined, limit, offset: 0 } });
   };
 
   const handlePageChange = (newOffset: number) => {
@@ -213,12 +349,23 @@ export default function SearchPage() {
           <div className="flex-[2] space-y-2">
             <label className="text-sm font-medium leading-none">Lucene Query</label>
             <div className="flex gap-2">
-              <Input
-                placeholder={queryPlaceholder}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="font-mono text-sm focus-visible:ring-neon/60"
-              />
+              <div ref={queryWrapRef} className="relative flex-1">
+                <Input
+                  placeholder={queryPlaceholder}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onFocus={() => { if (recent.length > 0) setShowRecent(true); }}
+                  className="font-mono text-sm focus-visible:ring-neon/60 w-full"
+                />
+                {showRecent && recent.length > 0 && (
+                  <RecentSearchesDropdown
+                    recent={recent}
+                    onSelect={handleSelectRecent}
+                    onClear={() => { clearRecent(); setShowRecent(false); }}
+                    onClose={() => setShowRecent(false)}
+                  />
+                )}
+              </div>
               <Button
                 type="button"
                 variant="ghost"
