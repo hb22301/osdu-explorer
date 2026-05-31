@@ -493,16 +493,27 @@ components:
 
     OsduSchema:
       type: object
+      additionalProperties: true
       properties:
         kind:
           type: string
         schema:
           type: object
+          additionalProperties: true
         status:
-          type: string
+          type: ["string", "null"]
         createdBy:
           type: ["string", "null"]
         dateCreated:
+          type: ["string", "null"]
+        schemaIdentity:
+          type: object
+          additionalProperties: true
+        scope:
+          type: ["string", "null"]
+        updatedBy:
+          type: ["string", "null"]
+        dateUpdated:
           type: ["string", "null"]
 
     OsduLegalTag:

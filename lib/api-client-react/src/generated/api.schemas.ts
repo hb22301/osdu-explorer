@@ -125,15 +125,26 @@ export interface OsduSchemaList {
 
 export type OsduSchemaSchema = { [key: string]: unknown };
 
+export type OsduSchemaSchemaIdentity = { [key: string]: unknown };
+
 export interface OsduSchema {
   kind?: string;
   schema?: OsduSchemaSchema;
-  status?: string;
+  /** @nullable */
+  status?: string | null;
   /** @nullable */
   createdBy?: string | null;
   /** @nullable */
   dateCreated?: string | null;
-}
+  schemaIdentity?: OsduSchemaSchemaIdentity;
+  /** @nullable */
+  scope?: string | null;
+  /** @nullable */
+  updatedBy?: string | null;
+  /** @nullable */
+  dateUpdated?: string | null;
+  [key: string]: unknown;
+ }
 
 export type OsduLegalTagProperties = { [key: string]: unknown };
 

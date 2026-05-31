@@ -6,13 +6,23 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { OsduSchemaSchema } from './osduSchemaSchema';
+import type { OsduSchemaSchemaIdentity } from './osduSchemaSchemaIdentity';
 
 export interface OsduSchema {
   kind?: string;
   schema?: OsduSchemaSchema;
-  status?: string;
+  /** @nullable */
+  status?: string | null;
   /** @nullable */
   createdBy?: string | null;
   /** @nullable */
   dateCreated?: string | null;
-}
+  schemaIdentity?: OsduSchemaSchemaIdentity;
+  /** @nullable */
+  scope?: string | null;
+  /** @nullable */
+  updatedBy?: string | null;
+  /** @nullable */
+  dateUpdated?: string | null;
+  [key: string]: unknown;
+ }

@@ -99,12 +99,11 @@ router.get("/osdu/schemas/:kind", async (req, res): Promise<void> => {
 
   const schemaData = data as Record<string, unknown>;
   const identity = schemaData.schemaIdentity as Record<string, unknown> | undefined;
+
+  // Return the full raw OSDU response, augmented with a top-level `kind` for convenience.
   const result = GetOsduSchemaResponse.parse({
-    kind:        identity?.id  ?? schemaData.id  ?? schemaData.kind  ?? kind,
-    schema:      schemaData.schema ?? {},
-    status:      schemaData.status      ?? undefined,
-    createdBy:   schemaData.createdBy   ?? undefined,
-    dateCreated: schemaData.dateCreated ?? undefined,
+    ...schemaData,
+    kind: identity?.id ?? schemaData.id ?? schemaData.kind ?? kind,
   });
 
   res.json(result);

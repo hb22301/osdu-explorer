@@ -35,6 +35,7 @@ export * from './osduSchema';
 export * from './osduSchemaInfo';
 export * from './osduSchemaList';
 export * from './osduSchemaSchema';
+export * from './osduSchemaSchemaIdentity';
 export * from './osduSearchInput';
 export * from './osduSearchInputSort';
 export * from './osduSearchResult';

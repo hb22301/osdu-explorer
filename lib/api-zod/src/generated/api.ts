@@ -198,12 +198,14 @@ export const GetOsduSchemaParams = zod.object({
 
 export const GetOsduSchemaResponse = zod.object({
   "kind": zod.string().optional(),
-  "schema": zod.object({
-
-}).passthrough().optional(),
-  "status": zod.string().optional(),
+  "schema": zod.record(zod.string(), zod.unknown()).optional(),
+  "status": zod.string().nullish(),
   "createdBy": zod.string().nullish(),
-  "dateCreated": zod.string().nullish()
+  "dateCreated": zod.string().nullish(),
+  "schemaIdentity": zod.record(zod.string(), zod.unknown()).optional(),
+  "scope": zod.string().nullish(),
+  "updatedBy": zod.string().nullish(),
+  "dateUpdated": zod.string().nullish()
 })
 
 
