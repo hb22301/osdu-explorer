@@ -19,7 +19,9 @@ import {
   Search,
   Database,
   Loader2,
+  Terminal,
 } from "lucide-react";
+import { ConsolePanel } from "@/components/console-panel";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -44,6 +46,10 @@ interface JsonViewerToolbarProps {
   title?: string;
   /** Internal: when true the component is already inside the fullscreen overlay */
   _isFullscreen?: boolean;
+  /** When true, open directly in fullscreen (no inline view rendered) */
+  defaultFullscreen?: boolean;
+  /** Called when the fullscreen overlay is closed (only relevant with defaultFullscreen) */
+  onFullscreenClose?: () => void;
 }
 
 interface RawMatch {
@@ -793,8 +799,42 @@ type SyncMessage =
   | { type: "query"; value: string }
   | { type: "searchOpen"; value: boolean };
 
-export function JsonViewerToolbar({ json, className, storageKey, title }: JsonViewerToolbarProps) {
-  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+const FS_CONSOLE_DEFAULT = 300;
+const FS_CONSOLE_MIN = 80;
+const FS_CONSOLE_MAX = 700;
+
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose }: JsonViewerToolbarProps) {
+  const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
+  const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
+  const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
+  const fsConsoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  const handleFsConsoleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    fsConsoleDragState.current = { startY: e.clientY, startHeight: fsConsoleHeight };
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    const onMove = (ev: MouseEvent) => {
+      if (!fsConsoleDragState.current) return;
+      const delta = fsConsoleDragState.current.startY - ev.clientY;
+      const next = Math.min(FS_CONSOLE_MAX, Math.max(FS_CONSOLE_MIN, fsConsoleDragState.current.startHeight + delta));
+      setFsConsoleHeight(next);
+    };
+    const onUp = () => {
+      fsConsoleDragState.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [fsConsoleHeight]);
+
+  const handleFullscreenClose = useCallback(() => {
+    setFullscreenOpen(false);
+    onFullscreenClose?.();
+  }, [onFullscreenClose]);
 
   const parsedJson: JsonValue | null = (() => {
     try {
@@ -878,22 +918,24 @@ export function JsonViewerToolbar({ json, className, storageKey, title }: JsonVi
 
   return (
     <>
-      <JsonViewerContent
-        json={json}
-        className={className}
-        storageKey={storageKey}
-        onMaximize={() => setFullscreenOpen(true)}
-        onPopOut={handlePopOut}
-        sharedTreeState={sharedTreeState}
-        sharedViewerState={sharedViewerState}
-      />
+      {!defaultFullscreen && (
+        <JsonViewerContent
+          json={json}
+          className={className}
+          storageKey={storageKey}
+          onMaximize={() => setFullscreenOpen(true)}
+          onPopOut={handlePopOut}
+          sharedTreeState={sharedTreeState}
+          sharedViewerState={sharedViewerState}
+        />
+      )}
 
-      <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
+      <Dialog open={fullscreenOpen} onOpenChange={(open) => { if (!open) handleFullscreenClose(); }}>
         <DialogContent
           className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0"
           aria-describedby={undefined}
           onKeyDown={(e) => {
-            if (e.key === "Escape") setFullscreenOpen(false);
+            if (e.key === "Escape") handleFullscreenClose();
           }}
         >
           <DialogTitle className="sr-only">{title ?? "Full-screen JSON viewer"}</DialogTitle>
@@ -905,7 +947,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title }: JsonVi
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  onClick={() => setFullscreenOpen(false)}
+                  onClick={handleFullscreenClose}
                   aria-label="Exit full screen"
                 >
                   <Minimize2 className="h-3.5 w-3.5" />
@@ -914,7 +956,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title }: JsonVi
               <TooltipContent>Exit full screen</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex-1 overflow-hidden p-4">
+          <div className="flex-1 overflow-hidden min-h-0 p-4">
             <JsonViewerContent
               json={json}
               storageKey={storageKey}
@@ -923,6 +965,35 @@ export function JsonViewerToolbar({ json, className, storageKey, title }: JsonVi
               sharedTreeState={sharedTreeState}
               sharedViewerState={sharedViewerState}
             />
+          </div>
+          {fsConsoleOpen && (
+            <>
+              <div
+                className="shrink-0 h-[5px] cursor-ns-resize bg-border/60 hover:bg-primary/40 active:bg-primary/60 transition-colors"
+                onMouseDown={handleFsConsoleDragStart}
+                title="Drag to resize"
+              />
+              <div className="shrink-0" style={{ height: fsConsoleHeight }}>
+                <ConsolePanel height={fsConsoleHeight} />
+              </div>
+            </>
+          )}
+          <div
+            className="shrink-0 h-7 flex items-center gap-2 px-3 border-t border-border bg-card/80 cursor-pointer select-none hover:bg-muted/60 transition-colors"
+            onClick={() => setFsConsoleOpen((v) => !v)}
+            role="button"
+            aria-expanded={fsConsoleOpen}
+            aria-label="Toggle console"
+          >
+            <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-[11px] font-medium text-muted-foreground">Console</span>
+            <div className="ml-auto text-muted-foreground">
+              {fsConsoleOpen ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronUp className="w-3.5 h-3.5" />
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>
