@@ -136,10 +136,15 @@ export function JsonViewerContent({
   const [overlayJson, setOverlayJson] = useState<string | null>(null);
   const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
 
-  type WdmsRow = { urn: string; status: "found" | "error"; data?: Record<string, unknown>; error?: string };
+  type WdmsResult = {
+    urn: string;
+    status: "found" | "error";
+    columns?: string[];
+    dataRows?: unknown[][];
+    error?: string;
+  };
   const [wdmsOpen, setWdmsOpen] = useState(false);
-  const [wdmsRows, setWdmsRows] = useState<WdmsRow[]>([]);
-  const [wdmsColumns, setWdmsColumns] = useState<string[]>([]);
+  const [wdmsResults, setWdmsResults] = useState<WdmsResult[]>([]);
   const [wdmsLoading, setWdmsLoading] = useState(false);
   const [wdmsError, setWdmsError] = useState<string | null>(null);
 
@@ -452,8 +457,7 @@ export function JsonViewerContent({
     if (selectedUrns.length === 0 || wdmsLoading) return;
     setWdmsLoading(true);
     setWdmsError(null);
-    setWdmsRows([]);
-    setWdmsColumns([]);
+    setWdmsResults([]);
     try {
       const res = await fetch("/api/osdu/wdms/fetch", {
         method: "POST",
@@ -467,16 +471,19 @@ export function JsonViewerContent({
         return;
       }
       const json = await res.json() as { results: Array<{ urn: string; status: "found" | "error"; data?: Record<string, unknown>; error?: string }> };
-      const rows = json.results;
-      // Derive columns: union of all keys from all found rows' data
-      const colSet = new Set<string>();
-      for (const row of rows) {
+      const parsed: WdmsResult[] = json.results.map((row) => {
         if (row.status === "found" && row.data) {
-          Object.keys(row.data).forEach((k) => colSet.add(k));
+          const columns = Array.isArray(row.data.columns)
+            ? (row.data.columns as unknown[]).map(String)
+            : undefined;
+          const dataRows = Array.isArray(row.data.data)
+            ? (row.data.data as unknown[]).map((r) => (Array.isArray(r) ? r : [r]))
+            : undefined;
+          return { urn: row.urn, status: "found", columns, dataRows };
         }
-      }
-      setWdmsColumns(["urn", ...Array.from(colSet)]);
-      setWdmsRows(rows);
+        return { urn: row.urn, status: "error", error: row.error };
+      });
+      setWdmsResults(parsed);
       setWdmsOpen(true);
     } catch {
       setWdmsError("Failed to connect to WDMS");
@@ -885,12 +892,14 @@ export function JsonViewerContent({
 
       {/* Wellbore DMS results dialog */}
       <Dialog open={wdmsOpen} onOpenChange={setWdmsOpen}>
-        <DialogContent className="max-w-5xl w-full flex flex-col gap-3" style={{ maxHeight: "85vh" }}>
+        <DialogContent className="max-w-6xl w-full flex flex-col gap-3" style={{ maxHeight: "90vh" }}>
           <DialogTitle className="flex items-center gap-2">
             <Waves className="h-4 w-4 text-cyan-500" />
             Wellbore DMS Results
-            {wdmsRows.length > 0 && (
-              <Badge variant="secondary" className="ml-1 text-xs">{wdmsRows.length} record{wdmsRows.length !== 1 ? "s" : ""}</Badge>
+            {wdmsResults.length > 0 && (
+              <Badge variant="secondary" className="ml-1 text-xs">
+                {wdmsResults.length} record{wdmsResults.length !== 1 ? "s" : ""}
+              </Badge>
             )}
           </DialogTitle>
           {wdmsError && (
@@ -898,56 +907,68 @@ export function JsonViewerContent({
               {wdmsError}
             </div>
           )}
-          {!wdmsError && wdmsRows.length === 0 && (
+          {!wdmsError && wdmsResults.length === 0 && (
             <div className="text-xs text-muted-foreground py-4 text-center">No results returned.</div>
           )}
-          {wdmsRows.length > 0 && (
-            <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: "65vh" }}>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    {wdmsColumns.map((col) => (
-                      <TableHead key={col} className="whitespace-nowrap font-semibold capitalize text-xs">
-                        {col === "urn" ? "URN" : col.replace(/([A-Z])/g, " $1").trim()}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {wdmsRows.map((row, i) => (
-                    <TableRow key={i}>
-                      {wdmsColumns.map((col) => {
-                        if (col === "urn") {
-                          return (
-                            <TableCell key={col} className="font-mono text-xs text-cyan-500 break-all max-w-xs">
-                              {row.urn}
-                            </TableCell>
-                          );
-                        }
-                        if (row.status === "error") {
-                          return col === wdmsColumns[1] ? (
-                            <TableCell key={col} colSpan={wdmsColumns.length - 1} className="text-xs text-destructive italic">
-                              {row.error ?? "Error fetching data"}
-                            </TableCell>
-                          ) : null;
-                        }
-                        const val = row.data?.[col];
-                        const display =
-                          val === undefined || val === null
-                            ? <span className="text-muted-foreground/50">—</span>
-                            : typeof val === "object"
-                              ? <span className="font-mono text-xs text-muted-foreground">{JSON.stringify(val)}</span>
-                              : <span className="text-xs">{String(val)}</span>;
-                        return (
-                          <TableCell key={col} className="max-w-xs truncate">
-                            {display}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          {wdmsResults.length > 0 && (
+            <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: "75vh" }}>
+              <div className="flex flex-col gap-6">
+                {wdmsResults.map((result, ri) => (
+                  <div key={ri} className="flex flex-col gap-2">
+                    {wdmsResults.length > 1 && (
+                      <div className="text-[11px] font-mono text-cyan-500 break-all px-1">
+                        {result.urn}
+                      </div>
+                    )}
+                    {result.status === "error" ? (
+                      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                        {result.error ?? "Error fetching data"}
+                      </div>
+                    ) : result.columns && result.dataRows ? (
+                      <div className="rounded-md border border-border/50 overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/40">
+                              {result.columns.map((col) => (
+                                <TableHead key={col} className="whitespace-nowrap font-semibold text-xs py-2 px-3">
+                                  {col}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {result.dataRows.map((row, rowIdx) => (
+                              <TableRow key={rowIdx} className="hover:bg-muted/30">
+                                {result.columns!.map((col, colIdx) => {
+                                  const val = row[colIdx];
+                                  return (
+                                    <TableCell key={col} className="text-xs py-1.5 px-3 tabular-nums">
+                                      {val === undefined || val === null
+                                        ? <span className="text-muted-foreground/40">—</span>
+                                        : typeof val === "number"
+                                          ? val
+                                          : typeof val === "object"
+                                            ? <span className="font-mono text-muted-foreground">{JSON.stringify(val)}</span>
+                                            : String(val)}
+                                    </TableCell>
+                                  );
+                                })}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                        <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground">
+                          {result.dataRows.length} row{result.dataRows.length !== 1 ? "s" : ""} · {result.columns.length} column{result.columns.length !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground italic px-1">
+                        Response did not contain a <code className="font-mono">columns</code> / <code className="font-mono">data</code> array.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </ScrollArea>
           )}
         </DialogContent>
