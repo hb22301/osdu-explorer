@@ -1,23 +1,31 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useGetOsduConfig } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Search, ScrollText, Tags, Server, ArrowRight, LayoutPanelLeft, Trash2 } from "lucide-react";
-import { clearAllSavedLayouts, getSavedLayoutCount } from "@/components/json-tree-view";
+import { clearAllSavedLayouts, getSavedLayoutCount, getSavedLayoutsSize } from "@/components/json-tree-view";
 
 export default function DashboardPage() {
   const { data: config, isLoading } = useGetOsduConfig();
   const [, setLocation] = useLocation();
   const [layoutCount, setLayoutCount] = useState(() => getSavedLayoutCount());
+  const [layoutSize, setLayoutSize] = useState(() => getSavedLayoutsSize());
   const [cleared, setCleared] = useState(false);
 
   const handleClearLayouts = useCallback(() => {
     clearAllSavedLayouts();
     setLayoutCount(0);
+    setLayoutSize(0);
     setCleared(true);
     setTimeout(() => setCleared(false), 3000);
   }, []);
+
+  const formattedSize = useMemo(() => {
+    if (layoutSize < 1024) return `${layoutSize} B`;
+    if (layoutSize < 1024 * 1024) return `~${(layoutSize / 1024).toFixed(1)} KB`;
+    return `~${(layoutSize / (1024 * 1024)).toFixed(2)} MB`;
+  }, [layoutSize]);
 
   useEffect(() => {
     if (!isLoading && !config?.configured) {
@@ -102,6 +110,9 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-medium">
                 {layoutCount === 0 ? "No saved layouts" : `${layoutCount} saved layout${layoutCount !== 1 ? "s" : ""}`}
+                {layoutCount > 0 && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">{formattedSize}</span>
+                )}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {layoutCount === 0

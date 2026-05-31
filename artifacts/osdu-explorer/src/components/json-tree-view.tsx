@@ -464,6 +464,16 @@ export function getSavedLayoutCount(): number {
   return lruRead().length;
 }
 
+export function getSavedLayoutsSize(): number {
+  const lru = lruRead();
+  const lruRaw = localStorage.getItem(LS_LRU_KEY) ?? "";
+  const total = lruRaw.length + lru.reduce((sum, key) => {
+    const val = localStorage.getItem(LS_PREFIX + key) ?? "";
+    return sum + val.length;
+  }, 0);
+  return total;
+}
+
 export interface TreeCollapsedState {
   collapsed: Set<string>;
   hasCustomLayout: boolean;
