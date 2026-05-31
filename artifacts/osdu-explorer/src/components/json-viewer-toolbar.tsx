@@ -193,7 +193,9 @@ export function JsonViewerContent({
   }, [showTree]);
 
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(json).then(() => {
+    const sel = window.getSelection();
+    const selectedText = sel && sel.toString().length > 0 ? sel.toString() : null;
+    void navigator.clipboard.writeText(selectedText ?? json).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -300,7 +302,7 @@ export function JsonViewerContent({
               )}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{copied ? "Copied!" : "Copy"}</TooltipContent>
+          <TooltipContent>{copied ? "Copied!" : "Copy selection (or all)"}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
