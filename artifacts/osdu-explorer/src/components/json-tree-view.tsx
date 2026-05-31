@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, useLayoutEffect } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +83,7 @@ function HighlightText({
     nodes.push(
       <mark
         key={`m-${m.start}`}
+        data-match-index={m.globalIndex}
         ref={isActive ? onActiveRef : undefined}
         onClick={onMatchClick ? (e) => { e.stopPropagation(); onMatchClick(capturedIndex); } : undefined}
         className={cn(
@@ -697,6 +698,101 @@ export function buildTreeMatches(
   return matches;
 }
 
+/**
+ * Renders colored tick marks in a thin strip overlaid on the right edge of the
+ * scroll container — one tick per match, giving a spatial map of all results.
+ * Inactive matches → subtle yellow; active match → orange.
+ * Clicking a tick navigates to that match.
+ */
+function ScrollGutter({
+  scrollRef,
+  matches,
+  activeMatchIndex,
+  onTickClick,
+}: {
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  matches: TreeMatch[];
+  activeMatchIndex: number;
+  onTickClick?: (globalIndex: number) => void;
+}) {
+  const [ticks, setTicks] = useState<{ index: number; pct: number }[]>([]);
+
+  const recalculate = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const { scrollHeight } = container;
+    if (scrollHeight === 0) return;
+
+    const containerTop = container.getBoundingClientRect().top;
+    const marks = container.querySelectorAll<HTMLElement>("[data-match-index]");
+    const seen = new Set<number>();
+    const newTicks: { index: number; pct: number }[] = [];
+
+    for (const mark of marks) {
+      const idx = parseInt(mark.dataset.matchIndex ?? "", 10);
+      if (isNaN(idx) || seen.has(idx)) continue;
+      seen.add(idx);
+      const rect = mark.getBoundingClientRect();
+      const midY = rect.top - containerTop + container.scrollTop + rect.height / 2;
+      const pct = Math.min(99, Math.max(0, (midY / scrollHeight) * 100));
+      newTicks.push({ index: idx, pct });
+    }
+
+    setTicks(newTicks);
+  }, [scrollRef]);
+
+  // Recalculate whenever matches change or the tree content changes.
+  useLayoutEffect(() => {
+    recalculate();
+  }, [matches, recalculate]);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    // Resize: container itself grows/shrinks
+    const resizeObs = new ResizeObserver(recalculate);
+    resizeObs.observe(container);
+
+    // Mutation: nodes expand/collapse, changing scrollHeight
+    const mutationObs = new MutationObserver(recalculate);
+    mutationObs.observe(container, { childList: true, subtree: true });
+
+    return () => {
+      resizeObs.disconnect();
+      mutationObs.disconnect();
+    };
+  }, [scrollRef, recalculate]);
+
+  if (matches.length === 0 || ticks.length === 0) return null;
+
+  return (
+    <div
+      aria-hidden="true"
+      className="absolute right-0 top-0 bottom-0 w-1.5 z-10 rounded-r pointer-events-none overflow-hidden"
+    >
+      {ticks.map(({ index, pct }) => {
+        const isActive = index === activeMatchIndex;
+        return (
+          <div
+            key={index}
+            title={`Match ${index + 1}`}
+            className={cn(
+              "absolute left-0 right-0 h-[3px] rounded-sm pointer-events-auto transition-colors",
+              onTickClick ? "cursor-pointer" : "",
+              isActive
+                ? "bg-orange-400 dark:bg-orange-400"
+                : "bg-yellow-400/80 dark:bg-yellow-300/70",
+            )}
+            style={{ top: `${pct}%`, transform: "translateY(-50%)" }}
+            onClick={onTickClick ? () => onTickClick(index) : undefined}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 interface JsonTreeViewProps {
   parsed: JsonValue;
   storageKey?: string;
@@ -723,6 +819,8 @@ export function JsonTreeView({
 
   const { collapsed, hasCustomLayout, handleToggle, expandAll, collapseAll, resetLayout } =
     sharedState ?? ownState;
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const matchMap = useMemo(() => {
     const map = new Map<string, TreeMatch[]>();
@@ -780,19 +878,30 @@ export function JsonTreeView({
           </>
         )}
       </div>
-      <div className="bg-muted/50 rounded-b-lg p-3 border border-t-0 border-border/40 overflow-auto select-text">
-        <JsonTreeNode
-          value={parsed}
-          path="root"
-          collapsed={collapsed}
-          forcedOpen={forcedOpen}
-          onToggle={handleToggle}
-          depth={0}
-          isLast={true}
-          matchMap={matchMap}
+      <div className="relative">
+        <div
+          ref={scrollContainerRef}
+          className="bg-muted/50 rounded-b-lg p-3 border border-t-0 border-border/40 overflow-auto select-text"
+        >
+          <JsonTreeNode
+            value={parsed}
+            path="root"
+            collapsed={collapsed}
+            forcedOpen={forcedOpen}
+            onToggle={handleToggle}
+            depth={0}
+            isLast={true}
+            matchMap={matchMap}
+            activeMatchIndex={activeMatchIndex}
+            onActiveRef={handleActiveRef}
+            onMatchClick={onMatchClick}
+          />
+        </div>
+        <ScrollGutter
+          scrollRef={scrollContainerRef}
+          matches={treeMatches}
           activeMatchIndex={activeMatchIndex}
-          onActiveRef={handleActiveRef}
-          onMatchClick={onMatchClick}
+          onTickClick={onMatchClick}
         />
       </div>
     </div>
