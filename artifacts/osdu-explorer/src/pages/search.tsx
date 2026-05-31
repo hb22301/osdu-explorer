@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useSearchOsduRecords, useListOsduKinds } from "@workspace/api-client-react";
-import { Input } from "@/components/ui/input";
+import { LuceneQueryInput } from "@/components/lucene-query-input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -350,12 +350,11 @@ export default function SearchPage() {
             <label className="text-sm font-medium leading-none">Lucene Query</label>
             <div className="flex gap-2">
               <div ref={queryWrapRef} className="relative flex-1">
-                <Input
+                <LuceneQueryInput
                   placeholder={queryPlaceholder}
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={setQuery}
                   onFocus={() => { if (recent.length > 0) setShowRecent(true); }}
-                  className="font-mono text-sm focus-visible:ring-neon/60 w-full"
                 />
                 {showRecent && recent.length > 0 && (
                   <RecentSearchesDropdown

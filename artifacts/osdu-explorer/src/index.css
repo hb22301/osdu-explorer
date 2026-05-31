@@ -249,6 +249,19 @@
     pointer-events: none;
   }
 
+  /* Lucene query syntax highlighting */
+  .lq-field {
+    color: hsl(var(--neon));
+  }
+
+  .lq-string {
+    color: hsl(38 92% 65%);
+  }
+
+  .lq-op {
+    color: hsl(270 60% 75%);
+  }
+
   /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
    * buttons/badges can remove the automatic brightness adjustment on interactions
    * and program their own. */
