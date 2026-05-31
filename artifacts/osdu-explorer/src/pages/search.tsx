@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 
 type SortDir = "asc" | "desc";
@@ -488,15 +489,20 @@ export default function SearchPage() {
               >
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               </Button>
-              <Button
-                type="submit"
-                disabled={searchMutation.isPending}
-                className="shrink-0 bg-neon text-black hover:bg-neon/90 border-neon/80 focus-visible:ring-neon/60"
-              >
-                {searchMutation.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <SearchIcon className="h-4 w-4" />}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="submit"
+                    disabled={searchMutation.isPending}
+                    className="shrink-0 bg-neon text-black hover:bg-neon/90 border-neon/80 focus-visible:ring-neon/60"
+                  >
+                    {searchMutation.isPending
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <SearchIcon className="h-4 w-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Search</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </form>
