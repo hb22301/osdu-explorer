@@ -17,20 +17,48 @@ type ColKey = "id" | "version" | "kind" | "name" | "code" | "createdBy" | "creat
 interface Col {
   key: ColKey;
   label: string;
-  width: string;
+  defaultWidth: number;
+  minWidth: number;
 }
 
 const COLUMNS: Col[] = [
-  { key: "id",         label: "ID",          width: "w-[220px] min-w-[180px]" },
-  { key: "version",    label: "Version",     width: "w-[90px] min-w-[70px]" },
-  { key: "kind",       label: "Kind",        width: "w-[240px] min-w-[180px]" },
-  { key: "name",       label: "Name",        width: "w-[160px] min-w-[120px]" },
-  { key: "code",       label: "Code",        width: "w-[120px] min-w-[90px]" },
-  { key: "createdBy",  label: "Created By",  width: "w-[140px] min-w-[110px]" },
-  { key: "createTime", label: "Create Time", width: "w-[160px] min-w-[130px]" },
-  { key: "modifyBy",   label: "Updated By",  width: "w-[140px] min-w-[110px]" },
-  { key: "modifyTime", label: "Update Time", width: "w-[160px] min-w-[130px]" },
+  { key: "id",         label: "ID",          defaultWidth: 220, minWidth: 80 },
+  { key: "version",    label: "Version",     defaultWidth: 90,  minWidth: 60 },
+  { key: "kind",       label: "Kind",        defaultWidth: 240, minWidth: 80 },
+  { key: "name",       label: "Name",        defaultWidth: 160, minWidth: 70 },
+  { key: "code",       label: "Code",        defaultWidth: 120, minWidth: 60 },
+  { key: "createdBy",  label: "Created By",  defaultWidth: 140, minWidth: 70 },
+  { key: "createTime", label: "Create Time", defaultWidth: 160, minWidth: 80 },
+  { key: "modifyBy",   label: "Updated By",  defaultWidth: 140, minWidth: 70 },
+  { key: "modifyTime", label: "Update Time", defaultWidth: 160, minWidth: 80 },
 ];
+
+const COL_WIDTHS_KEY = "osdu-explorer:col-widths";
+const MAX_COL_WIDTH = 800;
+
+function clampWidth(col: Col, v: number): number {
+  return Math.min(MAX_COL_WIDTH, Math.max(col.minWidth, v));
+}
+
+function loadColWidths(): Record<ColKey, number> {
+  const defaults = Object.fromEntries(
+    COLUMNS.map((c) => [c.key, c.defaultWidth]),
+  ) as Record<ColKey, number>;
+  try {
+    const raw = localStorage.getItem(COL_WIDTHS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<Record<ColKey, number>>;
+    for (const c of COLUMNS) {
+      const v = parsed[c.key];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        defaults[c.key] = clampWidth(c, v);
+      }
+    }
+  } catch {
+    /* ignore malformed storage */
+  }
+  return defaults;
+}
 
 type RawRecord = {
   id?: string;
@@ -240,6 +268,8 @@ export default function SearchPage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [colWidths, setColWidths] = useState<Record<ColKey, number>>(loadColWidths);
+  const resizing = useRef<{ key: ColKey; startX: number; startW: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [rowFilter, setRowFilter] = useState("");
@@ -293,6 +323,74 @@ export default function SearchPage() {
     setOffset(newOffset);
     searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: newOffset } });
   };
+
+  const persistColWidths = useCallback((widths: Record<ColKey, number>) => {
+    try {
+      localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(widths));
+    } catch {
+      /* ignore storage errors */
+    }
+  }, []);
+
+  const endResizeRef = useRef<(() => void) | null>(null);
+
+  const startResize = useCallback(
+    (e: React.MouseEvent, col: Col) => {
+      e.preventDefault();
+      e.stopPropagation();
+      endResizeRef.current?.();
+      resizing.current = { key: col.key, startX: e.clientX, startW: colWidths[col.key] };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (ev: MouseEvent) => {
+        const r = resizing.current;
+        if (!r) return;
+        const next = clampWidth(col, r.startW + (ev.clientX - r.startX));
+        setColWidths((prev) => (prev[r.key] === next ? prev : { ...prev, [r.key]: next }));
+      };
+      const end = (persist: boolean) => {
+        resizing.current = null;
+        endResizeRef.current = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        window.removeEventListener("blur", onBlur);
+        if (persist) {
+          setColWidths((prev) => {
+            persistColWidths(prev);
+            return prev;
+          });
+        }
+      };
+      const onUp = () => end(true);
+      const onBlur = () => end(true);
+
+      endResizeRef.current = () => end(false);
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      window.addEventListener("blur", onBlur);
+    },
+    [colWidths, persistColWidths],
+  );
+
+  useEffect(() => {
+    return () => {
+      endResizeRef.current?.();
+    };
+  }, []);
+
+  const resetColWidth = useCallback(
+    (col: Col) => {
+      setColWidths((prev) => {
+        const next = { ...prev, [col.key]: col.defaultWidth };
+        persistColWidths(next);
+        return next;
+      });
+    },
+    [persistColWidths],
+  );
 
   const handleSortClick = (col: ColKey) => {
     if (sortCol === col) {
@@ -427,7 +525,7 @@ export default function SearchPage() {
                 {rowFilter.trim()
                   ? `Showing ${filteredRows.length.toLocaleString()} of ${rows.length.toLocaleString()} on this page (${total.toLocaleString()} total)`
                   : `${total.toLocaleString()} record${total !== 1 ? "s" : ""} found`}
-                {rows.length > 0 && !rowFilter.trim() && " — click a row to select, then Search; double-click for full JSON"}
+                {rows.length > 0 && !rowFilter.trim() && " — click a row to select, then Search; double-click for full JSON; drag column edges to resize"}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -475,17 +573,40 @@ export default function SearchPage() {
               )}
             </div>
             <div className="border-t border-border overflow-auto" style={{ maxHeight: "55vh" }}>
-              <Table className="text-xs">
+              <Table
+                className="text-xs"
+                style={{
+                  tableLayout: "fixed",
+                  width: COLUMNS.reduce((sum, c) => sum + colWidths[c.key], 0),
+                }}
+              >
+                <colgroup>
+                  {COLUMNS.map((col) => (
+                    <col key={col.key} style={{ width: colWidths[col.key] }} />
+                  ))}
+                </colgroup>
                 <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0] shadow-border">
                   <TableRow>
                     {COLUMNS.map((col) => (
                       <TableHead
                         key={col.key}
-                        className={`${col.width} cursor-pointer select-none whitespace-nowrap hover:text-foreground transition-colors`}
+                        className="relative cursor-pointer select-none whitespace-nowrap overflow-hidden hover:text-foreground transition-colors"
                         onClick={() => handleSortClick(col.key)}
                       >
-                        {col.label}
+                        <span className="truncate align-middle">{col.label}</span>
                         <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                        <span
+                          role="separator"
+                          aria-orientation="vertical"
+                          title="Drag to resize • double-click to reset"
+                          onMouseDown={(e) => startResize(e, col)}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            resetColWidth(col);
+                          }}
+                          className="absolute top-0 right-0 z-20 h-full w-2 cursor-col-resize select-none touch-none after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-border hover:after:bg-neon hover:after:w-0.5 after:transition-colors"
+                        />
                       </TableHead>
                     ))}
                   </TableRow>
@@ -506,15 +627,15 @@ export default function SearchPage() {
                       onClick={() => setSelectedRowId(row.id !== "—" ? row.id : null)}
                       onDoubleClick={() => setSelected(row._raw)}
                     >
-                      <TableCell className="font-mono truncate max-w-[220px]" title={row.id}>{row.id}</TableCell>
-                      <TableCell className="font-mono tabular-nums">{row.version}</TableCell>
-                      <TableCell className="font-mono truncate max-w-[240px]" title={row.kind}>{row.kind}</TableCell>
-                      <TableCell className="truncate max-w-[160px]" title={row.name}>{row.name}</TableCell>
-                      <TableCell className="font-mono truncate max-w-[120px]" title={row.code}>{row.code}</TableCell>
-                      <TableCell className="truncate max-w-[140px]" title={row.createdBy}>{row.createdBy}</TableCell>
-                      <TableCell className="font-mono tabular-nums whitespace-nowrap">{row.createTime}</TableCell>
-                      <TableCell className="truncate max-w-[140px]" title={row.modifyBy}>{row.modifyBy}</TableCell>
-                      <TableCell className="font-mono tabular-nums whitespace-nowrap">{row.modifyTime}</TableCell>
+                      <TableCell className="font-mono truncate" title={row.id}>{row.id}</TableCell>
+                      <TableCell className="font-mono tabular-nums truncate">{row.version}</TableCell>
+                      <TableCell className="font-mono truncate" title={row.kind}>{row.kind}</TableCell>
+                      <TableCell className="truncate" title={row.name}>{row.name}</TableCell>
+                      <TableCell className="font-mono truncate" title={row.code}>{row.code}</TableCell>
+                      <TableCell className="truncate" title={row.createdBy}>{row.createdBy}</TableCell>
+                      <TableCell className="font-mono tabular-nums truncate">{row.createTime}</TableCell>
+                      <TableCell className="truncate" title={row.modifyBy}>{row.modifyBy}</TableCell>
+                      <TableCell className="font-mono tabular-nums truncate">{row.modifyTime}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
