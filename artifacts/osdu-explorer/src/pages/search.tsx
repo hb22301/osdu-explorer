@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { KindCombobox } from "@/components/kind-combobox";
 import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -274,7 +275,12 @@ export default function SearchPage() {
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [rowFilter, setRowFilter] = useState("");
-  const limit = 50;
+  const [limit, setLimit] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem("osdu-explorer:page-size"));
+      return [10, 25, 50, 100].includes(v) ? v : 50;
+    } catch { return 50; }
+  });
 
   const { recent, add: addRecent, clear: clearRecent } = useRecentSearches();
   const queryWrapRef = useRef<HTMLDivElement>(null);
@@ -323,6 +329,16 @@ export default function SearchPage() {
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
     searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: newOffset } });
+  };
+
+  const handleLimitChange = (value: string) => {
+    const newLimit = Number(value);
+    setLimit(newLimit);
+    try { localStorage.setItem("osdu-explorer:page-size", String(newLimit)); } catch { /* ignore */ }
+    if (searchMutation.data) {
+      setOffset(0);
+      searchMutation.mutate({ data: { kind, query: query || undefined, limit: newLimit, offset: 0 } });
+    }
   };
 
   const persistColWidths = useCallback((widths: Record<ColKey, number>) => {
@@ -535,6 +551,19 @@ export default function SearchPage() {
             </div>
             <div className="flex items-center gap-2">
               <RecordLookupDialog selectedId={selectedRowId ?? ""} />
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">Rows</span>
+                <Select value={String(limit)} onValueChange={handleLimitChange}>
+                  <SelectTrigger className="h-8 w-[70px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[10, 25, 50, 100].map((n) => (
+                      <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button
                 variant="outline" size="sm"
                 onClick={() => handlePageChange(Math.max(0, offset - limit))}
