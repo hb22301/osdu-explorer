@@ -513,6 +513,32 @@ export function useTreeCollapsed(
   const storageKeyRef = useRef(storageKey);
   storageKeyRef.current = storageKey;
 
+  const parsedRef = useRef(parsed);
+  parsedRef.current = parsed;
+
+  // BroadcastChannel for cross-tab (pop-out) sync.
+  // Messages are NOT delivered back to the sender, so no feedback loop.
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  useEffect(() => {
+    if (!storageKey) return;
+    const channel = new BroadcastChannel(`osdu-tree-state:${storageKey}`);
+    channel.onmessage = (e: MessageEvent<{ type: string; collapsed?: string[] }>) => {
+      if (e.data.type === "collapse-state" && Array.isArray(e.data.collapsed)) {
+        setCollapsed(new Set(e.data.collapsed));
+        setHasCustomLayout(true);
+      } else if (e.data.type === "reset") {
+        const p = parsedRef.current;
+        setCollapsed(p ? buildInitialCollapsed(p, "root", 0) : new Set<string>());
+        setHasCustomLayout(false);
+      }
+    };
+    channelRef.current = channel;
+    return () => {
+      channel.close();
+      channelRef.current = null;
+    };
+  }, [storageKey]);
+
   const handleToggle = useCallback((path: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -524,6 +550,7 @@ export function useTreeCollapsed(
       if (storageKeyRef.current) {
         persistState(storageKeyRef.current, next);
         setHasCustomLayout(true);
+        channelRef.current?.postMessage({ type: "collapse-state", collapsed: [...next] });
       }
       return next;
     });
@@ -534,26 +561,31 @@ export function useTreeCollapsed(
     if (storageKeyRef.current) {
       persistState(storageKeyRef.current, next);
       setHasCustomLayout(true);
+      channelRef.current?.postMessage({ type: "collapse-state", collapsed: [] });
     }
     setCollapsed(next);
   }, []);
 
   const collapseAll = useCallback(() => {
-    const next = parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>();
+    const p = parsedRef.current;
+    const next = p ? buildInitialCollapsed(p, "root", 0) : new Set<string>();
     if (storageKeyRef.current) {
       persistState(storageKeyRef.current, next);
       setHasCustomLayout(true);
+      channelRef.current?.postMessage({ type: "collapse-state", collapsed: [...next] });
     }
     setCollapsed(next);
-  }, [parsed]);
+  }, []);
 
   const resetLayout = useCallback(() => {
     if (storageKeyRef.current) {
       clearSavedState(storageKeyRef.current);
+      channelRef.current?.postMessage({ type: "reset" });
     }
     setHasCustomLayout(false);
-    setCollapsed(parsed ? buildInitialCollapsed(parsed, "root", 0) : new Set<string>());
-  }, [parsed]);
+    const p = parsedRef.current;
+    setCollapsed(p ? buildInitialCollapsed(p, "root", 0) : new Set<string>());
+  }, []);
 
   return { collapsed, hasCustomLayout, handleToggle, expandAll, collapseAll, resetLayout };
 }
