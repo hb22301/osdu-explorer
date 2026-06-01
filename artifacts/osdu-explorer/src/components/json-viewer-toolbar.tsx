@@ -21,7 +21,6 @@ import {
   Loader2,
   Terminal,
   Waves,
-  FlaskConical,
 } from "lucide-react";
 import {
   Table,
@@ -40,13 +39,6 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   JsonTreeView,
@@ -155,13 +147,6 @@ export function JsonViewerContent({
   const [wdmsResults, setWdmsResults] = useState<WdmsResult[]>([]);
   const [wdmsLoading, setWdmsLoading] = useState(false);
   const [wdmsError, setWdmsError] = useState<string | null>(null);
-
-  // Reservoir DMS state
-  const [rdmsOpen, setRdmsOpen] = useState(false);
-  const [rdmsDataspaces, setRdmsDataspaces] = useState<string[]>([]);
-  const [rdmsDataspacesLoading, setRdmsDataspacesLoading] = useState(false);
-  const [rdmsDataspacesError, setRdmsDataspacesError] = useState<string | null>(null);
-  const [rdmsSelectedDataspace, setRdmsSelectedDataspace] = useState<string>("");
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -476,42 +461,6 @@ export function JsonViewerContent({
     [selectedUrns],
   );
 
-  const fetchRdmsDataspaces = useCallback(async () => {
-    if (rdmsDataspacesLoading) return;
-    setRdmsDataspacesLoading(true);
-    setRdmsDataspacesError(null);
-    try {
-      const res = await fetch("/api/osdu/rdms/dataspaces");
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string };
-        setRdmsDataspacesError(err.error ?? "Failed to load dataspaces");
-        return;
-      }
-      const data = await res.json() as unknown;
-      // Handle array or { data: [...] } or { dataspaces: [...] } shapes
-      let items: unknown[] = [];
-      if (Array.isArray(data)) {
-        items = data;
-      } else if (data && typeof data === "object") {
-        const d = data as Record<string, unknown>;
-        items = Array.isArray(d.data) ? d.data : Array.isArray(d.dataspaces) ? d.dataspaces : [];
-      }
-      const names = items.map((it) => {
-        if (typeof it === "string") return it;
-        if (it && typeof it === "object") {
-          const o = it as Record<string, unknown>;
-          return typeof o.name === "string" ? o.name : typeof o.id === "string" ? o.id : JSON.stringify(it);
-        }
-        return String(it);
-      });
-      setRdmsDataspaces(names);
-    } catch {
-      setRdmsDataspacesError("Failed to connect to Reservoir DMS");
-    } finally {
-      setRdmsDataspacesLoading(false);
-    }
-  }, [rdmsDataspacesLoading]);
-
   const handleWdmsSearch = useCallback(async () => {
     if (wdmsUrns.length === 0 || wdmsLoading) return;
     setWdmsLoading(true);
@@ -808,29 +757,6 @@ export function JsonViewerContent({
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => {
-                    setRdmsOpen(true);
-                    if (rdmsDataspaces.length === 0 && !rdmsDataspacesLoading) {
-                      void fetchRdmsDataspaces();
-                    }
-                  }}
-                  aria-label="Search Reservoir DMS"
-                >
-                  <FlaskConical className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {rdmsSelectedDataspace
-                  ? `Reservoir DMS — ${rdmsSelectedDataspace}`
-                  : "Search Reservoir DMS"}
-              </TooltipContent>
-            </Tooltip>
           </>
         )}
 
@@ -974,72 +900,6 @@ export function JsonViewerContent({
             : displayJson}
         </pre>
       )}
-
-      {/* Reservoir DMS dialog */}
-      <Dialog open={rdmsOpen} onOpenChange={setRdmsOpen}>
-        <DialogContent className="max-w-lg w-full flex flex-col gap-4">
-          <DialogTitle className="flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-emerald-500" />
-            Reservoir DMS
-            {rdmsSelectedDataspace && (
-              <Badge variant="secondary" className="ml-1 text-xs font-mono">
-                {rdmsSelectedDataspace}
-              </Badge>
-            )}
-          </DialogTitle>
-
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                DataSpace
-              </label>
-              {rdmsDataspacesLoading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Loading dataspaces…
-                </div>
-              ) : rdmsDataspacesError ? (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                    {rdmsDataspacesError}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs shrink-0"
-                    onClick={() => { void fetchRdmsDataspaces(); }}
-                  >
-                    Retry
-                  </Button>
-                </div>
-              ) : (
-                <Select
-                  value={rdmsSelectedDataspace}
-                  onValueChange={setRdmsSelectedDataspace}
-                >
-                  <SelectTrigger className="text-xs h-8">
-                    <SelectValue placeholder={rdmsDataspaces.length === 0 ? "No dataspaces found" : "Select a dataspace…"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rdmsDataspaces.map((ds) => (
-                      <SelectItem key={ds} value={ds} className="text-xs font-mono">
-                        {ds}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {rdmsSelectedDataspace && (
-              <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5 text-xs text-emerald-400 flex items-center gap-2">
-                <FlaskConical className="h-3.5 w-3.5 shrink-0" />
-                Further queries will use dataspace <span className="font-mono font-semibold ml-1">{rdmsSelectedDataspace}</span>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Wellbore DMS results dialog */}
       <Dialog open={wdmsOpen} onOpenChange={setWdmsOpen}>
