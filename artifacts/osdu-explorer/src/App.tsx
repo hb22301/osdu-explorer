@@ -10,6 +10,7 @@ import SearchPage from "@/pages/search";
 import RecordPage from "@/pages/record";
 import SchemasPage from "@/pages/schemas";
 import LegalTagsPage from "@/pages/legal-tags";
+import ReservoirDmsPage from "@/pages/reservoir-dms";
 import JsonPopoutPage from "@/pages/json-popout";
 import NotFound from "@/pages/not-found";
 import { migrateLegacyLayouts } from "@/components/json-tree-view";
@@ -34,6 +35,9 @@ function Router() {
       </Route>
       <Route path="/legal-tags">
         <Layout><LegalTagsPage /></Layout>
+      </Route>
+      <Route path="/reservoir-dms">
+        <Layout><ReservoirDmsPage /></Layout>
       </Route>
       <Route path="/json-popout">
         <JsonPopoutPage />
