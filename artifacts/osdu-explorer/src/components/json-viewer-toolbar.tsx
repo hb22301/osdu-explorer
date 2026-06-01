@@ -453,26 +453,16 @@ export function JsonViewerContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedText]);
 
-  // Supported WDMS kinds → DDMS endpoint segment
-  const WDMS_KIND_MAP: Record<string, string> = {
-    "work-product-component--WellLog": "welllogs",
-    "work-product-component--WellboreTrajectory": "wellboretrajectories",
-  };
-
-  // Determine which WDMS kind this record is (null = not a supported kind)
-  const wdmsKind = useMemo(() => {
-    if (!parsedJson || typeof parsedJson !== "object" || Array.isArray(parsedJson)) return null;
-    const kind = (parsedJson as Record<string, unknown>).kind;
-    if (typeof kind !== "string") return null;
-    for (const k of Object.keys(WDMS_KIND_MAP)) {
-      if (kind.includes(k)) return k;
-    }
-    return null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedJson]);
+  // WDMS-eligible IDs: only those whose ID string encodes a supported kind
+  const WDMS_SUPPORTED_KINDS = ["work-product-component--WellLog", "work-product-component--WellboreTrajectory"];
+  const wdmsUrns = useMemo(
+    () => selectedUrns.filter((id) => WDMS_SUPPORTED_KINDS.some((k) => id.includes(k))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedUrns],
+  );
 
   const handleWdmsSearch = useCallback(async () => {
-    if (selectedUrns.length === 0 || wdmsKind === null || wdmsLoading) return;
+    if (wdmsUrns.length === 0 || wdmsLoading) return;
     setWdmsLoading(true);
     setWdmsError(null);
     setWdmsResults([]);
@@ -480,7 +470,7 @@ export function JsonViewerContent({
       const res = await fetch("/api/osdu/wdms/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urns: selectedUrns, kind: wdmsKind }),
+        body: JSON.stringify({ urns: wdmsUrns }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
@@ -746,10 +736,10 @@ export function JsonViewerContent({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-7 w-7 transition-opacity", selectedUrns.length === 0 || wdmsKind === null || wdmsLoading ? "opacity-40 pointer-events-none" : "")}
+                  className={cn("h-7 w-7 transition-opacity", wdmsUrns.length === 0 || wdmsLoading ? "opacity-40 pointer-events-none" : "")}
                   onClick={() => { void handleWdmsSearch(); }}
                   aria-label="Search Wellbore DMS"
-                  disabled={selectedUrns.length === 0 || wdmsKind === null || wdmsLoading}
+                  disabled={wdmsUrns.length === 0 || wdmsLoading}
                 >
                   {wdmsLoading ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -759,11 +749,11 @@ export function JsonViewerContent({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {wdmsKind === null
-                  ? "Only available for WellLog and WellboreTrajectory records"
+                {wdmsUrns.length > 0
+                  ? `Search Wellbore DMS (${wdmsUrns.length} ID${wdmsUrns.length > 1 ? "s" : ""})`
                   : selectedUrns.length > 0
-                    ? `Search Wellbore DMS (${selectedUrns.length} ID${selectedUrns.length > 1 ? "s" : ""})`
-                    : "Select a record ID to search Wellbore DMS"}
+                    ? "Selected IDs are not WellLog or WellboreTrajectory"
+                    : "Select a WellLog or WellboreTrajectory ID to search Wellbore DMS"}
               </TooltipContent>
             </Tooltip>
           </>

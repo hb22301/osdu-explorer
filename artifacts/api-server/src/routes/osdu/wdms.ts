@@ -3,15 +3,14 @@ import { getOsduClient } from "../../lib/osdu-client";
 
 const router: IRouter = Router();
 
-const WDMS_ENDPOINT_MAP: Record<string, string> = {
-  "work-product-component--WellLog": "welllogs",
-  "work-product-component--WellboreTrajectory": "wellboretrajectories",
-};
+const WDMS_ENDPOINT_MAP: Array<[string, string]> = [
+  ["work-product-component--WellLog", "welllogs"],
+  ["work-product-component--WellboreTrajectory", "wellboretrajectories"],
+];
 
-function ddmsPathSegment(kind: string | undefined): string | null {
-  if (!kind) return null;
-  for (const [k, segment] of Object.entries(WDMS_ENDPOINT_MAP)) {
-    if (kind.includes(k)) return segment;
+function ddmsSegmentForId(id: string): string | null {
+  for (const [kindFragment, segment] of WDMS_ENDPOINT_MAP) {
+    if (id.includes(kindFragment)) return segment;
   }
   return null;
 }
@@ -42,34 +41,27 @@ router.post("/osdu/wdms/fetch", async (req, res): Promise<void> => {
     return;
   }
 
-  const kind = typeof (body as Record<string, unknown>).kind === "string"
-    ? ((body as Record<string, unknown>).kind as string)
-    : undefined;
-
-  const segment = ddmsPathSegment(kind);
-  if (!segment) {
-    res.status(400).json({ error: "Unsupported kind for Wellbore DMS. Only WellLog and WellboreTrajectory are supported." });
-    return;
-  }
-
   const client = getOsduClient(cfg);
 
   const results = await Promise.all(
     ids.map(async (id) => {
+      const segment = ddmsSegmentForId(id);
+      if (!segment) {
+        return {
+          urn: id,
+          status: "error" as const,
+          error: `ID does not correspond to a supported WDMS kind (WellLog or WellboreTrajectory)`,
+        };
+      }
       const path = `/api/os-wellbore-ddms/ddms/v3/${segment}/${encodeURIComponent(id)}/data`;
       try {
         const { status, data } = await client.fetch(path, {
           headers: { Accept: "application/json" },
         });
         if (status === 200 && data) {
-          const record = data as Record<string, unknown>;
-          return { urn: id, status: "found" as const, data: record };
+          return { urn: id, status: "found" as const, data: data as Record<string, unknown> };
         }
-        return {
-          urn: id,
-          status: "error" as const,
-          error: `HTTP ${status} from WDMS for ${id}`,
-        };
+        return { urn: id, status: "error" as const, error: `HTTP ${status} from WDMS for ${id}` };
       } catch (err) {
         return {
           urn: id,
