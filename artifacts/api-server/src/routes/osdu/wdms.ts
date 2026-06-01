@@ -3,6 +3,19 @@ import { getOsduClient } from "../../lib/osdu-client";
 
 const router: IRouter = Router();
 
+const WDMS_ENDPOINT_MAP: Record<string, string> = {
+  "work-product-component--WellLog": "welllogs",
+  "work-product-component--WellboreTrajectory": "wellboretrajectories",
+};
+
+function ddmsPathSegment(kind: string | undefined): string | null {
+  if (!kind) return null;
+  for (const [k, segment] of Object.entries(WDMS_ENDPOINT_MAP)) {
+    if (kind.includes(k)) return segment;
+  }
+  return null;
+}
+
 router.post("/osdu/wdms/fetch", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {
@@ -20,6 +33,7 @@ router.post("/osdu/wdms/fetch", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Request body must include a non-empty 'urns' array." });
     return;
   }
+
   const ids = ((body as Record<string, unknown>).urns as unknown[])
     .filter((u): u is string => typeof u === "string" && u.length > 0)
     .slice(0, 50);
@@ -28,11 +42,21 @@ router.post("/osdu/wdms/fetch", async (req, res): Promise<void> => {
     return;
   }
 
+  const kind = typeof (body as Record<string, unknown>).kind === "string"
+    ? ((body as Record<string, unknown>).kind as string)
+    : undefined;
+
+  const segment = ddmsPathSegment(kind);
+  if (!segment) {
+    res.status(400).json({ error: "Unsupported kind for Wellbore DMS. Only WellLog and WellboreTrajectory are supported." });
+    return;
+  }
+
   const client = getOsduClient(cfg);
 
   const results = await Promise.all(
     ids.map(async (id) => {
-      const path = `/api/os-wellbore-ddms/ddms/v3/wellboretrajectories/${encodeURIComponent(id)}/data`;
+      const path = `/api/os-wellbore-ddms/ddms/v3/${segment}/${encodeURIComponent(id)}/data`;
       try {
         const { status, data } = await client.fetch(path, {
           headers: { Accept: "application/json" },
