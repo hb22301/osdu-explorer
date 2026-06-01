@@ -14,6 +14,7 @@ runButton = "Project"
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
+integrations = ["github:1.0.0"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
@@ -30,3 +31,6 @@ externalPort = 8081
 [[ports]]
 localPort = 22843
 externalPort = 3000
+
+[nix]
+channel = "stable-25_05"
