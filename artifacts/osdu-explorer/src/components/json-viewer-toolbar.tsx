@@ -104,29 +104,29 @@ interface SharedViewerState {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function findObjectTypeForUuid(node: JsonValue, uuid: string, ancestorTypes: string[] = []): string | null {
+function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
   if (typeof node !== "object" || node === null) return null;
   if (Array.isArray(node)) {
     for (const item of node) {
-      const found = findObjectTypeForUuid(item, uuid, ancestorTypes);
+      const found = findObjectTypeForUuid(item, uuid);
       if (found !== null) return found;
     }
     return null;
   }
   const obj = node as Record<string, JsonValue>;
-  const ownType = typeof obj["$type"] === "string" ? (obj["$type"] as string) : undefined;
 
-  for (const val of Object.values(obj)) {
-    if (typeof val === "string" && val === uuid) {
-      const candidates = ownType !== undefined ? [ownType, ...ancestorTypes] : ancestorTypes;
-      return candidates.find((t) => /^resqml/i.test(t)) ?? candidates[0] ?? null;
-    }
+  // If this object directly contains the UUID as a value, check its own $type.
+  // Only qualify if $type starts with "resqml" — otherwise keep searching other occurrences.
+  const containsUuid = Object.values(obj).some((v) => typeof v === "string" && v === uuid);
+  if (containsUuid) {
+    const ownType = typeof obj["$type"] === "string" ? (obj["$type"] as string) : undefined;
+    if (ownType !== undefined && /^resqml/i.test(ownType)) return ownType;
   }
 
-  const nextAncestors = ownType !== undefined ? [ownType, ...ancestorTypes] : ancestorTypes;
+  // Recurse into child objects regardless, to find other occurrences of the UUID.
   for (const val of Object.values(obj)) {
     if (val && typeof val === "object") {
-      const found = findObjectTypeForUuid(val, uuid, nextAncestors);
+      const found = findObjectTypeForUuid(val, uuid);
       if (found !== null) return found;
     }
   }
