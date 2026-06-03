@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "T4ArmEJb9zGan85hW7_Jd"
+uri = "file://README.md"
+type = "text"
+title = "README.md — OSDU Data Manager"
