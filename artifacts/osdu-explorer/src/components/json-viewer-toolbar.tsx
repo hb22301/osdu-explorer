@@ -104,23 +104,24 @@ interface SharedViewerState {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function findObjectTypeForUuid(node: JsonValue, uuid: string, currentType?: string): string | null {
+function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
   if (typeof node !== "object" || node === null) return null;
   if (Array.isArray(node)) {
     for (const item of node) {
-      const found = findObjectTypeForUuid(item, uuid, currentType);
+      const found = findObjectTypeForUuid(item, uuid);
       if (found !== null) return found;
     }
     return null;
   }
   const obj = node as Record<string, JsonValue>;
-  const type = typeof obj["$type"] === "string" ? (obj["$type"] as string) : currentType;
   for (const val of Object.values(obj)) {
-    if (typeof val === "string" && val === uuid) return type ?? null;
+    if (typeof val === "string" && val === uuid) {
+      return typeof obj["$type"] === "string" ? (obj["$type"] as string) : null;
+    }
   }
   for (const val of Object.values(obj)) {
     if (val && typeof val === "object") {
-      const found = findObjectTypeForUuid(val, uuid, type);
+      const found = findObjectTypeForUuid(val, uuid);
       if (found !== null) return found;
     }
   }

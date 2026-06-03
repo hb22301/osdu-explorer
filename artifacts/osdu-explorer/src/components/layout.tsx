@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduConsoleQueryKey } from "@workspace/api-client-react";
-import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp, FlaskConical } from "lucide-react";
+import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -72,7 +72,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Legal Tags", href: "/legal-tags", icon: Tags },
     { label: "Schemas", href: "/schemas", icon: ScrollText },
     { label: "Search", href: "/search", icon: Search },
-    { label: "Reservoir DMS", href: "/reservoir-dms", icon: FlaskConical },
+    { label: "Reservoir DMS", href: "/reservoir-dms", icon: Layers },
   ];
 
   if (isLoading) {
