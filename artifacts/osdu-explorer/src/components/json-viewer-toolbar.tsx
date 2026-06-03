@@ -104,24 +104,29 @@ interface SharedViewerState {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
+function findObjectTypeForUuid(node: JsonValue, uuid: string, ancestorTypes: string[] = []): string | null {
   if (typeof node !== "object" || node === null) return null;
   if (Array.isArray(node)) {
     for (const item of node) {
-      const found = findObjectTypeForUuid(item, uuid);
+      const found = findObjectTypeForUuid(item, uuid, ancestorTypes);
       if (found !== null) return found;
     }
     return null;
   }
   const obj = node as Record<string, JsonValue>;
+  const ownType = typeof obj["$type"] === "string" ? (obj["$type"] as string) : undefined;
+
   for (const val of Object.values(obj)) {
     if (typeof val === "string" && val === uuid) {
-      return typeof obj["$type"] === "string" ? (obj["$type"] as string) : null;
+      const candidates = ownType !== undefined ? [ownType, ...ancestorTypes] : ancestorTypes;
+      return candidates.find((t) => /^resqml/i.test(t)) ?? candidates[0] ?? null;
     }
   }
+
+  const nextAncestors = ownType !== undefined ? [ownType, ...ancestorTypes] : ancestorTypes;
   for (const val of Object.values(obj)) {
     if (val && typeof val === "object") {
-      const found = findObjectTypeForUuid(val, uuid);
+      const found = findObjectTypeForUuid(val, uuid, nextAncestors);
       if (found !== null) return found;
     }
   }
