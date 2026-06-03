@@ -61,6 +61,12 @@ interface JsonViewerToolbarProps {
   defaultFullscreen?: boolean;
   /** Called when the fullscreen overlay is closed (only relevant with defaultFullscreen) */
   onFullscreenClose?: () => void;
+  /** When true, hide the Storage lookup button in fullscreen mode */
+  hideStorageLookup?: boolean;
+  /** When true, hide the Wellbore DMS lookup button in fullscreen mode */
+  hideWdmsLookup?: boolean;
+  /** When provided, the Search lookup button performs an RDMS lookup instead of OSDU search */
+  rdmsContext?: { dataspace: string };
 }
 
 interface RawMatch {
@@ -96,6 +102,31 @@ interface SharedViewerState {
   onSearchOpenChange: (open: boolean) => void;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function findObjectTypeForUuid(node: JsonValue, uuid: string, currentType?: string): string | null {
+  if (typeof node !== "object" || node === null) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findObjectTypeForUuid(item, uuid, currentType);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  const obj = node as Record<string, JsonValue>;
+  const type = typeof obj["$type"] === "string" ? (obj["$type"] as string) : currentType;
+  for (const val of Object.values(obj)) {
+    if (typeof val === "string" && val === uuid) return type ?? null;
+  }
+  for (const val of Object.values(obj)) {
+    if (val && typeof val === "object") {
+      const found = findObjectTypeForUuid(val, uuid, type);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
 export function JsonViewerContent({
   json,
   className,
@@ -105,6 +136,9 @@ export function JsonViewerContent({
   onPopOut,
   sharedTreeState,
   sharedViewerState,
+  hideStorageLookup,
+  hideWdmsLookup,
+  rdmsContext,
 }: JsonViewerToolbarProps & {
   onMaximize?: () => void;
   onPopOut?: () => void;
@@ -355,7 +389,7 @@ export function JsonViewerContent({
     let end = offset;
     while (end < text.length && /[^\s"'\[\]{},]/.test(text[end])) end++;
     const cleanToken = text.slice(start, end).replace(/^[^a-zA-Z0-9]+/, "");
-    if (OSDU_ID_RE.test(cleanToken)) {
+    if (UUID_RE.test(cleanToken) || OSDU_ID_RE.test(cleanToken)) {
       const tokenStart = text.indexOf(cleanToken, start);
       const newRange = document.createRange();
       newRange.setStart(node, tokenStart);
@@ -500,6 +534,41 @@ export function JsonViewerContent({
       setWdmsLoading(false);
     }
   }, [selectedUrns, wdmsLoading]);
+
+  // RDMS lookup: detect UUID in selectedText, resolve $type from JSON context
+  const selectedUuid = useMemo(() => {
+    if (!rdmsContext || !_isFullscreen) return null;
+    const t = selectedText.trim();
+    return UUID_RE.test(t) ? t : null;
+  }, [rdmsContext, _isFullscreen, selectedText]);
+
+  const rdmsDatatype = useMemo(() => {
+    if (!selectedUuid || !parsedJson) return null;
+    return findObjectTypeForUuid(parsedJson, selectedUuid);
+  }, [selectedUuid, parsedJson]);
+
+  const handleRdmsLookup = useCallback(async () => {
+    if (!selectedUuid || !rdmsContext || lookupLoading) return;
+    setLookupLoading("search");
+    setLookupError(null);
+    const datatype = rdmsDatatype ?? "";
+    try {
+      const url = `/api/osdu/rdms/dataspaces/${encodeURIComponent(rdmsContext.dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(selectedUuid)}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setLookupError(err.error ?? "Failed to fetch RDMS record");
+        return;
+      }
+      const data: unknown = await res.json();
+      setOverlayJson(JSON.stringify(data, null, 2));
+      setOverlayLabel(selectedUuid);
+    } catch {
+      setLookupError("Failed to fetch RDMS record");
+    } finally {
+      setLookupLoading(null);
+    }
+  }, [selectedUuid, rdmsContext, rdmsDatatype, lookupLoading]);
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -687,37 +756,44 @@ export function JsonViewerContent({
 
             <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-7 w-7 transition-opacity", !selectedText || lookupLoading ? "opacity-40 pointer-events-none" : "")}
-                  onClick={() => { void handleStorageLookup(); }}
-                  aria-label="Look up selected text in Storage"
-                  disabled={!selectedText || !!lookupLoading}
-                >
-                  {lookupLoading === "storage" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Database className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {selectedText ? "Look up in Storage" : "Select text to look up in Storage"}
-              </TooltipContent>
-            </Tooltip>
+            {!hideStorageLookup && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn("h-7 w-7 transition-opacity", !selectedText || lookupLoading ? "opacity-40 pointer-events-none" : "")}
+                    onClick={() => { void handleStorageLookup(); }}
+                    aria-label="Look up selected text in Storage"
+                    disabled={!selectedText || !!lookupLoading}
+                  >
+                    {lookupLoading === "storage" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Database className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {selectedText ? "Look up in Storage" : "Select text to look up in Storage"}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  className={cn("h-7 w-7 transition-opacity", !selectedText || lookupLoading ? "opacity-40 pointer-events-none" : "")}
-                  onClick={() => { void handleSearchLookup(); }}
-                  aria-label="Search for selected text"
-                  disabled={!selectedText || !!lookupLoading}
+                  className={cn(
+                    "h-7 w-7 transition-opacity",
+                    rdmsContext
+                      ? (!selectedUuid || !!lookupLoading ? "opacity-40 pointer-events-none" : "")
+                      : (!selectedText || !!lookupLoading ? "opacity-40 pointer-events-none" : ""),
+                  )}
+                  onClick={() => { rdmsContext ? void handleRdmsLookup() : void handleSearchLookup(); }}
+                  aria-label={rdmsContext ? "Look up UUID in Reservoir DMS" : "Search for selected text"}
+                  disabled={rdmsContext ? (!selectedUuid || !!lookupLoading) : (!selectedText || !!lookupLoading)}
                 >
                   {lookupLoading === "search" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -727,35 +803,39 @@ export function JsonViewerContent({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {selectedText ? "Search by ID" : "Select text to search by ID"}
+                {rdmsContext
+                  ? (selectedUuid ? "Look up UUID in Reservoir DMS" : "Click a UUID value to enable lookup")
+                  : (selectedText ? "Search by ID" : "Select text to search by ID")}
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-7 w-7 transition-opacity", wdmsUrns.length === 0 || wdmsLoading ? "opacity-40 pointer-events-none" : "")}
-                  onClick={() => { void handleWdmsSearch(); }}
-                  aria-label="Search Wellbore DMS"
-                  disabled={wdmsUrns.length === 0 || wdmsLoading}
-                >
-                  {wdmsLoading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Waves className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {wdmsUrns.length > 0
-                  ? `Search Wellbore DMS (${wdmsUrns.length} ID${wdmsUrns.length > 1 ? "s" : ""})`
-                  : selectedUrns.length > 0
-                    ? "Selected IDs are not WellLog or WellboreTrajectory"
-                    : "Select a WellLog or WellboreTrajectory ID to search Wellbore DMS"}
-              </TooltipContent>
-            </Tooltip>
+            {!hideWdmsLookup && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn("h-7 w-7 transition-opacity", wdmsUrns.length === 0 || wdmsLoading ? "opacity-40 pointer-events-none" : "")}
+                    onClick={() => { void handleWdmsSearch(); }}
+                    aria-label="Search Wellbore DMS"
+                    disabled={wdmsUrns.length === 0 || wdmsLoading}
+                  >
+                    {wdmsLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Waves className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {wdmsUrns.length > 0
+                    ? `Search Wellbore DMS (${wdmsUrns.length} ID${wdmsUrns.length > 1 ? "s" : ""})`
+                    : selectedUrns.length > 0
+                      ? "Selected IDs are not WellLog or WellboreTrajectory"
+                      : "Select a WellLog or WellboreTrajectory ID to search Wellbore DMS"}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
           </>
         )}
@@ -1005,7 +1085,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideWdmsLookup, rdmsContext }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -1129,6 +1209,9 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           onPopOut={handlePopOut}
           sharedTreeState={sharedTreeState}
           sharedViewerState={sharedViewerState}
+          hideStorageLookup={hideStorageLookup}
+          hideWdmsLookup={hideWdmsLookup}
+          rdmsContext={rdmsContext}
         />
       )}
 
@@ -1166,6 +1249,9 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               className="h-full"
               sharedTreeState={sharedTreeState}
               sharedViewerState={sharedViewerState}
+              hideStorageLookup={hideStorageLookup}
+              hideWdmsLookup={hideWdmsLookup}
+              rdmsContext={rdmsContext}
             />
           </div>
           {fsConsoleOpen && (

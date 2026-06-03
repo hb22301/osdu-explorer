@@ -1,0 +1,54 @@
+Drill-down: Record Detail View
+
+When the user double-clicks a row in the Reservoir DMS Records table, call:
+
+  GET /api/reservoir-ddms/v2/dataspaces/{dataspace}/resources/{datatype}/{Uuid}
+
+where:
+- {dataspace} -- currently selected dataspace (carried from the parent panel)
+- {datatype}  -- the datatype of the double-clicked row
+- {Uuid}      -- the Uuid of the double-clicked row
+
+Display the JSON response in the existing full-screen JSON viewer, reusing the
+same component used for Storage and Search records, including all existing
+toolbar capabilities (expand/collapse, copy, search-in-json, etc.).
+
+
+Toolbar visibility in this context:
+------------------------------------
+  Icon          | Visible
+  --------------|--------
+  Search        | Yes
+  Storage       | No - hide
+  Wellbore DMS  | No - hide
+
+
+"Search" icon -- enabled state:
+---------------------------------
+When the user clicks on a Uuid field, the entire Uuid should get selected.
+The Search icon is disabled by default. It becomes enabled only when the user
+selects/clicks on a UUID value within the JSON viewer.
+
+
+"Search" icon -- behaviour when clicked:
+-----------------------------------------
+Call the same endpoint using the UUID and datatype resolved from the selected
+value and its JSON context:
+
+  GET /api/reservoir-ddms/v2/dataspaces/{dataspace}/resources/{datatype}/{Uuid}
+
+where:
+- {Uuid}      -- the UUID value the user selected in the JSON viewer
+- {datatype}  -- extracted from the "$type" field in the same JSON object
+                 where the UUID was selected
+                 (e.g. "resqml20.obj_HorizonInterpretation" -> use as {datatype})
+- {dataspace} -- carried from the parent panel selection
+
+Display the response JSON in the same viewer, replacing the current content.
+
+
+Notes:
+- The double-click triggers on the Records table (not the Resources table)
+- The viewer content is replaced (not opened in a new pane) on each Search call
+- {datatype} for the Search call comes from "$type", not from the row that was
+  originally double-clicked

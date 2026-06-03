@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
+import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -157,6 +158,7 @@ export default function ReservoirDmsPage() {
   const [records, setRecords] = useState<ResourceRecord[] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
+  const [detailRecord, setDetailRecord] = useState<{ json: string; title: string } | null>(null);
 
   const loadDataspaces = useCallback(async () => {
     setDataspaceError(null);
@@ -205,6 +207,27 @@ export default function ReservoirDmsPage() {
       setResourcesLoading(false);
     }
   }, [selectedDataspace, resourcesLoading]);
+
+  const fetchRecordDetail = useCallback(async (uuid: string, datatype: string) => {
+    if (!selectedDataspace || !uuid) return;
+    try {
+      const res = await fetch(
+        `/api/osdu/rdms/dataspaces/${encodeURIComponent(selectedDataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}`
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setRecordsError(err.error ?? "Failed to fetch record detail");
+        return;
+      }
+      const data: unknown = await res.json();
+      setDetailRecord({
+        json: JSON.stringify(data, null, 2),
+        title: `${datatype} / ${uuid}`,
+      });
+    } catch {
+      setRecordsError("Failed to fetch record detail");
+    }
+  }, [selectedDataspace]);
 
   const fetchRecords = useCallback(async (datatype: string) => {
     if (!selectedDataspace || recordsLoading) return;
@@ -395,7 +418,12 @@ export default function ReservoirDmsPage() {
                     </TableHeader>
                     <TableBody>
                       {records.map((rec, i) => (
-                        <TableRow key={i} className="hover:bg-muted/30">
+                        <TableRow
+                          key={i}
+                          className="hover:bg-muted/30 cursor-pointer"
+                          onDoubleClick={() => { void fetchRecordDetail(rec.uuid, selectedResource ?? ""); }}
+                          title="Double-click to view detail"
+                        >
                           <TableCell className="text-xs font-mono py-2 text-muted-foreground">{rec.uuid || "—"}</TableCell>
                           <TableCell className="text-xs py-2">{rec.name || "—"}</TableCell>
                           <TableCell className="text-xs font-mono py-2 text-muted-foreground truncate max-w-[16rem]">{rec.creator || "—"}</TableCell>
@@ -411,6 +439,18 @@ export default function ReservoirDmsPage() {
           </div>
         )}
       </div>
+
+      {detailRecord && (
+        <JsonViewerToolbar
+          json={detailRecord.json}
+          title={detailRecord.title}
+          defaultFullscreen
+          hideStorageLookup
+          hideWdmsLookup
+          rdmsContext={{ dataspace: selectedDataspace }}
+          onFullscreenClose={() => setDetailRecord(null)}
+        />
+      )}
     </div>
   );
 }
