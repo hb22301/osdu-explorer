@@ -31,7 +31,7 @@ function norm(s: string): string {
 function matchField(key: string): keyof z.infer<typeof formSchema> | null {
   const k = norm(key);
   if (/token(endpoint|url|uri)/.test(k) || /auth(endpoint|url|uri)/.test(k) || /login(url|endpoint)/.test(k) || /oauth(endpoint|url)/.test(k)) return "tokenEndpoint";
-  if (/^(base|server|api|host|platform)(url|uri|endpoint)?$/.test(k) || k === "url" || k === "apiurl") return "baseUrl";
+  if (/baseurl|baseuri/.test(k) || /^(server|api|host|platform)(url|uri|endpoint)?$/.test(k) || k === "url" || k === "apiurl") return "baseUrl";
   if (/partition/.test(k) || /datatenant/.test(k)) return "partitionId";
   if (/clientsecret|appsecret|clientpassword/.test(k)) return "clientSecret";
   if (/clientid|appid|applicationid/.test(k)) return "clientId";
