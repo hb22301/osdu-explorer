@@ -146,6 +146,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Right side: main content + console panel */}
       <div className="flex-1 flex flex-col h-full min-w-0 min-h-0">
+        {/* Global connection indicator */}
+        <div className="shrink-0 h-8 flex items-center gap-2 px-4 border-b border-border bg-card/60 select-none">
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.configured ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+          />
+          <span className="text-[11px] font-mono text-muted-foreground truncate">
+            {config?.baseUrl ?? "Not connected"}
+          </span>
+        </div>
+
         {/* Main content — shrinks when console is open */}
         <main className="flex-1 overflow-auto bg-background min-h-0">
           {children}
