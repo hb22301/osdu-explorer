@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -8,7 +8,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Database, Terminal, Shield, Key, Link as LinkIcon, User } from "lucide-react";
+import { Database, Terminal, Shield, Key, Link as LinkIcon, User, Upload } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const formSchema = z.object({
@@ -20,11 +20,31 @@ const formSchema = z.object({
   scope: z.string().optional(),
 });
 
+type PostmanEnv = {
+  values?: Array<{ key?: string; value?: string; enabled?: boolean }>;
+};
+
+function norm(s: string): string {
+  return s.toLowerCase().replace(/[\s_\-./]+/g, "");
+}
+
+function matchField(key: string): keyof z.infer<typeof formSchema> | null {
+  const k = norm(key);
+  if (/token(endpoint|url|uri)/.test(k) || /auth(endpoint|url|uri)/.test(k) || /login(url|endpoint)/.test(k) || /oauth(endpoint|url)/.test(k)) return "tokenEndpoint";
+  if (/^(base|server|api|host|platform)(url|uri|endpoint)?$/.test(k) || k === "url" || k === "apiurl") return "baseUrl";
+  if (/partition/.test(k) || /datatenant/.test(k)) return "partitionId";
+  if (/clientsecret|appsecret|clientpassword/.test(k)) return "clientSecret";
+  if (/clientid|appid|applicationid/.test(k)) return "clientId";
+  if (/^scope/.test(k)) return "scope";
+  return null;
+}
+
 export default function ConnectPage() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useGetOsduConfig();
-  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -45,6 +65,34 @@ export default function ConnectPage() {
       }
     }
   });
+
+  const handlePostmanImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string) as PostmanEnv;
+        const entries = Array.isArray(parsed.values) ? parsed.values : [];
+        const mapped: Partial<z.infer<typeof formSchema>> = {};
+        for (const entry of entries) {
+          if (!entry.key || !entry.value) continue;
+          const field = matchField(entry.key);
+          if (field && !mapped[field]) mapped[field] = entry.value;
+        }
+        for (const [field, value] of Object.entries(mapped)) {
+          form.setValue(field as keyof z.infer<typeof formSchema>, value as string, {
+            shouldValidate: false,
+            shouldDirty: true,
+          });
+        }
+      } catch {
+        // silently ignore malformed files
+      }
+    };
+    reader.readAsText(file);
+  }, [form]);
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     saveConfig.mutate({ data: values });
@@ -77,6 +125,32 @@ export default function ConnectPage() {
           <CardContent>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handlePostmanImport}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full text-muted-foreground border-dashed hover:text-foreground"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-4 h-4 mr-2 shrink-0" />
+                  Import from Postman Environment
+                </Button>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">or enter manually</span>
+                  </div>
+                </div>
+
                 <FormField
                   control={form.control}
                   name="baseUrl"
