@@ -128,8 +128,8 @@ export default function SchemasPage() {
   const [limit, setLimit]   = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem("osdu-schemas:page-size"));
-      return [25, 50, 100, 250, 500, 1000, 2000].includes(v) ? v : 100;
-    } catch { return 100; }
+      return [25, 50, 100, 250, 500, 1000, 2000].includes(v) ? v : 2000;
+    } catch { return 2000; }
   });
 
   const [sortCol, setSortCol] = useState<ColKey | null>(null);
