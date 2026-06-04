@@ -588,7 +588,7 @@ export default function SearchPage() {
 
       <div className="glass-card p-6">
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 space-y-2">
+          <div className="space-y-2" style={{ minWidth: 440 }}>
             <label className="text-sm font-medium leading-none">Kind</label>
             <KindCombobox
               value={kind}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
-import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduConsoleQueryKey } from "@workspace/api-client-react";
+import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduConsoleQueryKey, useListOsduSchemas, getListOsduSchemasQueryKey } from "@workspace/api-client-react";
 import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const dragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const { data: config, isLoading } = useGetOsduConfig();
   const clearConfig = useClearOsduConfig();
+
+  // Pre-warm the schema cache on login so the Schema Browser loads instantly
+  useListOsduSchemas(
+    { limit: 2000, offset: 0 },
+    { query: { enabled: !!config?.configured, staleTime: 5 * 60 * 1000, queryKey: getListOsduSchemasQueryKey({ limit: 2000, offset: 0 }) } },
+  );
 
   // Poll console entry count for the badge (lightweight — just total)
   const { data: consoleData } = useGetOsduConsole(
