@@ -588,7 +588,7 @@ export default function SearchPage() {
 
       <div className="glass-card p-6">
         <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
-          <div className="space-y-2" style={{ minWidth: 440 }}>
+          <div className="flex-1 min-w-0 space-y-2">
             <label className="text-sm font-medium leading-none">Kind</label>
             <KindCombobox
               value={kind}
@@ -596,7 +596,7 @@ export default function SearchPage() {
               kinds={kindsData?.kinds ?? []}
             />
           </div>
-          <div className="flex-[2] space-y-2">
+          <div className="flex-1 min-w-0 space-y-2">
             <label className="text-sm font-medium leading-none">Lucene Query</label>
             <div className="flex gap-2">
               <div ref={queryWrapRef} className="relative flex-1">
