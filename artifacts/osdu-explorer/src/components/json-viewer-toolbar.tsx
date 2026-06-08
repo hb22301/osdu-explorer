@@ -21,6 +21,7 @@ import {
   Loader2,
   Terminal,
   Waves,
+  Grid3x3,
 } from "lucide-react";
 import {
   Table,
@@ -133,6 +134,147 @@ function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
   return null;
 }
 
+// ─── RDMS array-data helpers ───────────────────────────────────────────────
+
+const RDMS_ARRAY_TYPES = [
+  "resqml20.obj_Grid2dRepresentation",
+  "resqml20.obj_PolylineSetRepresentation",
+] as const;
+type RdmsArrayType = (typeof RDMS_ARRAY_TYPES)[number];
+
+function getNestedString(obj: JsonValue, ...keys: string[]): string | null {
+  let cur: JsonValue = obj;
+  for (const key of keys) {
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return null;
+    const next = (cur as Record<string, JsonValue>)[key];
+    if (next === null || next === undefined) return null;
+    cur = next;
+  }
+  return typeof cur === "string" ? cur : null;
+}
+
+function extractGrid2dPath(parsed: JsonValue): string | null {
+  return getNestedString(parsed, "Grid2dPatch", "Geometry", "Points", "ZValues", "PathInHdfFile");
+}
+
+function extractPolylinePaths(parsed: JsonValue): { nodeCountPath: string | null; coordPath: string | null } {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { nodeCountPath: null, coordPath: null };
+  }
+  let patch: JsonValue = (parsed as Record<string, JsonValue>)["LinePatch"] ?? null;
+  if (Array.isArray(patch)) patch = (patch as JsonValue[])[0] ?? null;
+  if (!patch) return { nodeCountPath: null, coordPath: null };
+  const nodeCountPath = getNestedString(patch, "NodeCountPerPolyline", "Values", "PathInHdfFile");
+  const coordPath = getNestedString(patch, "Geometry", "Points", "Coordinates", "PathInHdfFile");
+  return { nodeCountPath, coordPath };
+}
+
+function getRdmsArrayType(parsed: JsonValue | null): RdmsArrayType | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const t = (parsed as Record<string, JsonValue>)["$type"];
+  if (typeof t === "string" && (RDMS_ARRAY_TYPES as readonly string[]).includes(t)) {
+    return t as RdmsArrayType;
+  }
+  return null;
+}
+
+function getRootUuid(parsed: JsonValue | null): string | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const v = (parsed as Record<string, JsonValue>)["uuid"];
+  return typeof v === "string" ? v : null;
+}
+
+interface ArrayDataResult {
+  label: string;
+  dimensions?: number[];
+  data?: unknown[];
+  error?: string;
+}
+
+function ArrayDataTable({ result }: { result: ArrayDataResult }) {
+  if (result.error) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div className="text-[11px] font-mono text-cyan-500 break-all px-1">{result.label}</div>
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {result.error}
+        </div>
+      </div>
+    );
+  }
+  const data = result.data ?? [];
+  const dims = result.dimensions ?? [data.length];
+  const is2D = dims.length >= 2;
+  const rows = dims[0] ?? 0;
+  const cols = is2D ? (dims[1] ?? 1) : 1;
+
+  function getCell(row: number, col: number): unknown {
+    if (Array.isArray(data[row])) return (data[row] as unknown[])[col];
+    if (is2D) return data[row * cols + col];
+    return data[row];
+  }
+
+  function renderCellValue(val: unknown) {
+    if (val === null || val === undefined) return <span className="text-muted-foreground/40">—</span>;
+    if (typeof val === "number") return val;
+    if (typeof val === "object") return <span className="font-mono text-muted-foreground">{JSON.stringify(val)}</span>;
+    return String(val);
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-[11px] font-mono text-cyan-500 break-all px-1">{result.label}</div>
+      <div className="rounded-md border border-border/50 overflow-hidden">
+        <div className="overflow-auto" style={{ maxHeight: "55vh" }}>
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40">
+                <TableHead className="whitespace-nowrap font-semibold text-xs py-2 px-3 text-muted-foreground sticky left-0 bg-muted/40 z-10 border-r border-border/30">
+                  row
+                </TableHead>
+                {is2D
+                  ? Array.from({ length: cols }, (_, ci) => (
+                      <TableHead key={ci} className="whitespace-nowrap font-semibold text-xs py-2 px-3 tabular-nums text-right">
+                        {ci}
+                      </TableHead>
+                    ))
+                  : <TableHead className="whitespace-nowrap font-semibold text-xs py-2 px-3">value</TableHead>
+                }
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: rows }, (_, ri) => (
+                <TableRow key={ri} className="hover:bg-muted/30">
+                  <TableCell className="text-xs py-1.5 px-3 tabular-nums text-muted-foreground sticky left-0 bg-background z-10 border-r border-border/30">
+                    {ri}
+                  </TableCell>
+                  {is2D
+                    ? Array.from({ length: cols }, (_, ci) => (
+                        <TableCell key={ci} className="text-xs py-1.5 px-3 tabular-nums text-right">
+                          {renderCellValue(getCell(ri, ci))}
+                        </TableCell>
+                      ))
+                    : (
+                        <TableCell className="text-xs py-1.5 px-3 tabular-nums">
+                          {renderCellValue(getCell(ri, 0))}
+                        </TableCell>
+                      )
+                  }
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground">
+          {rows} row{rows !== 1 ? "s" : ""}{is2D ? ` × ${cols} column${cols !== 1 ? "s" : ""}` : ""} · dimensions [{dims.join(", ")}]
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+
 export function JsonViewerContent({
   json,
   className,
@@ -187,6 +329,11 @@ export function JsonViewerContent({
   const [wdmsResults, setWdmsResults] = useState<WdmsResult[]>([]);
   const [wdmsLoading, setWdmsLoading] = useState(false);
   const [wdmsError, setWdmsError] = useState<string | null>(null);
+
+  const [arrayOpen, setArrayOpen] = useState(false);
+  const [arrayLoading, setArrayLoading] = useState(false);
+  const [arrayError, setArrayError] = useState<string | null>(null);
+  const [arrayResults, setArrayResults] = useState<ArrayDataResult[]>([]);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -553,6 +700,13 @@ export function JsonViewerContent({
     return findObjectTypeForUuid(parsedJson, selectedUuid);
   }, [selectedUuid, parsedJson]);
 
+  // RDMS array-data: detect entity type and UUID from the root of the original record
+  const parsedOriginalJson: JsonValue | null = useMemo(() => {
+    try { return JSON.parse(json) as JsonValue; } catch { return null; }
+  }, [json]);
+  const rdmsArrayType = useMemo(() => rdmsContext ? getRdmsArrayType(parsedOriginalJson) : null, [rdmsContext, parsedOriginalJson]);
+  const rdmsRootUuid = useMemo(() => getRootUuid(parsedOriginalJson), [parsedOriginalJson]);
+
   const handleRdmsLookup = useCallback(async () => {
     if (!selectedUuid || !rdmsContext || lookupLoading) return;
     setLookupLoading("search");
@@ -575,6 +729,56 @@ export function JsonViewerContent({
       setLookupLoading(null);
     }
   }, [selectedUuid, rdmsContext, rdmsDatatype, lookupLoading]);
+
+  const handleArrayData = useCallback(async () => {
+    if (!rdmsContext || !parsedOriginalJson || !rdmsArrayType || !rdmsRootUuid) return;
+    setArrayOpen(true);
+    setArrayLoading(true);
+    setArrayError(null);
+    setArrayResults([]);
+
+    const ds = encodeURIComponent(rdmsContext.dataspace);
+    const dt = encodeURIComponent(rdmsArrayType);
+    const uid = encodeURIComponent(rdmsRootUuid);
+    const base = `/api/osdu/rdms/dataspaces/${ds}/resources/${dt}/${uid}/arrays`;
+
+    async function fetchArrayPath(hdfPath: string): Promise<ArrayDataResult> {
+      const res = await fetch(`${base}?path=${encodeURIComponent(hdfPath)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        return { label: hdfPath, error: err.error ?? `HTTP ${res.status}` };
+      }
+      const payload = await res.json() as { data?: unknown; dimensions?: number[] };
+      const data = Array.isArray(payload.data) ? payload.data as unknown[] : [];
+      const dimensions = Array.isArray(payload.dimensions) ? payload.dimensions as number[] : [data.length];
+      return { label: hdfPath, dimensions, data };
+    }
+
+    try {
+      if (rdmsArrayType === "resqml20.obj_Grid2dRepresentation") {
+        const hdfPath = extractGrid2dPath(parsedOriginalJson);
+        if (!hdfPath) {
+          setArrayError("Could not find Grid2dPatch.Geometry.Points.ZValues.PathInHdfFile in the record.");
+          return;
+        }
+        setArrayResults([await fetchArrayPath(hdfPath)]);
+      } else if (rdmsArrayType === "resqml20.obj_PolylineSetRepresentation") {
+        const { nodeCountPath, coordPath } = extractPolylinePaths(parsedOriginalJson);
+        const results: ArrayDataResult[] = [];
+        if (nodeCountPath) results.push(await fetchArrayPath(nodeCountPath));
+        if (coordPath) results.push(await fetchArrayPath(coordPath));
+        if (results.length === 0) {
+          setArrayError("Could not find PathInHdfFile fields in the LinePatch data.");
+          return;
+        }
+        setArrayResults(results);
+      }
+    } catch {
+      setArrayError("Failed to fetch array data");
+    } finally {
+      setArrayLoading(false);
+    }
+  }, [rdmsContext, parsedOriginalJson, rdmsArrayType, rdmsRootUuid]);
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -843,6 +1047,31 @@ export function JsonViewerContent({
               </Tooltip>
             )}
 
+            {rdmsContext && rdmsArrayType && (
+              <>
+                <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => { void handleArrayData(); }}
+                      aria-label="Get array data from Reservoir DMS"
+                      disabled={arrayLoading}
+                    >
+                      {arrayLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Grid3x3 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Get Array Data from Reservoir DMS</TooltipContent>
+                </Tooltip>
+              </>
+            )}
+
           </>
         )}
 
@@ -1072,6 +1301,48 @@ export function JsonViewerContent({
                       </div>
                     )}
                   </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Array Data dialog */}
+      <Dialog open={arrayOpen} onOpenChange={setArrayOpen}>
+        <DialogContent className="max-w-5xl w-full flex flex-col gap-3" style={{ maxHeight: "90vh" }} aria-describedby={undefined}>
+          <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+            <Grid3x3 className="h-4 w-4 text-emerald-500" />
+            Array Data — Reservoir DMS
+            {rdmsArrayType && (
+              <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal">
+                {rdmsArrayType}
+              </Badge>
+            )}
+          </DialogTitle>
+
+          {arrayLoading && (
+            <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Fetching array data…</span>
+            </div>
+          )}
+
+          {!arrayLoading && arrayError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {arrayError}
+            </div>
+          )}
+
+          {!arrayLoading && !arrayError && arrayResults.length === 0 && (
+            <div className="text-xs text-muted-foreground py-4 text-center">No data returned.</div>
+          )}
+
+          {!arrayLoading && arrayResults.length > 0 && (
+            <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: "75vh" }}>
+              <div className="flex flex-col gap-6 pr-1">
+                {arrayResults.map((result, ri) => (
+                  <ArrayDataTable key={ri} result={result} />
                 ))}
               </div>
             </ScrollArea>
