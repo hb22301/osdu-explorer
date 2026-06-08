@@ -65,7 +65,7 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid/arrays", 
   }
   const client = getOsduClient(cfg);
   try {
-    const hdfPath = rawPath.replace(/^\/+/, "");
+    const hdfPath = rawPath.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
     const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}/arrays/${hdfPath}`;
     const { status, data } = await client.fetch(path, {
       headers: { Accept: "application/json" },
