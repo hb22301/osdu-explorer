@@ -806,9 +806,19 @@ export function JsonViewerContent({
     try {
       console.log("[ArrayData] Full JSON:", parsedOriginalJson);
 
+      // The API may return an array of records; always use the first element.
+      const root: JsonValue = Array.isArray(parsedOriginalJson)
+        ? (parsedOriginalJson as JsonValue[])[0] ?? null
+        : parsedOriginalJson;
+
+      if (!root || typeof root !== "object" || Array.isArray(root)) {
+        setArrayError("JSON root is not an object (empty or unexpected structure)");
+        return;
+      }
+
       if (rdmsArrayType === "resqml20.obj_Grid2dRepresentation") {
         const result = traversePathDebug(
-          parsedOriginalJson,
+          root,
           ["Grid2dPatch", "Geometry", "Points", "ZValues", "Values", "PathInHdfFile"],
         );
         if (!result.ok) { setArrayError(formatPathError(result)); return; }
@@ -816,18 +826,14 @@ export function JsonViewerContent({
 
       } else if (rdmsArrayType === "resqml20.obj_PolylineSetRepresentation") {
         // Resolve LinePatch (may be an array — use first element)
-        const rawLinePatch = parsedOriginalJson && typeof parsedOriginalJson === "object" && !Array.isArray(parsedOriginalJson)
-          ? (parsedOriginalJson as Record<string, JsonValue>)["LinePatch"] ?? null
-          : null;
+        const rawLinePatch = (root as Record<string, JsonValue>)["LinePatch"] ?? null;
         const patch: JsonValue = Array.isArray(rawLinePatch)
           ? (rawLinePatch as JsonValue[])[0] ?? null
           : rawLinePatch;
 
         if (!patch) {
-          const availableKeys = parsedOriginalJson && typeof parsedOriginalJson === "object" && !Array.isArray(parsedOriginalJson)
-            ? Object.keys(parsedOriginalJson as Record<string, JsonValue>)
-            : null;
-          const keysStr = availableKeys ? `[${availableKeys.join(", ")}]` : "N/A";
+          const availableKeys = Object.keys(root as Record<string, JsonValue>);
+          const keysStr = `[${availableKeys.join(", ")}]`;
           console.log("[ArrayData] LinePatch => FAILED. Top-level keys:", availableKeys);
           setArrayError(`Path not found: 'LinePatch' not found under '(root)'. Available keys: ${keysStr}`);
           return;
