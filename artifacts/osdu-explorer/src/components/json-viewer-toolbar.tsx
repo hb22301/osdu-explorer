@@ -792,7 +792,7 @@ export function JsonViewerContent({
     const base = `/api/osdu/rdms/dataspaces/${ds}/resources/${dt}/${uid}/arrays`;
 
     async function fetchArrayPath(hdfPath: string): Promise<ArrayDataResult> {
-      const res = await fetch(`${base}?path=${encodeURIComponent(hdfPath)}`);
+      const res = await fetch(`${base}?path=${encodeURIComponent(hdfPath).replace(/%2F/gi, "/")}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         return { label: hdfPath, error: err.error ?? `HTTP ${res.status}` };
