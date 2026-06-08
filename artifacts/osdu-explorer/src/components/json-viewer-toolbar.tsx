@@ -67,7 +67,7 @@ interface JsonViewerToolbarProps {
   /** When true, hide the Wellbore DMS lookup button in fullscreen mode */
   hideWdmsLookup?: boolean;
   /** When provided, the Search lookup button performs an RDMS lookup instead of OSDU search */
-  rdmsContext?: { dataspace: string; datatype?: string };
+  rdmsContext?: { dataspace: string; datatype?: string; uuid?: string };
 }
 
 interface RawMatch {
@@ -720,7 +720,10 @@ export function JsonViewerContent({
     }
     return null;
   }, [rdmsContext, parsedOriginalJson]);
-  const rdmsRootUuid = useMemo(() => getRootUuid(parsedOriginalJson), [parsedOriginalJson]);
+  const rdmsRootUuid = useMemo(
+    () => rdmsContext?.uuid ?? getRootUuid(parsedOriginalJson),
+    [rdmsContext, parsedOriginalJson],
+  );
 
   const handleRdmsLookup = useCallback(async () => {
     if (!selectedUuid || !rdmsContext || lookupLoading) return;

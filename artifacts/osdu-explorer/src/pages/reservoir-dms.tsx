@@ -158,7 +158,7 @@ export default function ReservoirDmsPage() {
   const [records, setRecords] = useState<ResourceRecord[] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
-  const [detailRecord, setDetailRecord] = useState<{ json: string; title: string } | null>(null);
+  const [detailRecord, setDetailRecord] = useState<{ json: string; title: string; uuid: string; datatype: string } | null>(null);
 
   const loadDataspaces = useCallback(async () => {
     setDataspaceError(null);
@@ -223,6 +223,8 @@ export default function ReservoirDmsPage() {
       setDetailRecord({
         json: JSON.stringify(data, null, 2),
         title: `${datatype} / ${uuid}`,
+        uuid,
+        datatype,
       });
     } catch {
       setRecordsError("Failed to fetch record detail");
@@ -447,7 +449,7 @@ export default function ReservoirDmsPage() {
           defaultFullscreen
           hideStorageLookup
           hideWdmsLookup
-          rdmsContext={{ dataspace: selectedDataspace, datatype: selectedResource ?? undefined }}
+          rdmsContext={{ dataspace: selectedDataspace, datatype: detailRecord.datatype, uuid: detailRecord.uuid }}
           onFullscreenClose={() => setDetailRecord(null)}
         />
       )}
