@@ -797,9 +797,9 @@ export function JsonViewerContent({
         const err = await res.json().catch(() => ({})) as { error?: string };
         return { label: hdfPath, error: err.error ?? `HTTP ${res.status}` };
       }
-      const payload = await res.json() as { data?: unknown; dimensions?: number[] };
-      const data = Array.isArray(payload.data) ? payload.data as unknown[] : [];
-      const dimensions = Array.isArray(payload.dimensions) ? payload.dimensions as number[] : [data.length];
+      const payload = await res.json() as { data?: { data?: unknown; dimensions?: number[] } };
+      const data = Array.isArray(payload.data?.data) ? payload.data.data as unknown[] : [];
+      const dimensions = Array.isArray(payload.data?.dimensions) ? payload.data.dimensions as number[] : [data.length];
       return { label: hdfPath, dimensions, data };
     }
 
