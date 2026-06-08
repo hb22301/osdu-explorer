@@ -160,7 +160,7 @@ function getNestedString(obj: JsonValue, ...keys: string[]): string | null {
 }
 
 function extractGrid2dPath(parsed: JsonValue): string | null {
-  return getNestedString(parsed, "Grid2dPatch", "Geometry", "Points", "ZValues", "PathInHdfFile");
+  return getNestedString(parsed, "Grid2dPatch", "Geometry", "Points", "ZValues", "Values", "PathInHdfFile");
 }
 
 function extractPolylinePaths(parsed: JsonValue): { nodeCountPath: string | null; coordPath: string | null } {
@@ -774,20 +774,27 @@ export function JsonViewerContent({
 
     try {
       if (rdmsArrayType === "resqml20.obj_Grid2dRepresentation") {
+        const GRID2D_PATH = "Grid2dPatch.Geometry.Points.ZValues.Values.PathInHdfFile";
         const hdfPath = extractGrid2dPath(parsedOriginalJson);
         if (!hdfPath) {
-          setArrayError("Could not find Grid2dPatch.Geometry.Points.ZValues.PathInHdfFile in the record.");
+          setArrayError(`Path not found: ${GRID2D_PATH}`);
           return;
         }
         setArrayResults([await fetchArrayPath(hdfPath)]);
       } else if (rdmsArrayType === "resqml20.obj_PolylineSetRepresentation") {
+        const NODE_COUNT_PATH = "LinePatch.NodeCountPerPolyline.Values.PathInHdfFile";
+        const COORD_PATH = "LinePatch.Geometry.Points.Coordinates.PathInHdfFile";
         const { nodeCountPath, coordPath } = extractPolylinePaths(parsedOriginalJson);
         const results: ArrayDataResult[] = [];
-        if (nodeCountPath) results.push(await fetchArrayPath(nodeCountPath));
-        if (coordPath) results.push(await fetchArrayPath(coordPath));
-        if (results.length === 0) {
-          setArrayError("Could not find PathInHdfFile fields in the LinePatch data.");
-          return;
+        if (!nodeCountPath) {
+          results.push({ label: NODE_COUNT_PATH, error: `Path not found: ${NODE_COUNT_PATH}` });
+        } else {
+          results.push(await fetchArrayPath(nodeCountPath));
+        }
+        if (!coordPath) {
+          results.push({ label: COORD_PATH, error: `Path not found: ${COORD_PATH}` });
+        } else {
+          results.push(await fetchArrayPath(coordPath));
         }
         setArrayResults(results);
       }
