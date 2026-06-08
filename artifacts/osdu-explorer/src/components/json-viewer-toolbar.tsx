@@ -67,7 +67,7 @@ interface JsonViewerToolbarProps {
   /** When true, hide the Wellbore DMS lookup button in fullscreen mode */
   hideWdmsLookup?: boolean;
   /** When provided, the Search lookup button performs an RDMS lookup instead of OSDU search */
-  rdmsContext?: { dataspace: string };
+  rdmsContext?: { dataspace: string; datatype?: string };
 }
 
 interface RawMatch {
@@ -141,6 +141,12 @@ const RDMS_ARRAY_TYPES = [
   "resqml20.obj_PolylineSetRepresentation",
 ] as const;
 type RdmsArrayType = (typeof RDMS_ARRAY_TYPES)[number];
+
+function getRootField<T>(parsed: JsonValue | null, key: string): T | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const v = (parsed as Record<string, JsonValue>)[key];
+  return (v as T) ?? null;
+}
 
 function getNestedString(obj: JsonValue, ...keys: string[]): string | null {
   let cur: JsonValue = obj;
@@ -704,7 +710,16 @@ export function JsonViewerContent({
   const parsedOriginalJson: JsonValue | null = useMemo(() => {
     try { return JSON.parse(json) as JsonValue; } catch { return null; }
   }, [json]);
-  const rdmsArrayType = useMemo(() => rdmsContext ? getRdmsArrayType(parsedOriginalJson) : null, [rdmsContext, parsedOriginalJson]);
+  const rdmsArrayType = useMemo((): RdmsArrayType | null => {
+    if (!rdmsContext) return null;
+    // Prefer the datatype passed directly via rdmsContext (set from the resource selection),
+    // fall back to parsing $type from the JSON root.
+    const candidate = rdmsContext.datatype ?? getRootField<string>(parsedOriginalJson, "$type");
+    if (typeof candidate === "string" && (RDMS_ARRAY_TYPES as readonly string[]).includes(candidate)) {
+      return candidate as RdmsArrayType;
+    }
+    return null;
+  }, [rdmsContext, parsedOriginalJson]);
   const rdmsRootUuid = useMemo(() => getRootUuid(parsedOriginalJson), [parsedOriginalJson]);
 
   const handleRdmsLookup = useCallback(async () => {

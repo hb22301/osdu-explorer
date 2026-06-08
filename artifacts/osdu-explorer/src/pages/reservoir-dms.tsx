@@ -447,7 +447,7 @@ export default function ReservoirDmsPage() {
           defaultFullscreen
           hideStorageLookup
           hideWdmsLookup
-          rdmsContext={{ dataspace: selectedDataspace }}
+          rdmsContext={{ dataspace: selectedDataspace, datatype: selectedResource ?? undefined }}
           onFullscreenClose={() => setDetailRecord(null)}
         />
       )}
