@@ -148,31 +148,62 @@ function getRootField<T>(parsed: JsonValue | null, key: string): T | null {
   return (v as T) ?? null;
 }
 
-function getNestedString(obj: JsonValue, ...keys: string[]): string | null {
-  let cur: JsonValue = obj;
-  for (const key of keys) {
-    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return null;
-    const next = (cur as Record<string, JsonValue>)[key];
-    if (next === null || next === undefined) return null;
+interface PathTraversalOk { ok: true; value: string }
+interface PathTraversalFail {
+  ok: false;
+  failedKey: string;
+  parentPath: string;
+  availableKeys: string[] | null;
+}
+type PathTraversalResult = PathTraversalOk | PathTraversalFail;
+
+function traversePathDebug(root: JsonValue, keys: string[], pathPrefix = ""): PathTraversalResult {
+  const fullPath = [pathPrefix, ...keys].filter(Boolean).join(".");
+  console.log("[ArrayData] Traversing path:", fullPath);
+
+  let cur: JsonValue = root;
+  const traversed: string[] = pathPrefix ? [pathPrefix] : [];
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const displayPath = [...traversed, key].join(".");
+
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+      console.log(`[ArrayData] ${displayPath} => FAILED (parent is ${Array.isArray(cur) ? "array" : typeof cur})`);
+      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys: null };
+    }
+
+    const obj = cur as Record<string, JsonValue>;
+    const next = obj[key];
+
+    if (next === null || next === undefined) {
+      const availableKeys = Object.keys(obj);
+      console.log(`[ArrayData] ${displayPath} => FAILED (value is ${next === undefined ? "undefined" : "null"})`);
+      if (i === 0 && !pathPrefix) console.log("[ArrayData] Top-level keys:", availableKeys);
+      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys };
+    }
+
+    if (i === keys.length - 1) {
+      if (typeof next === "string") {
+        console.log(`[ArrayData] ${displayPath} => OK`);
+        return { ok: true, value: next };
+      }
+      const availableKeys = Object.keys(obj);
+      console.log(`[ArrayData] ${displayPath} => FAILED (expected string, got ${Array.isArray(next) ? "array" : typeof next})`);
+      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys };
+    }
+
+    console.log(`[ArrayData] ${displayPath} => OK`);
+    traversed.push(key);
     cur = next;
   }
-  return typeof cur === "string" ? cur : null;
+
+  return { ok: false, failedKey: "", parentPath: "(root)", availableKeys: null };
 }
 
-function extractGrid2dPath(parsed: JsonValue): string | null {
-  return getNestedString(parsed, "Grid2dPatch", "Geometry", "Points", "ZValues", "Values", "PathInHdfFile");
-}
-
-function extractPolylinePaths(parsed: JsonValue): { nodeCountPath: string | null; coordPath: string | null } {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { nodeCountPath: null, coordPath: null };
-  }
-  let patch: JsonValue = (parsed as Record<string, JsonValue>)["LinePatch"] ?? null;
-  if (Array.isArray(patch)) patch = (patch as JsonValue[])[0] ?? null;
-  if (!patch) return { nodeCountPath: null, coordPath: null };
-  const nodeCountPath = getNestedString(patch, "NodeCountPerPolyline", "Values", "PathInHdfFile");
-  const coordPath = getNestedString(patch, "Geometry", "Points", "Coordinates", "PathInHdfFile");
-  return { nodeCountPath, coordPath };
+function formatPathError(result: PathTraversalFail): string {
+  const keysStr = result.availableKeys ? `[${result.availableKeys.join(", ")}]` : "N/A";
+  return `Path not found: '${result.failedKey}' not found under '${result.parentPath}'. Available keys: ${keysStr}`;
 }
 
 function getRdmsArrayType(parsed: JsonValue | null): RdmsArrayType | null {
@@ -773,29 +804,48 @@ export function JsonViewerContent({
     }
 
     try {
+      console.log("[ArrayData] Full JSON:", parsedOriginalJson);
+
       if (rdmsArrayType === "resqml20.obj_Grid2dRepresentation") {
-        const GRID2D_PATH = "Grid2dPatch.Geometry.Points.ZValues.Values.PathInHdfFile";
-        const hdfPath = extractGrid2dPath(parsedOriginalJson);
-        if (!hdfPath) {
-          setArrayError(`Path not found: ${GRID2D_PATH}`);
+        const result = traversePathDebug(
+          parsedOriginalJson,
+          ["Grid2dPatch", "Geometry", "Points", "ZValues", "Values", "PathInHdfFile"],
+        );
+        if (!result.ok) { setArrayError(formatPathError(result)); return; }
+        setArrayResults([await fetchArrayPath(result.value)]);
+
+      } else if (rdmsArrayType === "resqml20.obj_PolylineSetRepresentation") {
+        // Resolve LinePatch (may be an array — use first element)
+        const rawLinePatch = parsedOriginalJson && typeof parsedOriginalJson === "object" && !Array.isArray(parsedOriginalJson)
+          ? (parsedOriginalJson as Record<string, JsonValue>)["LinePatch"] ?? null
+          : null;
+        const patch: JsonValue = Array.isArray(rawLinePatch)
+          ? (rawLinePatch as JsonValue[])[0] ?? null
+          : rawLinePatch;
+
+        if (!patch) {
+          const availableKeys = parsedOriginalJson && typeof parsedOriginalJson === "object" && !Array.isArray(parsedOriginalJson)
+            ? Object.keys(parsedOriginalJson as Record<string, JsonValue>)
+            : null;
+          const keysStr = availableKeys ? `[${availableKeys.join(", ")}]` : "N/A";
+          console.log("[ArrayData] LinePatch => FAILED. Top-level keys:", availableKeys);
+          setArrayError(`Path not found: 'LinePatch' not found under '(root)'. Available keys: ${keysStr}`);
           return;
         }
-        setArrayResults([await fetchArrayPath(hdfPath)]);
-      } else if (rdmsArrayType === "resqml20.obj_PolylineSetRepresentation") {
-        const NODE_COUNT_PATH = "LinePatch.NodeCountPerPolyline.Values.PathInHdfFile";
-        const COORD_PATH = "LinePatch.Geometry.Points.Coordinates.PathInHdfFile";
-        const { nodeCountPath, coordPath } = extractPolylinePaths(parsedOriginalJson);
+        console.log("[ArrayData] LinePatch => OK (using index 0 if array)");
+
         const results: ArrayDataResult[] = [];
-        if (!nodeCountPath) {
-          results.push({ label: NODE_COUNT_PATH, error: `Path not found: ${NODE_COUNT_PATH}` });
-        } else {
-          results.push(await fetchArrayPath(nodeCountPath));
-        }
-        if (!coordPath) {
-          results.push({ label: COORD_PATH, error: `Path not found: ${COORD_PATH}` });
-        } else {
-          results.push(await fetchArrayPath(coordPath));
-        }
+
+        const ncResult = traversePathDebug(patch, ["NodeCountPerPolyline", "Values", "PathInHdfFile"], "LinePatch[0]");
+        results.push(ncResult.ok
+          ? await fetchArrayPath(ncResult.value)
+          : { label: "LinePatch.NodeCountPerPolyline.Values.PathInHdfFile", error: formatPathError(ncResult) });
+
+        const coordResult = traversePathDebug(patch, ["Geometry", "Points", "Coordinates", "PathInHdfFile"], "LinePatch[0]");
+        results.push(coordResult.ok
+          ? await fetchArrayPath(coordResult.value)
+          : { label: "LinePatch.Geometry.Points.Coordinates.PathInHdfFile", error: formatPathError(coordResult) });
+
         setArrayResults(results);
       }
     } catch {
