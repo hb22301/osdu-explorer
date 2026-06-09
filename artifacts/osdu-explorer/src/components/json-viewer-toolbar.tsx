@@ -316,7 +316,7 @@ function ArrayDataTable({ result }: { result: ArrayDataResult }) {
   const statsLabel = `${rowCount.toLocaleString()} row${rowCount !== 1 ? "s" : ""}${is2D ? ` × ${colCount.toLocaleString()} col${colCount !== 1 ? "s" : ""}` : ""} · [${dims.join(", ")}]`;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 h-full">
       {/* Header: path + stats + download */}
       <div className="flex items-center justify-between gap-3 px-1 min-w-0">
         <Tooltip>
@@ -339,8 +339,8 @@ function ArrayDataTable({ result }: { result: ArrayDataResult }) {
       </div>
 
       {/* Table */}
-      <div className="rounded-md border border-border/50 overflow-hidden">
-        <div className="overflow-auto" style={{ maxHeight: "55vh" }}>
+      <div className="rounded-md border border-border/50 flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -1531,13 +1531,13 @@ export function JsonViewerContent({
           )}
 
           {!arrayLoading && arrayResults.length > 0 && (
-            <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: "75vh" }}>
-              <div className="flex flex-col gap-6 pr-1">
-                {arrayResults.map((result, ri) => (
-                  <ArrayDataTable key={ri} result={result} />
-                ))}
-              </div>
-            </ScrollArea>
+            <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden pr-1" style={{ maxHeight: "75vh" }}>
+              {arrayResults.map((result, ri) => (
+                <div key={ri} className="flex-1 min-h-0 flex flex-col" style={{ minHeight: "120px" }}>
+                  <ArrayDataTable result={result} />
+                </div>
+              ))}
+            </div>
           )}
         </DialogContent>
       </Dialog>
