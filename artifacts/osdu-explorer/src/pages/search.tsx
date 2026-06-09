@@ -8,7 +8,7 @@ import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3 } from "lucide-react";
+import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -20,7 +20,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ConsolePanel } from "@/components/console-panel";
 import { format } from "date-fns";
+
+const FS_CONSOLE_DEFAULT = 300;
+const FS_CONSOLE_MIN = 80;
+const FS_CONSOLE_MAX = 700;
 
 type SortDir = "asc" | "desc";
 type ColKey = "id" | "version" | "kind" | "name" | "code" | "createdBy" | "createTime" | "modifyBy" | "modifyTime";
@@ -335,6 +341,10 @@ export default function SearchPage() {
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [rowFilter, setRowFilter] = useState("");
+  const [tableFullscreen, setTableFullscreen] = useState(false);
+  const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
+  const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
+  const fsConsoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const [limit, setLimit] = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem("osdu-explorer:page-size"));
@@ -529,6 +539,24 @@ export default function SearchPage() {
     dragColRef.current = null;
   }, []);
 
+  const handleFsConsoleDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    fsConsoleDragState.current = { startY: e.clientY, startHeight: fsConsoleHeight };
+    const onMove = (ev: MouseEvent) => {
+      if (!fsConsoleDragState.current) return;
+      const delta = fsConsoleDragState.current.startY - ev.clientY;
+      const next = Math.min(FS_CONSOLE_MAX, Math.max(FS_CONSOLE_MIN, fsConsoleDragState.current.startHeight + delta));
+      setFsConsoleHeight(next);
+    };
+    const onUp = () => {
+      fsConsoleDragState.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [fsConsoleHeight]);
+
   const handleSortClick = (col: ColKey) => {
     if (sortCol === col) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -719,6 +747,20 @@ export default function SearchPage() {
               >
                 Next <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setTableFullscreen(true)}
+                    aria-label="Full screen"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Full screen</TooltipContent>
+              </Tooltip>
             </div>
           </CardHeader>
 
@@ -871,6 +913,224 @@ export default function SearchPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {searchMutation.data && (
+        <Dialog open={tableFullscreen} onOpenChange={(open) => { if (!open) setTableFullscreen(false); }}>
+          <DialogContent
+            className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0"
+            aria-describedby={undefined}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setTableFullscreen(false);
+            }}
+          >
+            <DialogTitle className="sr-only">Search Results Full Screen</DialogTitle>
+
+            {/* 1. Header bar */}
+            <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+              <span className="text-sm font-medium text-foreground">Search Results</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setTableFullscreen(false)}
+                    aria-label="Exit full screen"
+                  >
+                    <Minimize2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Exit full screen</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* 2. Filter + Columns toolbar */}
+            <div className="px-4 py-2 border-b border-border flex items-center gap-2 shrink-0">
+              <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Input
+                placeholder="Filter by ID, kind, name, or code…"
+                value={rowFilter}
+                onChange={(e) => setRowFilter(e.target.value)}
+                className="h-7 text-xs py-0 border-0 shadow-none focus-visible:ring-0 bg-transparent placeholder:text-muted-foreground/60"
+              />
+              {rowFilter && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setRowFilter("")}
+                  title="Clear filter"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+              <div className="ml-auto shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
+                      <Columns3 className="h-3.5 w-3.5" />
+                      Columns
+                      {visibleCount < COLUMNS.length && (
+                        <span className="text-muted-foreground">({visibleCount}/{COLUMNS.length})</span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuLabel className="text-xs">Toggle columns</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {colOrder.map((key) => {
+                      const col = COLUMNS.find((c) => c.key === key)!;
+                      const isLast = visibleCount === 1 && colVisible[key];
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={key}
+                          checked={colVisible[key]}
+                          onCheckedChange={() => !isLast && toggleColVisible(key)}
+                          disabled={isLast}
+                          className="text-xs"
+                        >
+                          {col.label}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                    {visibleCount < COLUMNS.length && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-xs" onSelect={showAllCols}>
+                          Show all columns
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+
+            {/* 3. Table area */}
+            <div className="flex-1 overflow-hidden min-h-0">
+              <div className="h-full overflow-auto">
+                <Table
+                  className="text-xs"
+                  style={{
+                    tableLayout: "fixed",
+                    width: orderedCols.reduce((sum, c) => sum + colWidths[c.key], 0),
+                  }}
+                >
+                  <colgroup>
+                    {orderedCols.map((col) => (
+                      <col key={col.key} style={{ width: colWidths[col.key] }} />
+                    ))}
+                  </colgroup>
+                  <TableHeader className="sticky top-0 z-10 bg-card shadow-[0_1px_0_0] shadow-border">
+                    <TableRow>
+                      {orderedCols.map((col) => (
+                        <TableHead
+                          key={col.key}
+                          className={`relative cursor-pointer select-none whitespace-nowrap overflow-hidden hover:text-foreground transition-colors${dragOverCol === col.key ? " border-l-2 border-neon" : ""}`}
+                          onClick={() => handleSortClick(col.key)}
+                          onDragOver={(e) => handleColDragOver(e, col.key)}
+                          onDrop={(e) => handleColDrop(e, col.key)}
+                          onDragLeave={() => setDragOverCol(null)}
+                        >
+                          <span
+                            draggable
+                            onDragStart={(e) => { e.stopPropagation(); handleColDragStart(e, col.key); }}
+                            onDragEnd={handleColDragEnd}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Drag to reorder column"
+                            className="inline-flex items-center mr-1 cursor-grab active:cursor-grabbing opacity-25 hover:opacity-60 transition-opacity align-middle shrink-0"
+                          >
+                            <GripVertical className="h-3 w-3" />
+                          </span>
+                          <span className="truncate align-middle">{col.label}</span>
+                          <SortIcon col={col.key} sortCol={sortCol} sortDir={sortDir} />
+                          <span
+                            role="separator"
+                            aria-orientation="vertical"
+                            title="Drag to resize • double-click to reset"
+                            onMouseDown={(e) => startResize(e, col)}
+                            onClick={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              resetColWidth(col);
+                            }}
+                            className="absolute top-0 right-0 z-20 h-full w-2 cursor-col-resize select-none touch-none after:absolute after:right-0 after:top-0 after:h-full after:w-px after:bg-border hover:after:bg-neon hover:after:w-0.5 after:transition-colors"
+                          />
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRows.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={COLUMNS.length} className="text-center py-10 text-muted-foreground">
+                          {rowFilter.trim() ? "No rows match the current filter" : "No records found"}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {filteredRows.map((row, i) => (
+                      <TableRow
+                        key={row.id + i}
+                        data-state={selectedRowId === row.id ? "selected" : undefined}
+                        className="cursor-pointer hover:bg-muted/50 data-[state=selected]:bg-neon/10 data-[state=selected]:hover:bg-neon/15"
+                        onClick={() => setSelectedRowId(row.id !== "—" ? row.id : null)}
+                        onDoubleClick={() => setSelected(row._raw)}
+                      >
+                        {orderedCols.map((col) => {
+                          const val = (row as Record<ColKey, string>)[col.key];
+                          return (
+                            <TableCell
+                              key={col.key}
+                              className={CELL_CLASS[col.key]}
+                              title={CELL_HAS_TITLE.has(col.key) ? val : undefined}
+                            >
+                              {val}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            {/* 4. Console panel (resizable) */}
+            {fsConsoleOpen && (
+              <>
+                <div
+                  className="shrink-0 h-[5px] cursor-ns-resize bg-border/60 hover:bg-primary/40 active:bg-primary/60 transition-colors"
+                  onMouseDown={handleFsConsoleDragStart}
+                  title="Drag to resize"
+                />
+                <div className="shrink-0" style={{ height: fsConsoleHeight }}>
+                  <ConsolePanel height={fsConsoleHeight} />
+                </div>
+              </>
+            )}
+
+            {/* 4. Console toggle bar */}
+            <div
+              className="shrink-0 h-7 flex items-center gap-2 px-3 border-t border-border bg-card/80 cursor-pointer select-none hover:bg-muted/60 transition-colors"
+              onClick={() => setFsConsoleOpen((v) => !v)}
+              role="button"
+              aria-expanded={fsConsoleOpen}
+              aria-label="Toggle console"
+            >
+              <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-[11px] font-medium text-muted-foreground">Console</span>
+              <div className="ml-auto text-muted-foreground">
+                {fsConsoleOpen ? (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {selected !== null && (
