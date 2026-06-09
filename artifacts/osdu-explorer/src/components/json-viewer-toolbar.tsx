@@ -22,6 +22,7 @@ import {
   Terminal,
   Waves,
   Grid3x3,
+  Download,
 } from "lucide-react";
 import {
   Table,
@@ -228,82 +229,192 @@ interface ArrayDataResult {
   error?: string;
 }
 
+const MAX_RENDERED_ROWS = 500;
+
+function formatNumber(n: number): string {
+  if (!isFinite(n)) return String(n);
+  if (Number.isInteger(n)) return n.toLocaleString();
+  const abs = Math.abs(n);
+  if (abs === 0) return "0";
+  if (abs >= 0.001 && abs < 1e7) return parseFloat(n.toPrecision(6)).toString();
+  return n.toExponential(4);
+}
+
 function ArrayDataTable({ result }: { result: ArrayDataResult }) {
+  const [flashCell, setFlashCell] = useState<string | null>(null);
+
+  const shortPath = result.label.split("/").filter(Boolean).slice(-2).join("/");
+
   if (result.error) {
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="text-[11px] font-mono text-cyan-500 break-all px-1">{result.label}</div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="text-[11px] font-mono text-cyan-500 truncate px-1 cursor-default">…/{shortPath}</div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs font-mono text-[10px] break-all">{result.label}</TooltipContent>
+        </Tooltip>
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {result.error}
         </div>
       </div>
     );
   }
+
   const data = result.data ?? [];
   const dims = result.dimensions ?? [data.length];
   const is2D = dims.length >= 2;
-  const rows = dims[0] ?? 0;
-  const cols = is2D ? (dims[1] ?? 1) : 1;
+  const rowCount = dims[0] ?? 0;
+  const colCount = is2D ? (dims[1] ?? 1) : 1;
+  const visibleRows = Math.min(rowCount, MAX_RENDERED_ROWS);
+  const truncated = rowCount > MAX_RENDERED_ROWS;
 
   function getCell(row: number, col: number): unknown {
     if (Array.isArray(data[row])) return (data[row] as unknown[])[col];
-    if (is2D) return data[row * cols + col];
+    if (is2D) return data[row * colCount + col];
     return data[row];
   }
 
   function renderCellValue(val: unknown) {
     if (val === null || val === undefined) return <span className="text-muted-foreground/40">—</span>;
-    if (typeof val === "number") return val;
-    if (typeof val === "object") return <span className="font-mono text-muted-foreground">{JSON.stringify(val)}</span>;
+    if (typeof val === "number") return formatNumber(val);
+    if (typeof val === "object") return <span className="font-mono text-muted-foreground/80">{JSON.stringify(val)}</span>;
     return String(val);
   }
 
+  function copyCell(val: unknown, key: string) {
+    const text = val === null || val === undefined ? "" : String(val);
+    void navigator.clipboard.writeText(text);
+    setFlashCell(key);
+    setTimeout(() => setFlashCell(prev => prev === key ? null : prev), 700);
+  }
+
+  function downloadCsv() {
+    const header = is2D
+      ? ["row", ...Array.from({ length: colCount }, (_, i) => `col_${i}`)].join(",")
+      : "row,value";
+    const csvRows = Array.from({ length: rowCount }, (_, ri) => {
+      const cells = is2D
+        ? Array.from({ length: colCount }, (_, ci) => {
+            const v = getCell(ri, ci);
+            const s = v === null || v === undefined ? "" : String(v);
+            return s.includes(",") ? `"${s}"` : s;
+          })
+        : [String(getCell(ri, 0) ?? "")];
+      return [ri, ...cells].join(",");
+    });
+    const csv = [header, ...csvRows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${shortPath.replace(/\//g, "_")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const statsLabel = `${rowCount.toLocaleString()} row${rowCount !== 1 ? "s" : ""}${is2D ? ` × ${colCount.toLocaleString()} col${colCount !== 1 ? "s" : ""}` : ""} · [${dims.join(", ")}]`;
+
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-mono text-cyan-500 break-all px-1">{result.label}</div>
+    <div className="flex flex-col gap-2">
+      {/* Header: path + stats + download */}
+      <div className="flex items-center justify-between gap-3 px-1 min-w-0">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="text-[11px] font-mono text-cyan-500 truncate cursor-default min-w-0">…/{shortPath}</div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-sm font-mono text-[10px] break-all">{result.label}</TooltipContent>
+        </Tooltip>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">{statsLabel}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={downloadCsv}>
+                <Download className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Download CSV ({rowCount.toLocaleString()} rows)</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Table */}
       <div className="rounded-md border border-border/50 overflow-hidden">
         <div className="overflow-auto" style={{ maxHeight: "55vh" }}>
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40">
-                <TableHead className="whitespace-nowrap font-semibold text-xs py-2 px-3 text-muted-foreground sticky left-0 bg-muted/40 z-10 border-r border-border/30">
-                  row
+              <TableRow className="bg-muted/50 hover:bg-muted/50">
+                <TableHead className="sticky left-0 z-10 bg-muted/50 border-r border-border/40 text-[11px] font-semibold text-muted-foreground py-2 px-3 w-14 text-center select-none">
+                  #
                 </TableHead>
                 {is2D
-                  ? Array.from({ length: cols }, (_, ci) => (
-                      <TableHead key={ci} className="whitespace-nowrap font-semibold text-xs py-2 px-3 tabular-nums text-right">
-                        {ci}
+                  ? Array.from({ length: colCount }, (_, ci) => (
+                      <TableHead key={ci} className="text-[11px] font-semibold text-muted-foreground py-2 px-3 text-right tabular-nums min-w-[80px]">
+                        col {ci}
                       </TableHead>
                     ))
-                  : <TableHead className="whitespace-nowrap font-semibold text-xs py-2 px-3">value</TableHead>
+                  : <TableHead className="text-[11px] font-semibold text-muted-foreground py-2 px-3">value</TableHead>
                 }
               </TableRow>
             </TableHeader>
             <TableBody>
-              {Array.from({ length: rows }, (_, ri) => (
-                <TableRow key={ri} className="hover:bg-muted/30">
-                  <TableCell className="text-xs py-1.5 px-3 tabular-nums text-muted-foreground sticky left-0 bg-background z-10 border-r border-border/30">
-                    {ri}
-                  </TableCell>
-                  {is2D
-                    ? Array.from({ length: cols }, (_, ci) => (
-                        <TableCell key={ci} className="text-xs py-1.5 px-3 tabular-nums text-right">
-                          {renderCellValue(getCell(ri, ci))}
-                        </TableCell>
-                      ))
-                    : (
-                        <TableCell className="text-xs py-1.5 px-3 tabular-nums">
-                          {renderCellValue(getCell(ri, 0))}
-                        </TableCell>
-                      )
-                  }
-                </TableRow>
-              ))}
+              {Array.from({ length: visibleRows }, (_, ri) => {
+                const isOdd = ri % 2 === 1;
+                const rowBg = isOdd ? "hsl(var(--muted) / 0.25)" : "transparent";
+                return (
+                  <TableRow key={ri} style={{ background: rowBg }} className="hover:!bg-accent/40">
+                    <TableCell
+                      className="sticky left-0 z-10 border-r border-border/30 text-[11px] tabular-nums text-muted-foreground text-center py-1.5 px-3 select-none w-14"
+                      style={{ background: rowBg }}
+                    >
+                      {ri}
+                    </TableCell>
+                    {is2D
+                      ? Array.from({ length: colCount }, (_, ci) => {
+                          const val = getCell(ri, ci);
+                          const key = `${ri}-${ci}`;
+                          return (
+                            <TableCell
+                              key={ci}
+                              onClick={() => copyCell(val, key)}
+                              title="Click to copy"
+                              className={cn(
+                                "text-xs py-1.5 px-3 tabular-nums text-right cursor-pointer transition-colors duration-150",
+                                flashCell === key ? "!bg-yellow-400/40" : ""
+                              )}
+                            >
+                              {renderCellValue(val)}
+                            </TableCell>
+                          );
+                        })
+                      : (() => {
+                          const val = getCell(ri, 0);
+                          const key = `${ri}-0`;
+                          return (
+                            <TableCell
+                              onClick={() => copyCell(val, key)}
+                              title="Click to copy"
+                              className={cn(
+                                "text-xs py-1.5 px-3 tabular-nums cursor-pointer transition-colors duration-150",
+                                flashCell === key ? "!bg-yellow-400/40" : ""
+                              )}
+                            >
+                              {renderCellValue(val)}
+                            </TableCell>
+                          );
+                        })()
+                    }
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
-        <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground">
-          {rows} row{rows !== 1 ? "s" : ""}{is2D ? ` × ${cols} column${cols !== 1 ? "s" : ""}` : ""} · dimensions [{dims.join(", ")}]
+        <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground flex items-center justify-between gap-2">
+          {truncated
+            ? <span className="text-amber-500">Showing first {MAX_RENDERED_ROWS.toLocaleString()} of {rowCount.toLocaleString()} rows — download CSV for all data</span>
+            : <span>Click any value cell to copy · {rowCount.toLocaleString()} row{rowCount !== 1 ? "s" : ""} total</span>
+          }
         </div>
       </div>
     </div>
