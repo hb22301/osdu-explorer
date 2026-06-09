@@ -1502,7 +1502,11 @@ export function JsonViewerContent({
 
       {/* Array Data dialog */}
       <Dialog open={arrayOpen} onOpenChange={setArrayOpen}>
-        <DialogContent className="max-w-5xl w-full flex flex-col gap-3" style={{ maxHeight: "90vh" }} aria-describedby={undefined}>
+        <DialogContent
+          className="flex flex-col gap-3 rounded-none"
+          style={{ left: 0, top: 0, transform: "none", width: "100vw", height: "100vh", maxWidth: "none", maxHeight: "none", borderRadius: 0, padding: "1rem" }}
+          aria-describedby={undefined}
+        >
           <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
             <Grid3x3 className="h-4 w-4 text-emerald-500" />
             Array Data — Reservoir DMS
@@ -1531,7 +1535,7 @@ export function JsonViewerContent({
           )}
 
           {!arrayLoading && arrayResults.length > 0 && (
-            <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden pr-1" style={{ maxHeight: "75vh" }}>
+            <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden pr-1">
               {arrayResults.map((result, ri) => (
                 <div key={ri} className="flex-1 min-h-0 flex flex-col" style={{ minHeight: "120px" }}>
                   <ArrayDataTable result={result} />
