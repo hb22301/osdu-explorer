@@ -2,7 +2,7 @@
 
 A web-based explorer and management interface for the [OSDU Data Platform](https://osduforum.org/). Browse, search, and inspect subsurface energy data records, schemas, legal tags, and reservoir resources — all from a fast, keyboard-friendly UI.
 
-**Live at [osdudatamanager.com](https://osdudatamanager.com)**
+**Live at [osdudatamanager.com](https://osdudatamanager.com) and [osdu-manager.replit.app](https://osdu-manager.replit.app)**
 
 ---
 
