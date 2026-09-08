@@ -1,490 +1,4 @@
-import { useRef, useState, useCallback, useEffect, useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  ClipboardCopy,
-  Check,
-  TextSelect,
-  TextSearch,
-  X,
-  ChevronUp,
-  ChevronDown,
-  Code,
-  List,
-  Maximize2,
-  Minimize2,
-  ExternalLink,
-  WrapText,
-  ArrowLeft,
-  Search,
-  Database,
-  Loader2,
-  Terminal,
-  Waves,
-  Grid3x3,
-  Download,
-} from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { ConsolePanel } from "@/components/console-panel";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
-import {
-  JsonTreeView,
-  buildTreeMatches,
-  useTreeCollapsed,
-  type JsonValue,
-  type TreeMatch,
-  type TreeCollapsedState,
-} from "@/components/json-tree-view";
-
-interface JsonViewerToolbarProps {
-  json: string;
-  className?: string;
-  storageKey?: string;
-  /** Label shown in the fullscreen overlay header */
-  title?: string;
-  /** Internal: when true the component is already inside the fullscreen overlay */
-  _isFullscreen?: boolean;
-  /** When true, open directly in fullscreen (no inline view rendered) */
-  defaultFullscreen?: boolean;
-  /** Called when the fullscreen overlay is closed (only relevant with defaultFullscreen) */
-  onFullscreenClose?: () => void;
-  /** When true, hide the Storage lookup button in fullscreen mode */
-  hideStorageLookup?: boolean;
-  /** When true, hide the Wellbore DMS lookup button in fullscreen mode */
-  hideWdmsLookup?: boolean;
-  /** When provided, the Search lookup button performs an RDMS lookup instead of OSDU search */
-  rdmsContext?: { dataspace: string; datatype?: string; uuid?: string };
-}
-
-interface RawMatch {
-  start: number;
-  end: number;
-}
-
-function buildRawSegments(text: string, matches: RawMatch[], activeIndex: number) {
-  if (matches.length === 0) return [{ text, highlight: false, active: false }];
-  const segments: { text: string; highlight: boolean; active: boolean }[] = [];
-  let cursor = 0;
-  matches.forEach((m, i) => {
-    if (m.start > cursor) {
-      segments.push({ text: text.slice(cursor, m.start), highlight: false, active: false });
-    }
-    segments.push({ text: text.slice(m.start, m.end), highlight: true, active: i === activeIndex });
-    cursor = m.end;
-  });
-  if (cursor < text.length) {
-    segments.push({ text: text.slice(cursor), highlight: false, active: false });
-  }
-  return segments;
-}
-
-type ViewMode = "tree" | "raw";
-
-interface SharedViewerState {
-  viewMode: ViewMode;
-  onViewModeChange: (mode: ViewMode) => void;
-  query: string;
-  onQueryChange: (q: string) => void;
-  searchOpen: boolean;
-  onSearchOpenChange: (open: boolean) => void;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
-  if (typeof node !== "object" || node === null) return null;
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const found = findObjectTypeForUuid(item, uuid);
-      if (found !== null) return found;
-    }
-    return null;
-  }
-  const obj = node as Record<string, JsonValue>;
-
-  // If this object directly contains the UUID as a value, check its own $type.
-  // Only qualify if $type starts with "resqml" — otherwise keep searching other occurrences.
-  const containsUuid = Object.values(obj).some((v) => typeof v === "string" && v === uuid);
-  if (containsUuid) {
-    const ownType = typeof obj["$type"] === "string" ? (obj["$type"] as string) : undefined;
-    if (ownType !== undefined && /^resqml/i.test(ownType)) return ownType;
-  }
-
-  // Recurse into child objects regardless, to find other occurrences of the UUID.
-  for (const val of Object.values(obj)) {
-    if (val && typeof val === "object") {
-      const found = findObjectTypeForUuid(val, uuid);
-      if (found !== null) return found;
-    }
-  }
-  return null;
-}
-
-// ─── RDMS array-data helpers ───────────────────────────────────────────────
-
-const RDMS_ARRAY_TYPES = [
-  "resqml20.obj_Grid2dRepresentation",
-  "resqml20.obj_PolylineSetRepresentation",
-] as const;
-type RdmsArrayType = (typeof RDMS_ARRAY_TYPES)[number];
-
-function getRootField<T>(parsed: JsonValue | null, key: string): T | null {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const v = (parsed as Record<string, JsonValue>)[key];
-  return (v as T) ?? null;
-}
-
-interface PathTraversalOk { ok: true; value: string }
-interface PathTraversalFail {
-  ok: false;
-  failedKey: string;
-  parentPath: string;
-  availableKeys: string[] | null;
-}
-type PathTraversalResult = PathTraversalOk | PathTraversalFail;
-
-function traversePathDebug(root: JsonValue, keys: string[], pathPrefix = ""): PathTraversalResult {
-  const fullPath = [pathPrefix, ...keys].filter(Boolean).join(".");
-  console.log("[ArrayData] Traversing path:", fullPath);
-
-  let cur: JsonValue = root;
-  const traversed: string[] = pathPrefix ? [pathPrefix] : [];
-
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    const displayPath = [...traversed, key].join(".");
-
-    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
-      console.log(`[ArrayData] ${displayPath} => FAILED (parent is ${Array.isArray(cur) ? "array" : typeof cur})`);
-      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys: null };
-    }
-
-    const obj = cur as Record<string, JsonValue>;
-    const next = obj[key];
-
-    if (next === null || next === undefined) {
-      const availableKeys = Object.keys(obj);
-      console.log(`[ArrayData] ${displayPath} => FAILED (value is ${next === undefined ? "undefined" : "null"})`);
-      if (i === 0 && !pathPrefix) console.log("[ArrayData] Top-level keys:", availableKeys);
-      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys };
-    }
-
-    if (i === keys.length - 1) {
-      if (typeof next === "string") {
-        console.log(`[ArrayData] ${displayPath} => OK`);
-        return { ok: true, value: next };
-      }
-      const availableKeys = Object.keys(obj);
-      console.log(`[ArrayData] ${displayPath} => FAILED (expected string, got ${Array.isArray(next) ? "array" : typeof next})`);
-      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys };
-    }
-
-    console.log(`[ArrayData] ${displayPath} => OK`);
-    traversed.push(key);
-    cur = next;
-  }
-
-  return { ok: false, failedKey: "", parentPath: "(root)", availableKeys: null };
-}
-
-function formatPathError(result: PathTraversalFail): string {
-  const keysStr = result.availableKeys ? `[${result.availableKeys.join(", ")}]` : "N/A";
-  return `Path not found: '${result.failedKey}' not found under '${result.parentPath}'. Available keys: ${keysStr}`;
-}
-
-function getRdmsArrayType(parsed: JsonValue | null): RdmsArrayType | null {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const t = (parsed as Record<string, JsonValue>)["$type"];
-  if (typeof t === "string" && (RDMS_ARRAY_TYPES as readonly string[]).includes(t)) {
-    return t as RdmsArrayType;
-  }
-  return null;
-}
-
-function getRootUuid(parsed: JsonValue | null): string | null {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  const v = (parsed as Record<string, JsonValue>)["uuid"];
-  return typeof v === "string" ? v : null;
-}
-
-interface ArrayDataResult {
-  label: string;
-  dimensions?: number[];
-  data?: unknown[];
-  error?: string;
-}
-
-const MAX_RENDERED_ROWS = 500;
-
-function formatNumber(n: number): string {
-  if (!isFinite(n)) return String(n);
-  if (Number.isInteger(n)) return n.toLocaleString();
-  const abs = Math.abs(n);
-  if (abs === 0) return "0";
-  if (abs >= 0.001 && abs < 1e7) return parseFloat(n.toPrecision(6)).toString();
-  return n.toExponential(4);
-}
-
-function ArrayDataTable({ result }: { result: ArrayDataResult }) {
-  const [flashCell, setFlashCell] = useState<string | null>(null);
-
-  const shortPath = result.label.split("/").filter(Boolean).slice(-2).join("/");
-
-  if (result.error) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="text-[11px] font-mono text-cyan-500 truncate px-1 cursor-default">…/{shortPath}</div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-xs font-mono text-[10px] break-all">{result.label}</TooltipContent>
-        </Tooltip>
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {result.error}
-        </div>
-      </div>
-    );
-  }
-
-  const data = result.data ?? [];
-  const dims = result.dimensions ?? [data.length];
-  const is2D = dims.length >= 2;
-  const rowCount = dims[0] ?? 0;
-  const colCount = is2D ? (dims[1] ?? 1) : 1;
-  const visibleRows = Math.min(rowCount, MAX_RENDERED_ROWS);
-  const truncated = rowCount > MAX_RENDERED_ROWS;
-
-  function getCell(row: number, col: number): unknown {
-    if (Array.isArray(data[row])) return (data[row] as unknown[])[col];
-    if (is2D) return data[row * colCount + col];
-    return data[row];
-  }
-
-  function renderCellValue(val: unknown) {
-    if (val === null || val === undefined) return <span className="text-muted-foreground/40">—</span>;
-    if (typeof val === "number") return formatNumber(val);
-    if (typeof val === "object") return <span className="font-mono text-muted-foreground/80">{JSON.stringify(val)}</span>;
-    return String(val);
-  }
-
-  function copyCell(val: unknown, key: string) {
-    const text = val === null || val === undefined ? "" : String(val);
-    void navigator.clipboard.writeText(text);
-    setFlashCell(key);
-    setTimeout(() => setFlashCell(prev => prev === key ? null : prev), 700);
-  }
-
-  function downloadCsv() {
-    const header = is2D
-      ? ["row", ...Array.from({ length: colCount }, (_, i) => `col_${i}`)].join(",")
-      : "row,value";
-    const csvRows = Array.from({ length: rowCount }, (_, ri) => {
-      const cells = is2D
-        ? Array.from({ length: colCount }, (_, ci) => {
-            const v = getCell(ri, ci);
-            const s = v === null || v === undefined ? "" : String(v);
-            return s.includes(",") ? `"${s}"` : s;
-          })
-        : [String(getCell(ri, 0) ?? "")];
-      return [ri, ...cells].join(",");
-    });
-    const csv = [header, ...csvRows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${shortPath.replace(/\//g, "_")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  const statsLabel = `${rowCount.toLocaleString()} row${rowCount !== 1 ? "s" : ""}${is2D ? ` × ${colCount.toLocaleString()} col${colCount !== 1 ? "s" : ""}` : ""} · [${dims.join(", ")}]`;
-
-  return (
-    <div className="flex flex-col gap-2 h-full">
-      {/* Header: path + stats + download */}
-      <div className="flex items-center justify-between gap-3 px-1 min-w-0">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="text-[11px] font-mono text-cyan-500 truncate cursor-default min-w-0">…/{shortPath}</div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-sm font-mono text-[10px] break-all">{result.label}</TooltipContent>
-        </Tooltip>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">{statsLabel}</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={downloadCsv}>
-                <Download className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Download CSV ({rowCount.toLocaleString()} rows)</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="rounded-md border border-border/50 flex flex-col flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50 hover:bg-muted/50">
-                <TableHead className="sticky left-0 z-10 bg-muted/50 border-r border-border/40 text-[11px] font-semibold text-muted-foreground py-2 px-3 w-14 text-center select-none">
-                  #
-                </TableHead>
-                {is2D
-                  ? Array.from({ length: colCount }, (_, ci) => (
-                      <TableHead key={ci} className="text-[11px] font-semibold text-muted-foreground py-2 px-3 text-right tabular-nums min-w-[80px]">
-                        col {ci}
-                      </TableHead>
-                    ))
-                  : <TableHead className="text-[11px] font-semibold text-muted-foreground py-2 px-3">value</TableHead>
-                }
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {Array.from({ length: visibleRows }, (_, ri) => {
-                const isOdd = ri % 2 === 1;
-                const rowBg = isOdd ? "hsl(var(--muted) / 0.25)" : "transparent";
-                return (
-                  <TableRow key={ri} style={{ background: rowBg }} className="hover:!bg-accent/40">
-                    <TableCell
-                      className="sticky left-0 z-10 border-r border-border/30 text-[11px] tabular-nums text-muted-foreground text-center py-1.5 px-3 select-none w-14"
-                      style={{ background: rowBg }}
-                    >
-                      {ri}
-                    </TableCell>
-                    {is2D
-                      ? Array.from({ length: colCount }, (_, ci) => {
-                          const val = getCell(ri, ci);
-                          const key = `${ri}-${ci}`;
-                          return (
-                            <TableCell
-                              key={ci}
-                              onClick={() => copyCell(val, key)}
-                              title="Click to copy"
-                              className={cn(
-                                "text-xs py-1.5 px-3 tabular-nums text-right cursor-pointer transition-colors duration-150",
-                                flashCell === key ? "!bg-yellow-400/40" : ""
-                              )}
-                            >
-                              {renderCellValue(val)}
-                            </TableCell>
-                          );
-                        })
-                      : (() => {
-                          const val = getCell(ri, 0);
-                          const key = `${ri}-0`;
-                          return (
-                            <TableCell
-                              onClick={() => copyCell(val, key)}
-                              title="Click to copy"
-                              className={cn(
-                                "text-xs py-1.5 px-3 tabular-nums cursor-pointer transition-colors duration-150",
-                                flashCell === key ? "!bg-yellow-400/40" : ""
-                              )}
-                            >
-                              {renderCellValue(val)}
-                            </TableCell>
-                          );
-                        })()
-                    }
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-        <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground flex items-center justify-between gap-2">
-          {truncated
-            ? <span className="text-amber-500">Showing first {MAX_RENDERED_ROWS.toLocaleString()} of {rowCount.toLocaleString()} rows — download CSV for all data</span>
-            : <span>Click any value cell to copy · {rowCount.toLocaleString()} row{rowCount !== 1 ? "s" : ""} total</span>
-          }
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────
-
-export function JsonViewerContent({
-  json,
-  className,
-  storageKey,
-  _isFullscreen = false,
-  onMaximize,
-  onPopOut,
-  sharedTreeState,
-  sharedViewerState,
-  hideStorageLookup,
-  hideWdmsLookup,
-  rdmsContext,
-}: JsonViewerToolbarProps & {
-  onMaximize?: () => void;
-  onPopOut?: () => void;
-  sharedTreeState?: TreeCollapsedState;
-  sharedViewerState?: SharedViewerState;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const preRef = useRef<HTMLPreElement>(null);
-  const treeRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const activeRawMatchRef = useRef<HTMLElement>(null);
-  const activeTreeMatchRef = useRef<HTMLElement | null>(null);
-
-  const [localViewMode, setLocalViewMode] = useState<ViewMode>("tree");
-  const [copied, setCopied] = useState(false);
-  const [localSearchOpen, setLocalSearchOpen] = useState(false);
-  const [localQuery, setLocalQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [wordWrap, setWordWrap] = useState(true);
-  const [fontSize, setFontSize] = useState(12);
-  const [badgeRendered, setBadgeRendered] = useState(false);
-  const [badgeExiting, setBadgeExiting] = useState(false);
-  const badgeExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [selectedText, setSelectedText] = useState("");
-  const [lookupLoading, setLookupLoading] = useState<"search" | "storage" | null>(null);
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const errorDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [overlayJson, setOverlayJson] = useState<string | null>(null);
-  const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
-
-  type WdmsResult = {
-    urn: string;
-    status: "found" | "error";
-    columns?: string[];
-    dataRows?: unknown[][];
-    error?: string;
-  };
-  const [wdmsOpen, setWdmsOpen] = useState(false);
-  const [wdmsResults, setWdmsResults] = useState<WdmsResult[]>([]);
-  const [wdmsLoading, setWdmsLoading] = useState(false);
-  const [wdmsError, setWdmsError] = useState<string | null>(null);
-
-  const [arrayOpen, setArrayOpen] = useState(false);
-  const [arrayLoading, setArrayLoading] = useState(false);
-  const [arrayError, setArrayError] = useState<string | null>(null);
-  const [arrayResults, setArrayResults] = useState<ArrayDataResult[]>([]);
-
-  const MIN_FONT_SIZE = 10;
-  const MAX_FONT_SIZE = 20;
+_SIZE = 20;
 
   const viewMode = sharedViewerState ? sharedViewerState.viewMode : localViewMode;
   const searchOpen = sharedViewerState ? sharedViewerState.searchOpen : localSearchOpen;
@@ -534,6 +48,19 @@ export function JsonViewerContent({
   }, [displayJson]);
 
   const showTree = viewMode === "tree" && parsedJson !== null;
+  const displayedRecordId = useMemo(() => {
+    const rootId = getRootField<string>(parsedJson, "id")?.trim();
+    return rootId || storageRecordId?.trim() || searchRecordId?.trim() || null;
+  }, [parsedJson, storageRecordId, searchRecordId]);
+  const ddmsTarget = useMemo(() => {
+    const target = parsedJson ? findReservoirDdmsTarget(parsedJson) : null;
+    if (!target) return null;
+    return {
+      ...target,
+      datatype: target.datatype ?? findFirstStringField(parsedJson, "$type"),
+      uuid: target.uuid ?? findFirstStringField(parsedJson, "uuid"),
+    };
+  }, [parsedJson]);
 
   // --- Tree mode matches ---
   const treeMatches: TreeMatch[] = useMemo(() => {
@@ -591,13 +118,21 @@ export function JsonViewerContent({
   }, [hasMatches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSelectAll = useCallback(() => {
-    const target = showTree ? treeRef.current : preRef.current;
+    const target = showTree
+      ? treeRef.current?.querySelector<HTMLElement>("[data-json-content]")
+      : preRef.current;
     if (!target) return;
+    const sel = window.getSelection();
+    if (selectionCoversTarget(sel, target)) {
+      sel?.removeAllRanges();
+      setAllSelected(false);
+      return;
+    }
     const range = document.createRange();
     range.selectNodeContents(target);
-    const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
+    setAllSelected(true);
   }, [showTree]);
 
   const handleCopy = useCallback(() => {
@@ -618,10 +153,6 @@ export function JsonViewerContent({
     setQuery("");
     setActiveIndex(0);
   }, [setSearchOpen, setQuery]);
-
-  const toggleViewMode = useCallback(() => {
-    setViewMode(viewMode === "tree" ? "raw" : "tree");
-  }, [viewMode, setViewMode]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -673,38 +204,34 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, []);
 
-  // Auto-select full OSDU record ID on click.
-  // OSDU format: <partition>:<data_type>[--<EntityType>]:<id>
-  const OSDU_ID_RE = /^[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:.+$/;
+  // Auto-select the full OSDU record ID when clicking anywhere inside its quoted value.
   const handleContainerClick = useCallback(() => {
+    if (showTree) return;
     const sel = window.getSelection();
     if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
-    const node = range.startContainer;
-    if (node.nodeType !== Node.TEXT_NODE) return;
-    const text = node.textContent ?? "";
-    const offset = range.startOffset;
-    // Expand left/right through characters that can appear in OSDU IDs
-    let start = offset;
-    while (start > 0 && /[^\s"'\[\]{},]/.test(text[start - 1])) start--;
-    let end = offset;
-    while (end < text.length && /[^\s"'\[\]{},]/.test(text[end])) end++;
-    const cleanToken = text.slice(start, end).replace(/^[^a-zA-Z0-9]+/, "");
-    if (UUID_RE.test(cleanToken) || OSDU_ID_RE.test(cleanToken)) {
-      const tokenStart = text.indexOf(cleanToken, start);
-      const newRange = document.createRange();
-      newRange.setStart(node, tokenStart);
-      newRange.setEnd(node, tokenStart + cleanToken.length);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-    }
-  }, []);
+    const target = preRef.current;
+    if (!target) return;
+    const offset = getTextOffset(target, range.startContainer, range.startOffset);
+    if (offset === null) return;
+    const quotedRange = findQuotedLookupRange(target.textContent ?? "", offset);
+    if (!quotedRange) return;
+    const newRange = createTextRange(target, quotedRange.start, quotedRange.end);
+    if (!newRange) return;
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }, [showTree]);
 
-  // Track text selection within the viewer (fullscreen only)
+  // Track text selection within the viewer and whether the JSON content is fully selected.
   useEffect(() => {
-    if (!_isFullscreen) return;
     const handleSelectionChange = () => {
       const sel = window.getSelection();
+      const target = showTree
+        ? treeRef.current?.querySelector<HTMLElement>("[data-json-content]") ?? null
+        : preRef.current;
+      setAllSelected(selectionCoversTarget(sel, target));
+
+      if (!_isFullscreen) return;
       const text = sel?.toString().trim() ?? "";
       if (text && containerRef.current && sel?.rangeCount) {
         const range = sel.getRangeAt(0);
@@ -717,7 +244,7 @@ export function JsonViewerContent({
     };
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [_isFullscreen]);
+  }, [_isFullscreen, showTree]);
 
   // Auto-dismiss lookup error after 4 seconds
   useEffect(() => {
@@ -738,29 +265,32 @@ export function JsonViewerContent({
   }, []);
 
   const handleStorageLookup = useCallback(async () => {
-    if (!selectedText || lookupLoading) return;
+    const selectedStorageId = extractFirstOsduId(selectedText);
+    const lookupId = selectedStorageId || displayedRecordId || selectedText.trim();
+    if (!lookupId || lookupLoading) return;
     setLookupLoading("storage");
     setLookupError(null);
-    const lookupId = selectedText.replace(/:+$/, "");
     try {
       const res = await fetch(`/api/osdu/records/${encodeURIComponent(lookupId)}`);
       if (res.status === 404) { setLookupError("Record not found"); return; }
       if (!res.ok) { setLookupError("Failed to fetch record"); return; }
       const data: unknown = await res.json();
       setOverlayJson(JSON.stringify(data, null, 2));
-      setOverlayLabel(selectedText);
+      setOverlayLabel(lookupId);
+      onResponseTypeChange?.("storage");
     } catch {
       setLookupError("Failed to fetch record");
     } finally {
       setLookupLoading(null);
     }
-  }, [selectedText, lookupLoading]);
+  }, [selectedText, displayedRecordId, lookupLoading, onResponseTypeChange]);
 
   const handleSearchLookup = useCallback(async () => {
-    if (!selectedText || lookupLoading) return;
+    const selectedSearchId = extractFirstOsduId(selectedText);
+    const lookupId = selectedSearchId || displayedRecordId || selectedText.trim();
+    if (!lookupId || lookupLoading) return;
     setLookupLoading("search");
     setLookupError(null);
-    const lookupId = selectedText.replace(/:+$/, "");
     try {
       const res = await fetch("/api/osdu/search", {
         method: "POST",
@@ -771,16 +301,49 @@ export function JsonViewerContent({
       const data = await res.json() as { results: unknown[]; totalCount: number };
       if (data.totalCount === 0 || data.results.length === 0) { setLookupError("No results found"); return; }
       setOverlayJson(JSON.stringify(data.results[0], null, 2));
-      setOverlayLabel(selectedText);
+      setOverlayLabel(lookupId);
+      onResponseTypeChange?.("search");
     } catch {
       setLookupError("Search failed");
     } finally {
       setLookupLoading(null);
     }
-  }, [selectedText, lookupLoading]);
+  }, [selectedText, displayedRecordId, lookupLoading, onResponseTypeChange]);
+
+  const handleDdmsLookup = useCallback(async () => {
+    if (!ddmsTarget || lookupLoading) return;
+    if (!ddmsTarget.datatype || !ddmsTarget.uuid) {
+      setLookupError("The record is missing the Reservoir DDMS type or UUID");
+      return;
+    }
+    setLookupLoading("ddms");
+    setLookupError(null);
+    try {
+      const url = `/api/osdu/rdms/dataspaces/${encodeURIComponent(ddmsTarget.dataspace)}/resources/${encodeURIComponent(ddmsTarget.datatype)}/${encodeURIComponent(ddmsTarget.uuid)}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setLookupError(err.error ?? "Failed to fetch Reservoir DDMS record");
+        return;
+      }
+      const data: unknown = await res.json();
+      setOverlayJson(JSON.stringify(data, null, 2));
+      setOverlayLabel(ddmsTarget.uuid);
+      onResponseTypeChange?.("ddms");
+    } catch {
+      setLookupError("Failed to fetch Reservoir DDMS record");
+    } finally {
+      setLookupLoading(null);
+    }
+  }, [ddmsTarget, lookupLoading, onResponseTypeChange]);
+
+  const handleBackToOriginal = useCallback(() => {
+    setOverlayJson(null);
+    setOverlayLabel(null);
+    if (originalResponseType) onResponseTypeChange?.(originalResponseType);
+  }, [originalResponseType, onResponseTypeChange]);
 
   // Extract OSDU record IDs from selectedText (handles single ID or text containing multiple IDs)
-  const OSDU_ID_EXTRACT_RE = /[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:[^\s"'\[\]{},\n\\]+/g;
   const selectedUrns = useMemo(() => {
     if (!selectedText) return [];
     const matches = [...selectedText.matchAll(OSDU_ID_EXTRACT_RE)];
@@ -974,9 +537,23 @@ export function JsonViewerContent({
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
+  const lineWrapDisabled = viewMode !== "raw";
+  const decreaseFontDisabled = viewMode !== "raw" || fontSize <= MIN_FONT_SIZE;
+  const increaseFontDisabled = viewMode !== "raw" || fontSize >= MAX_FONT_SIZE;
+  const selectedStorageId = extractFirstOsduId(selectedText);
+  const selectedSearchId = extractFirstOsduId(selectedText);
+  const hasRecordResponse = Boolean(displayedRecordId);
+  const storageLookupDisabled = hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading;
+  const searchLookupDisabled = rdmsContext
+    ? !selectedUuid || !!lookupLoading
+    : hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading;
+  const ddmsLookupDisabled = !ddmsTarget || !!lookupLoading;
+  const wdmsLookupDisabled = wdmsUrns.length === 0 || !!wdmsLoading;
+  const arrayDataDisabled = !!arrayLoading;
+  const matchNavigationDisabled = totalMatches === 0;
 
   return (
-    <div ref={containerRef} className={cn("flex flex-col gap-1", _isFullscreen && "h-full", className)} onClick={handleContainerClick}>
+    <div ref={containerRef} className={cn("relative flex flex-col gap-1", _isFullscreen && "h-full", className)} onClick={handleContainerClick}>
       {_isFullscreen && lookupError && (
         <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive animate-in fade-in slide-in-from-top-1 duration-150">
           <span className="flex-1">{lookupError}</span>
@@ -1000,14 +577,14 @@ export function JsonViewerContent({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
+              className={cn("h-7 w-7", ENABLED_ICON_CLASS)}
               onClick={handleSelectAll}
-              aria-label="Select all"
+              aria-label={allSelected ? "Unselect all" : "Select all"}
             >
-              <TextSelect className="h-3.5 w-3.5" />
+              <ListChecks className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Select all</TooltipContent>
+          <TooltipContent>{allSelected ? "Unselect all" : "Select all"}</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -1015,14 +592,14 @@ export function JsonViewerContent({
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7"
+              className={cn("h-7 w-7", ENABLED_ICON_CLASS)}
               onClick={handleCopy}
               aria-label="Copy"
             >
               {copied ? (
                 <Check className="h-3.5 w-3.5 text-green-500" />
               ) : (
-                <ClipboardCopy className="h-3.5 w-3.5" />
+                <Copy className="h-3.5 w-3.5" />
               )}
             </Button>
           </TooltipTrigger>
@@ -1034,7 +611,7 @@ export function JsonViewerContent({
             <Button
               variant="ghost"
               size="icon"
-              className={cn("h-7 w-7 relative", searchOpen && "bg-accent text-accent-foreground")}
+              className={cn("h-7 w-7 relative", ENABLED_ICON_CLASS, searchOpen && "bg-accent text-primary")}
               onClick={toggleSearch}
               aria-label="Search"
             >
@@ -1057,29 +634,44 @@ export function JsonViewerContent({
         </Tooltip>
 
         {parsedJson !== null && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "h-7 w-7",
-                  viewMode === "tree" && "bg-accent text-accent-foreground",
-                )}
-                onClick={toggleViewMode}
-                aria-label={viewMode === "tree" ? "Switch to raw view" : "Switch to tree view"}
-              >
-                {viewMode === "tree" ? (
-                  <Code className="h-3.5 w-3.5" />
-                ) : (
-                  <List className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {viewMode === "tree" ? "Raw view" : "Tree view"}
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-7",
+                    ENABLED_ICON_CLASS,
+                    viewMode === "tree" && "bg-accent text-primary",
+                  )}
+                  onClick={() => setViewMode("tree")}
+                  aria-label="Tree view"
+                >
+                  <ListTree className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Tree view</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-7",
+                    ENABLED_ICON_CLASS,
+                    viewMode === "raw" && "bg-accent text-primary",
+                  )}
+                  onClick={() => setViewMode("raw")}
+                  aria-label="Raw view"
+                >
+                  <Rows3 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Raw view</TooltipContent>
+            </Tooltip>
+          </div>
         )}
 
         {_isFullscreen && (
@@ -1092,8 +684,8 @@ export function JsonViewerContent({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-7 w-7"
-                      onClick={() => { setOverlayJson(null); setOverlayLabel(null); }}
+                      className={cn("h-7 w-7", ENABLED_ICON_CLASS)}
+                       onClick={handleBackToOriginal}
                       aria-label="Back to original"
                     >
                       <ArrowLeft className="h-3.5 w-3.5" />
@@ -1111,47 +703,76 @@ export function JsonViewerContent({
             <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn("h-7 w-7", wordWrap && "bg-accent text-accent-foreground")}
-                  onClick={() => setWordWrap((v) => !v)}
-                  aria-label={wordWrap ? "Disable word wrap" : "Enable word wrap"}
+                <span
+                  className="inline-flex"
+                  tabIndex={lineWrapDisabled ? 0 : undefined}
+                  aria-label={lineWrapDisabled ? (lineWrap ? "Line wrap disabled in Tree view" : "Line wrap unavailable in Tree view") : undefined}
                 >
-                  <WrapText className="h-3.5 w-3.5" />
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7",
+                      iconStateClass(viewMode === "raw"),
+                      viewMode === "raw" && lineWrap && "bg-accent text-primary",
+                    )}
+                    onClick={() => setLineWrap((v) => !v)}
+                    disabled={lineWrapDisabled}
+                    aria-label={lineWrap ? "Disable line wrap" : "Enable line wrap"}
+                  >
+                    <WrapText className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
               </TooltipTrigger>
-              <TooltipContent>{wordWrap ? "Disable word wrap" : "Enable word wrap"}</TooltipContent>
+              <TooltipContent>{lineWrap ? "Disable line wrap" : "Enable line wrap"}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setFontSize((s) => Math.max(MIN_FONT_SIZE, s - 1))}
-                  disabled={fontSize <= MIN_FONT_SIZE}
-                  aria-label="Decrease font size"
+                <span
+                  className="inline-flex"
+                  tabIndex={decreaseFontDisabled ? 0 : undefined}
+                  aria-label={decreaseFontDisabled ? "Decrease font size unavailable" : undefined}
                 >
-                  <span className="text-[10px] font-bold font-mono leading-none select-none">A-</span>
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7",
+                      iconStateClass(viewMode === "raw" && fontSize > MIN_FONT_SIZE),
+                    )}
+                    onClick={() => setFontSize((s) => Math.max(MIN_FONT_SIZE, s - 1))}
+                    disabled={decreaseFontDisabled}
+                    aria-label="Decrease font size"
+                  >
+                    <span className="text-[10px] font-bold font-mono leading-none select-none">A-</span>
+                  </Button>
+                </span>
               </TooltipTrigger>
               <TooltipContent>Decrease font size</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setFontSize((s) => Math.min(MAX_FONT_SIZE, s + 1))}
-                  disabled={fontSize >= MAX_FONT_SIZE}
-                  aria-label="Increase font size"
+                <span
+                  className="inline-flex"
+                  tabIndex={increaseFontDisabled ? 0 : undefined}
+                  aria-label={increaseFontDisabled ? "Increase font size unavailable" : undefined}
                 >
-                  <span className="text-[13px] font-bold font-mono leading-none select-none">A+</span>
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7",
+                      iconStateClass(viewMode === "raw" && fontSize < MAX_FONT_SIZE),
+                    )}
+                    onClick={() => setFontSize((s) => Math.min(MAX_FONT_SIZE, s + 1))}
+                    disabled={increaseFontDisabled}
+                    aria-label="Increase font size"
+                  >
+                    <span className="text-[13px] font-bold font-mono leading-none select-none">A+</span>
+                  </Button>
+                </span>
               </TooltipTrigger>
               <TooltipContent>Increase font size</TooltipContent>
             </Tooltip>
@@ -1161,80 +782,136 @@ export function JsonViewerContent({
             {!hideStorageLookup && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn("h-7 w-7 transition-opacity", !selectedText || lookupLoading ? "opacity-40 pointer-events-none" : "")}
-                    onClick={() => { void handleStorageLookup(); }}
-                    aria-label="Look up selected text in Storage"
-                    disabled={!selectedText || !!lookupLoading}
+                  <span
+                    className="inline-flex"
+                    tabIndex={storageLookupDisabled ? 0 : undefined}
+                    aria-label={storageLookupDisabled ? "Storage lookup unavailable until a record ID is available" : undefined}
                   >
-                    {lookupLoading === "storage" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Database className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!storageLookupDisabled))}
+                      onClick={() => { void handleStorageLookup(); }}
+                      aria-label="Open record in Storage API"
+                      disabled={storageLookupDisabled}
+                    >
+                      {lookupLoading === "storage" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <DatabaseZap className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {selectedText ? "Look up in Storage" : "Select text to look up in Storage"}
+                  {selectedStorageId
+                    ? `Storage record for selected ID: ${selectedStorageId}`
+                    : displayedRecordId
+                      ? `Storage record: ${displayedRecordId}`
+                      : (selectedText ? "Look up in Storage" : "Select text to look up in Storage")}
                 </TooltipContent>
               </Tooltip>
             )}
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "h-7 w-7 transition-opacity",
-                    rdmsContext
-                      ? (!selectedUuid || !!lookupLoading ? "opacity-40 pointer-events-none" : "")
-                      : (!selectedText || !!lookupLoading ? "opacity-40 pointer-events-none" : ""),
-                  )}
-                  onClick={() => { rdmsContext ? void handleRdmsLookup() : void handleSearchLookup(); }}
-                  aria-label={rdmsContext ? "Look up UUID in Reservoir DMS" : "Search for selected text"}
-                  disabled={rdmsContext ? (!selectedUuid || !!lookupLoading) : (!selectedText || !!lookupLoading)}
+                <span
+                  className="inline-flex"
+                  tabIndex={searchLookupDisabled ? 0 : undefined}
+                  aria-label={searchLookupDisabled ? (rdmsContext ? "Reservoir DDMS lookup unavailable until a UUID is selected" : "Search unavailable until a record ID is available") : undefined}
                 >
-                  {lookupLoading === "search" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Search className="h-3.5 w-3.5" />
-                  )}
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7",
+                      iconStateClass(!searchLookupDisabled),
+                    )}
+                    onClick={() => { rdmsContext ? void handleRdmsLookup() : void handleSearchLookup(); }}
+                    aria-label={rdmsContext ? "Look up UUID in Reservoir DDMS" : "Search record in Search API"}
+                    disabled={searchLookupDisabled}
+                  >
+                    {lookupLoading === "search" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : rdmsContext ? (
+                      <Search className="h-3.5 w-3.5" />
+                    ) : (
+                      <FileSearch2 className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </span>
               </TooltipTrigger>
               <TooltipContent>
                 {rdmsContext
-                  ? (selectedUuid ? "Look up UUID in Reservoir DMS" : "Click a UUID value to enable lookup")
-                  : (selectedText ? "Search by ID" : "Select text to search by ID")}
+                  ? (selectedUuid ? "Look up UUID in Reservoir DDMS" : "Click a UUID value to enable lookup")
+                  : selectedSearchId
+                    ? `Search selected ID: ${selectedSearchId}`
+                    : displayedRecordId
+                      ? `Search record: ${displayedRecordId}`
+                      : (selectedText ? "Search by ID" : "Select text to search by ID")}
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex"
+                  tabIndex={ddmsLookupDisabled ? 0 : undefined}
+                  aria-label={ddmsLookupDisabled ? "Reservoir DDMS unavailable for this record" : undefined}
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn("h-7 w-7", iconStateClass(!ddmsLookupDisabled))}
+                    onClick={() => { void handleDdmsLookup(); }}
+                    aria-label="Open record in Reservoir DDMS"
+                    disabled={ddmsLookupDisabled}
+                  >
+                    {lookupLoading === "ddms" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ReservoirDdmsIcon className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {ddmsTarget
+                  ? `Open Reservoir DDMS record (${ddmsTarget.dataspace})`
+                  : "Reservoir DDMS unavailable: no DDMS dataset is listed"}
               </TooltipContent>
             </Tooltip>
 
             {!hideWdmsLookup && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn("h-7 w-7 transition-opacity", wdmsUrns.length === 0 || wdmsLoading ? "opacity-40 pointer-events-none" : "")}
-                    onClick={() => { void handleWdmsSearch(); }}
-                    aria-label="Search Wellbore DMS"
-                    disabled={wdmsUrns.length === 0 || wdmsLoading}
+                  <span
+                    className="inline-flex"
+                    tabIndex={wdmsLookupDisabled ? 0 : undefined}
+                    aria-label={wdmsLookupDisabled ? "Wellbore DDMS search unavailable until a WellLog or WellboreTrajectory ID is selected" : undefined}
                   >
-                    {wdmsLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Waves className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!wdmsLookupDisabled))}
+                      onClick={() => { void handleWdmsSearch(); }}
+                      aria-label="Search Wellbore DDMS"
+                      disabled={wdmsLookupDisabled}
+                    >
+                      {wdmsLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <WellboreDmsIcon className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   {wdmsUrns.length > 0
-                    ? `Search Wellbore DMS (${wdmsUrns.length} ID${wdmsUrns.length > 1 ? "s" : ""})`
+                    ? `Search Wellbore DDMS (${wdmsUrns.length} ID${wdmsUrns.length > 1 ? "s" : ""})`
                     : selectedUrns.length > 0
                       ? "Selected IDs are not WellLog or WellboreTrajectory"
-                      : "Select a WellLog or WellboreTrajectory ID to search Wellbore DMS"}
+                      : "Select a WellLog or WellboreTrajectory ID to search Wellbore DDMS"}
                 </TooltipContent>
               </Tooltip>
             )}
@@ -1244,22 +921,28 @@ export function JsonViewerContent({
                 <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={() => { void handleArrayData(); }}
-                      aria-label="Get array data from Reservoir DMS"
-                      disabled={arrayLoading}
+                    <span
+                      className="inline-flex"
+                      tabIndex={arrayDataDisabled ? 0 : undefined}
+                      aria-label={arrayDataDisabled ? "Array data unavailable while loading" : undefined}
                     >
-                      {arrayLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Grid3x3 className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn("h-7 w-7", iconStateClass(!arrayDataDisabled))}
+                        onClick={() => { void handleArrayData(); }}
+                        aria-label="Get array data from Reservoir DDMS"
+                        disabled={arrayDataDisabled}
+                      >
+                        {arrayLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Grid3x3 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </span>
                   </TooltipTrigger>
-                  <TooltipContent>Get Array Data from Reservoir DMS</TooltipContent>
+                  <TooltipContent>Get Array Data from Reservoir DDMS</TooltipContent>
                 </Tooltip>
               </>
             )}
@@ -1275,7 +958,7 @@ export function JsonViewerContent({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className={cn("h-7 w-7", ENABLED_ICON_CLASS)}
                     onClick={onMaximize}
                     aria-label="Expand to full screen"
                   >
@@ -1291,7 +974,7 @@ export function JsonViewerContent({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7"
+                    className={cn("h-7 w-7", ENABLED_ICON_CLASS)}
                     onClick={onPopOut}
                     aria-label="Pop out in new tab"
                   >
@@ -1321,30 +1004,52 @@ export function JsonViewerContent({
                   : ""
                 : `${activeIndex + 1} / ${totalMatches}`}
             </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex"
+                  tabIndex={matchNavigationDisabled ? 0 : undefined}
+                  aria-label={matchNavigationDisabled ? "Previous match unavailable" : undefined}
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn("h-6 w-6", iconStateClass(!matchNavigationDisabled))}
+                    onClick={goPrev}
+                    disabled={matchNavigationDisabled}
+                    aria-label="Previous match"
+                  >
+                    <ChevronUp className="h-3 w-3" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Previous match</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex"
+                  tabIndex={matchNavigationDisabled ? 0 : undefined}
+                  aria-label={matchNavigationDisabled ? "Next match unavailable" : undefined}
+                >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn("h-6 w-6", iconStateClass(!matchNavigationDisabled))}
+                    onClick={goNext}
+                    disabled={matchNavigationDisabled}
+                    aria-label="Next match"
+                  >
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Next match</TooltipContent>
+            </Tooltip>
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6"
-              onClick={goPrev}
-              disabled={totalMatches === 0}
-              aria-label="Previous match"
-            >
-              <ChevronUp className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={goNext}
-              disabled={totalMatches === 0}
-              aria-label="Next match"
-            >
-              <ChevronDown className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
+              className={cn("h-6 w-6", ENABLED_ICON_CLASS)}
               onClick={closeAndClearSearch}
               aria-label="Close search"
             >
@@ -1375,7 +1080,7 @@ export function JsonViewerContent({
           ref={preRef}
           className={cn(
             "font-mono bg-muted/50 rounded-b-lg p-4 border border-t-0 border-border/40 text-foreground/90 leading-relaxed",
-            wordWrap ? "whitespace-pre-wrap break-all" : "whitespace-pre overflow-x-auto",
+            lineWrap ? "whitespace-pre-wrap break-all" : "whitespace-pre overflow-x-auto",
             _isFullscreen && "flex-1 overflow-auto min-h-0",
           )}
           style={{ fontSize: `${fontSize}px` }}
@@ -1408,12 +1113,12 @@ export function JsonViewerContent({
         </pre>
       )}
 
-      {/* Wellbore DMS results dialog */}
+      {/* Wellbore DDMS results dialog */}
       <Dialog open={wdmsOpen} onOpenChange={setWdmsOpen}>
         <DialogContent className="max-w-6xl w-full flex flex-col gap-3" style={{ maxHeight: "90vh" }}>
           <DialogTitle className="flex items-center gap-2">
-            <Waves className="h-4 w-4 text-cyan-500" />
-            Wellbore DMS Results
+            <WellboreDmsIcon className="h-4 w-4 text-cyan-500" />
+            Wellbore DDMS Results
             {wdmsResults.length > 0 && (
               <Badge variant="secondary" className="ml-1 text-xs">
                 {wdmsResults.length} record{wdmsResults.length !== 1 ? "s" : ""}
@@ -1500,51 +1205,61 @@ export function JsonViewerContent({
         </DialogContent>
       </Dialog>
 
-      {/* Array Data dialog */}
-      <Dialog open={arrayOpen} onOpenChange={setArrayOpen}>
-        <DialogContent
-          className="flex flex-col gap-3 rounded-none"
-          style={{ left: 0, top: 0, transform: "none", width: "100vw", height: "100vh", maxWidth: "none", maxHeight: "none", borderRadius: 0, padding: "1rem" }}
-          aria-describedby={undefined}
-        >
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
-            <Grid3x3 className="h-4 w-4 text-emerald-500" />
-            Array Data — Reservoir DMS
-            {rdmsArrayType && (
-              <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal">
-                {rdmsArrayType}
-              </Badge>
+      {/* Array Data overlay — constrained to the JSON viewer area */}
+      {arrayOpen && (
+        <div className="absolute inset-0 z-[60] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Grid3x3 className="h-4 w-4 text-emerald-500" />
+              Array Data — Reservoir DDMS
+              {rdmsArrayType && (
+                <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal">
+                  {rdmsArrayType}
+                </Badge>
+              )}
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setArrayOpen(false)} aria-label="Close">
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Close</TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Body */}
+          <div className="flex flex-col flex-1 min-h-0 gap-4 overflow-hidden p-4">
+            {arrayLoading && (
+              <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Fetching array data…</span>
+              </div>
             )}
-          </DialogTitle>
 
-          {arrayLoading && (
-            <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="text-sm">Fetching array data…</span>
-            </div>
-          )}
+            {!arrayLoading && arrayError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {arrayError}
+              </div>
+            )}
 
-          {!arrayLoading && arrayError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {arrayError}
-            </div>
-          )}
+            {!arrayLoading && !arrayError && arrayResults.length === 0 && (
+              <div className="text-xs text-muted-foreground py-4 text-center">No data returned.</div>
+            )}
 
-          {!arrayLoading && !arrayError && arrayResults.length === 0 && (
-            <div className="text-xs text-muted-foreground py-4 text-center">No data returned.</div>
-          )}
-
-          {!arrayLoading && arrayResults.length > 0 && (
-            <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden pr-1">
-              {arrayResults.map((result, ri) => (
-                <div key={ri} className="flex-1 min-h-0 flex flex-col" style={{ minHeight: "120px" }}>
-                  <ArrayDataTable result={result} />
-                </div>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            {!arrayLoading && arrayResults.length > 0 && (
+              <div className="flex flex-col gap-4 flex-1 min-h-0 overflow-hidden">
+                {arrayResults.map((result, ri) => (
+                  <div key={ri} className="flex-1 min-h-0 flex flex-col" style={{ minHeight: "120px" }}>
+                    <ArrayDataTable result={result} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1558,11 +1273,25 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideWdmsLookup, rdmsContext }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
   const fsConsoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
+  const defaultResponseTitle = storageRecordId
+    ? RESPONSE_TITLES.search
+    : searchRecordId
+      ? RESPONSE_TITLES.storage
+      : (title ?? "JSON");
+  const [displayedTitle, setDisplayedTitle] = useState(defaultResponseTitle);
+
+  useEffect(() => {
+    setDisplayedTitle(defaultResponseTitle);
+  }, [json, defaultResponseTitle]);
+
+  const handleResponseTypeChange = useCallback((type: ResponseType) => {
+    setDisplayedTitle(RESPONSE_TITLES[type]);
+  }, []);
 
   const handleFsConsoleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1685,34 +1414,23 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           hideStorageLookup={hideStorageLookup}
           hideWdmsLookup={hideWdmsLookup}
           rdmsContext={rdmsContext}
+          searchRecordId={searchRecordId}
+          storageRecordId={storageRecordId}
+          onResponseTypeChange={handleResponseTypeChange}
         />
       )}
 
       <Dialog open={fullscreenOpen} onOpenChange={(open) => { if (!open) handleFullscreenClose(); }}>
         <DialogContent
-          className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0"
+          className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0 [&>button]:h-7 [&>button]:w-7 [&>button]:rounded-md [&>button]:border [&>button]:border-border/60 [&>button]:bg-background/60 [&>button]:p-1 [&>button]:opacity-100 [&>button]:hover:bg-accent"
           aria-describedby={undefined}
           onKeyDown={(e) => {
             if (e.key === "Escape") handleFullscreenClose();
           }}
         >
-          <DialogTitle className="sr-only">{title ?? "Full-screen JSON viewer"}</DialogTitle>
-          <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
-            <span className="text-sm font-medium text-foreground">{title ?? "JSON"}</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={handleFullscreenClose}
-                  aria-label="Exit full screen"
-                >
-                  <Minimize2 className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Exit full screen</TooltipContent>
-            </Tooltip>
+          <DialogTitle className="sr-only">{displayedTitle}</DialogTitle>
+          <div className="flex items-center border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+            <span className="text-sm font-medium text-foreground">{displayedTitle}</span>
           </div>
           <div className="flex-1 overflow-hidden min-h-0 p-4">
             <JsonViewerContent
@@ -1725,6 +1443,9 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               hideStorageLookup={hideStorageLookup}
               hideWdmsLookup={hideWdmsLookup}
               rdmsContext={rdmsContext}
+              searchRecordId={searchRecordId}
+              storageRecordId={storageRecordId}
+              onResponseTypeChange={handleResponseTypeChange}
             />
           </div>
           {fsConsoleOpen && (

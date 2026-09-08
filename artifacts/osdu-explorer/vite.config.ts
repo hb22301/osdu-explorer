@@ -26,8 +26,18 @@ if (!basePath) {
   );
 }
 
+const appPublishDate = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+}).format(new Date());
+
 export default defineConfig({
   base: basePath,
+  define: {
+    __APP_PUBLISH_DATE__: JSON.stringify(appPublishDate),
+  },
   plugins: [
     react(),
     tailwindcss(),

@@ -157,7 +157,7 @@ export const saveOsduConfig = async (osduConfigInput: OsduConfigInput, options?:
 
 
 
-export const getSaveOsduConfigMutationOptions = <TError = ErrorType<unknown>,
+export const getSaveOsduConfigMutationOptions = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveOsduConfig>>, TError,{data: BodyType<OsduConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof saveOsduConfig>>, TError,{data: BodyType<OsduConfigInput>}, TContext> => {
 
@@ -186,12 +186,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type SaveOsduConfigMutationResult = NonNullable<Awaited<ReturnType<typeof saveOsduConfig>>>
     export type SaveOsduConfigMutationBody = BodyType<OsduConfigInput>
-    export type SaveOsduConfigMutationError = ErrorType<unknown>
+    export type SaveOsduConfigMutationError = ErrorType<ApiError>
 
     /**
  * @summary Save OSDU connection config
  */
-export const useSaveOsduConfig = <TError = ErrorType<unknown>,
+export const useSaveOsduConfig = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveOsduConfig>>, TError,{data: BodyType<OsduConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof saveOsduConfig>>,

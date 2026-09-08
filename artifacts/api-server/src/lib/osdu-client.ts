@@ -30,6 +30,26 @@ function cacheKey(cfg: OsduConfig): string {
   return `${cfg.tokenEndpoint}|${cfg.clientId}`;
 }
 
+function getTokenResponseMessage(body: unknown, status: number): string {
+  if (typeof body === "object" && body !== null) {
+    const response = body as Record<string, unknown>;
+    const message =
+      response.error_description ??
+      response.message ??
+      response.detail ??
+      response.error;
+    if (typeof message === "string" && message.trim()) {
+      return `Token request failed (${status}): ${message}`;
+    }
+  }
+
+  if (typeof body === "string" && body.trim()) {
+    return `Token request failed (${status}): ${body.trim()}`;
+  }
+
+  return `Token request failed (${status})`;
+}
+
 async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
   const key = cacheKey(cfg);
   const cached = tokenCache.get(key);
@@ -111,8 +131,8 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
         pending: false,
         message: `Token fetch failed with status ${response.status}`,
       });
-      logger.error({ status: response.status }, "Failed to fetch OSDU access token");
-      throw new Error(`Token fetch failed (${response.status})`);
+       logger.error({ status: response.status }, "Failed to fetch OSDU access token");
+       throw new Error(getTokenResponseMessage(responseBody, response.status));
     }
 
     const data = responseBody as { access_token: string; expires_in?: number; token_type?: string };
@@ -164,7 +184,10 @@ async function fetchAccessToken(cfg: OsduConfig): Promise<string> {
 
   // Register so concurrent callers share this fetch; clean up when done
   tokenInflight.set(key, promise);
-  promise.finally(() => tokenInflight.delete(key));
+  void promise.then(
+    () => tokenInflight.delete(key),
+    () => tokenInflight.delete(key),
+  );
 
   return promise;
 }
@@ -310,6 +333,10 @@ export class OsduClient {
 
 export function getOsduClient(config: OsduConfig): OsduClient {
   return new OsduClient(config);
+}
+
+export async function validateOsduConfig(config: OsduConfig): Promise<void> {
+  await fetchAccessToken(config);
 }
 
 export function clearTokenCache(cfg: OsduConfig): void {

@@ -1,10 +1,9 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useGetOsduRecord, getGetOsduRecordQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { HardDrive as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp } from "lucide-react";
+import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import { JsonViewerContent } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
 
@@ -12,15 +11,25 @@ const DEFAULT_CONSOLE_HEIGHT = 300;
 const MIN_CONSOLE_HEIGHT = 80;
 const MAX_CONSOLE_HEIGHT = 700;
 
-export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string }) {
+interface RecordLookupDialogProps {
+  selectedId?: string;
+  openRequestId?: string | null;
+  onOpenRequestHandled?: () => void;
+}
+
+export function RecordLookupDialog({
+  selectedId = "",
+  openRequestId = null,
+  onOpenRequestHandled,
+}: RecordLookupDialogProps) {
   const [open, setOpen] = useState(false);
-  const [input, setInput] = useState("");
   const [recordId, setRecordId] = useState("");
+  const [displayedTitle, setDisplayedTitle] = useState("Record from Storage Service");
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
   const consoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
 
-  const { data, isFetching, isError, error, refetch } = useGetOsduRecord(recordId, {
+  const { data, isFetching, isError, error } = useGetOsduRecord(recordId, {
     query: {
       enabled: !!recordId,
       retry: false,
@@ -28,28 +37,33 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
     },
   });
 
-  const lookup = () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    if (trimmed === recordId) {
-      void refetch();
-    } else {
-      setRecordId(trimmed);
-    }
-  };
-
-  const handleOpenChange = (next: boolean) => {
+  const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
     if (next) {
       const seed = selectedId.trim();
-      setInput(seed);
       setRecordId(seed);
+      setDisplayedTitle("Record from Storage Service");
     } else {
-      setInput("");
       setRecordId("");
       setConsoleOpen(false);
     }
-  };
+  }, [selectedId]);
+
+  const handleResponseTypeChange = useCallback((type: "search" | "storage" | "ddms") => {
+    setDisplayedTitle(
+      type === "search"
+        ? "Record from Search Service"
+        : type === "ddms"
+          ? "Record from Reservoir DDMS"
+          : "Record from Storage Service",
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!openRequestId) return;
+    handleOpenChange(true);
+    onOpenRequestHandled?.();
+  }, [openRequestId, handleOpenChange, onOpenRequestHandled]);
 
   const handleConsoleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -79,48 +93,37 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
     <>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => handleOpenChange(true)}
+          <span
+            className="inline-flex"
+            tabIndex={!selectedId ? 0 : undefined}
+            aria-label={!selectedId ? "Storage API unavailable until a row is selected" : undefined}
           >
-            <StorageIcon className="h-4 w-4" />
-            <span className="sr-only">Storage</span>
-          </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className={`h-8 w-8 ${selectedId ? "text-primary hover:text-primary" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
+              disabled={!selectedId}
+              onClick={() => handleOpenChange(true)}
+            >
+              <StorageIcon className="h-4 w-4" />
+              <span className="sr-only">Storage API</span>
+            </Button>
+          </span>
         </TooltipTrigger>
-        <TooltipContent>Storage</TooltipContent>
+        <TooltipContent>Storage API</TooltipContent>
       </Tooltip>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
-          className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0"
+          className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0 [&>button]:h-7 [&>button]:w-7 [&>button]:rounded-md [&>button]:border [&>button]:border-border/60 [&>button]:bg-background/60 [&>button]:p-1 [&>button]:opacity-100 [&>button]:hover:bg-accent"
           aria-describedby={undefined}
         >
-          <DialogTitle className="sr-only">Record from Storage Service</DialogTitle>
+          <DialogTitle className="sr-only">{displayedTitle}</DialogTitle>
 
-          {/* Header: icon + title + form + close */}
+          {/* Header: icon + title */}
           <div className="flex items-center gap-3 border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <StorageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-sm font-medium text-foreground shrink-0">Storage</span>
-            <form
-              className="flex gap-2 flex-1"
-              onSubmit={(e) => { e.preventDefault(); lookup(); }}
-            >
-              <Input
-                autoFocus
-                placeholder="opendes:work-product-component--…:…"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                className="font-mono text-xs h-7 flex-1"
-              />
-              <Button type="submit" size="sm" className="h-7 shrink-0" disabled={!input.trim() || isFetching}>
-                {isFetching
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <StorageIcon className="h-3.5 w-3.5" />}
-                <span className="ml-1">Fetch</span>
-              </Button>
-            </form>
+            <span className="text-sm font-medium text-foreground shrink-0">{displayedTitle}</span>
           </div>
 
           {/* Content */}
@@ -133,6 +136,12 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
                 </span>
               </div>
             )}
+            {!isError && !data && isFetching && (
+              <div className="h-full flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading record…
+              </div>
+            )}
             {!isError && data && (
               <JsonViewerContent
                 key={recordId}
@@ -140,11 +149,13 @@ export function RecordLookupDialog({ selectedId = "" }: { selectedId?: string })
                 storageKey={recordId || undefined}
                 _isFullscreen
                 className="h-full"
+                 searchRecordId={recordId}
+                 onResponseTypeChange={handleResponseTypeChange}
               />
             )}
             {!isError && !data && !isFetching && recordId === "" && (
               <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                Enter a record ID above and click Fetch.
+                No record selected.
               </div>
             )}
             {!isError && !data && !isFetching && recordId !== "" && (

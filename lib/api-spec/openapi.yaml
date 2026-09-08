@@ -54,6 +54,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OsduConfigStatus"
+        "401":
+          description: Access token could not be created from the supplied credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
     get:
       operationId: getOsduConfig
       tags: [osdu-config]

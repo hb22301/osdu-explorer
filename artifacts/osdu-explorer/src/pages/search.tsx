@@ -1,246 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useSearchOsduRecords, useListOsduKinds } from "@workspace/api-client-react";
-import { LuceneQueryInput } from "@/components/lucene-query-input";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { KindCombobox } from "@/components/kind-combobox";
-import { RecordLookupDialog } from "@/components/record-lookup-dialog";
-import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search as SearchIcon, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { ConsolePanel } from "@/components/console-panel";
-import { format } from "date-fns";
-
-const FS_CONSOLE_DEFAULT = 300;
-const FS_CONSOLE_MIN = 80;
-const FS_CONSOLE_MAX = 700;
-
-type SortDir = "asc" | "desc";
-type ColKey = "id" | "version" | "kind" | "name" | "code" | "createdBy" | "createTime" | "modifyBy" | "modifyTime";
-
-interface Col {
-  key: ColKey;
-  label: string;
-  defaultWidth: number;
-  minWidth: number;
-}
-
-const COLUMNS: Col[] = [
-  { key: "id",         label: "ID",          defaultWidth: 220, minWidth: 80 },
-  { key: "version",    label: "Version",     defaultWidth: 90,  minWidth: 60 },
-  { key: "kind",       label: "Kind",        defaultWidth: 240, minWidth: 80 },
-  { key: "name",       label: "Name",        defaultWidth: 160, minWidth: 70 },
-  { key: "code",       label: "Code",        defaultWidth: 120, minWidth: 60 },
-  { key: "createdBy",  label: "Created By",  defaultWidth: 140, minWidth: 70 },
-  { key: "createTime", label: "Create Time", defaultWidth: 160, minWidth: 80 },
-  { key: "modifyBy",   label: "Updated By",  defaultWidth: 140, minWidth: 70 },
-  { key: "modifyTime", label: "Update Time", defaultWidth: 160, minWidth: 80 },
-];
-
-const COL_WIDTHS_KEY = "osdu-explorer:col-widths";
-const MAX_COL_WIDTH = 800;
-
-const COL_ORDER_KEY = "osdu-explorer:col-order";
-
-function loadColOrder(): ColKey[] {
-  const defaults = COLUMNS.map((c) => c.key);
-  try {
-    const raw = localStorage.getItem(COL_ORDER_KEY);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as ColKey[];
-    if (
-      Array.isArray(parsed) &&
-      parsed.length === defaults.length &&
-      defaults.every((k) => parsed.includes(k))
-    ) return parsed;
-  } catch { /* ignore */ }
-  return defaults;
-}
-
-const CELL_CLASS: Record<ColKey, string> = {
-  id:         "font-mono truncate",
-  version:    "font-mono tabular-nums truncate",
-  kind:       "font-mono truncate",
-  name:       "truncate",
-  code:       "font-mono truncate",
-  createdBy:  "truncate",
-  createTime: "font-mono tabular-nums truncate",
-  modifyBy:   "truncate",
-  modifyTime: "font-mono tabular-nums truncate",
-};
-
-const CELL_HAS_TITLE = new Set<ColKey>(["id", "kind", "name", "code", "createdBy", "modifyBy"]);
-
-const COL_VISIBLE_KEY = "osdu-explorer:col-visible";
-
-function loadColVisible(): Record<ColKey, boolean> {
-  const all = Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
-  try {
-    const raw = localStorage.getItem(COL_VISIBLE_KEY);
-    if (!raw) return all;
-    const parsed = JSON.parse(raw) as Partial<Record<ColKey, boolean>>;
-    for (const c of COLUMNS) {
-      if (typeof parsed[c.key] === "boolean") all[c.key] = parsed[c.key]!;
-    }
-    if (COLUMNS.every((c) => !all[c.key])) return Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
-  } catch { /* ignore */ }
-  return all;
-}
-
-function clampWidth(col: Col, v: number): number {
-  return Math.min(MAX_COL_WIDTH, Math.max(col.minWidth, v));
-}
-
-function loadColWidths(): Record<ColKey, number> {
-  const defaults = Object.fromEntries(
-    COLUMNS.map((c) => [c.key, c.defaultWidth]),
-  ) as Record<ColKey, number>;
-  try {
-    const raw = localStorage.getItem(COL_WIDTHS_KEY);
-    if (!raw) return defaults;
-    const parsed = JSON.parse(raw) as Partial<Record<ColKey, number>>;
-    for (const c of COLUMNS) {
-      const v = parsed[c.key];
-      if (typeof v === "number" && Number.isFinite(v)) {
-        defaults[c.key] = clampWidth(c, v);
-      }
-    }
-  } catch {
-    /* ignore malformed storage */
-  }
-  return defaults;
-}
-
-type RawRecord = {
-  id?: string;
-  kind?: string;
-  version?: number | null;
-  data?: Record<string, unknown>;
-  meta?: Record<string, unknown>[];
-  [key: string]: unknown;
-};
-
-interface FlatRow {
-  _raw: RawRecord;
-  id: string;
-  version: string;
-  kind: string;
-  name: string;
-  code: string;
-  createdBy: string;
-  createTime: string;
-  modifyBy: string;
-  modifyTime: string;
-}
-
-interface RecentSearch {
-  kind: string;
-  query: string;
-  ts: number;
-}
-
-const STORAGE_KEY = "osdu-explorer:recent-searches";
-const MAX_RECENT = 10;
-
-function loadRecentSearches(): RecentSearch[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as RecentSearch[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveRecentSearches(searches: RecentSearch[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(searches));
-  } catch {
-    // ignore quota errors
-  }
-}
-
-function useRecentSearches() {
-  const [recent, setRecent] = useState<RecentSearch[]>(loadRecentSearches);
-
-  const add = useCallback((kind: string, query: string) => {
-    setRecent((prev) => {
-      const entry: RecentSearch = { kind, query, ts: Date.now() };
-      const filtered = prev.filter((r) => !(r.kind === kind && r.query === query));
-      const next = [entry, ...filtered].slice(0, MAX_RECENT);
-      saveRecentSearches(next);
-      return next;
-    });
-  }, []);
-
-  const clear = useCallback(() => {
-    saveRecentSearches([]);
-    setRecent([]);
-  }, []);
-
-  return { recent, add, clear };
-}
-
-function fmtDate(val: unknown): string {
-  if (!val) return "—";
-  try {
-    return format(new Date(String(val)), "yyyy-MM-dd HH:mm");
-  } catch {
-    return String(val);
-  }
-}
-
-function flatten(rec: RawRecord): FlatRow {
-  const data = rec.data ?? {};
-  const sys = (rec.meta?.[0] ?? {}) as Record<string, unknown>;
-
-  const pick = (...keys: string[]): string => {
-    for (const k of keys) {
-      const v = data[k] ?? sys[k] ?? rec[k];
-      if (v != null && v !== "") return String(v);
-    }
-    return "—";
-  };
-
-  return {
-    _raw: rec,
-    id:         rec.id ?? "—",
-    version:    rec.version != null ? String(rec.version) : "—",
-    kind:       rec.kind ?? "—",
-    name:       pick("Name", "name"),
-    code:       pick("Code", "code"),
-    createdBy:  pick("createUser", "createdBy", "CreateUser"),
-    createTime: fmtDate(data["createTime"] ?? sys["createTime"] ?? rec["createTime"]),
-    modifyBy:   pick("modifyUser", "modifyBy", "updatedBy", "ModifyUser"),
-    modifyTime: fmtDate(data["modifyTime"] ?? sys["modifyTime"] ?? rec["modifyTime"]),
-  };
-}
-
-function SortIcon({ col, sortCol, sortDir }: { col: ColKey; sortCol: ColKey | null; sortDir: SortDir }) {
-  if (sortCol !== col) return <ChevronsUpDown className="ml-1 h-3 w-3 opacity-40 inline" />;
-  return sortDir === "asc"
-    ? <ArrowUp className="ml-1 h-3 w-3 inline" />
-    : <ArrowDown className="ml-1 h-3 w-3 inline" />;
-}
-
-const KIND_QUERY_EXAMPLES: Record<string, string> = {
-  well:      'data.WellName:"Volve" AND data.CountryName:"Norway"',
-  wellbore:  'data.WellboreName:"Volve-1" AND data.VerticalMeasurement.VerticalMeasurementID:"*KB*"',
-  welllog:   'data.Name:"GR Log" AND data.CurveID:"*GR*"',
-  seismic:   'data.Name:"3D Survey" AND data.SeismicDomainTypeID:"*Time*"',
-  survey:    'data.SurveyName:"Block 34" AND data.ProjectedCRSID:"*WGS84*"',
+e:"Block 34" AND data.ProjectedCRSID:"*WGS84*"',
   field:     'data.FieldName:"Volve" AND data.GeoPoliticalEntityID:"*Norway*"',
   facility:  'data.FacilityName:"Platform A" AND data.FacilityTypeID:"*Wellhead*"',
   document:  'data.DocumentTitle:"Well Report" AND data.DocumentTypeID:"*Completion*"',
@@ -259,6 +17,16 @@ function getQueryExample(kind: string): string {
     if (lower.includes(key)) return example;
   }
   return GENERIC_EXAMPLE;
+}
+
+function buildRecentRecordsQuery(
+  value: number,
+  unit: DashboardWindowUnit,
+  sortMode: DashboardSortMode,
+): string {
+  const { suffix } = getDashboardWindowUnit(unit);
+  const timeField = sortMode === "createTime" ? "createTime" : "modifyTime";
+  return `${timeField}:[now-${value}${suffix} TO now]`;
 }
 
 function RecentSearchesDropdown({
@@ -324,14 +92,203 @@ function RecentSearchesDropdown({
   );
 }
 
-export default function SearchPage() {
+function DashboardKindFilter({
+  options,
+  selectedKinds,
+  onChange,
+  loading = false,
+}: {
+  options: DashboardKindOption[];
+  selectedKinds: string[];
+  onChange: (kinds: string[]) => void;
+  loading?: boolean;
+}) {
+  const totalRows = options.reduce((sum, option) => sum + option.count, 0);
+  const toggleKind = (value: string, checked: boolean) => {
+    onChange(
+      checked
+        ? [...selectedKinds, value]
+        : selectedKinds.filter((kind) => kind !== value),
+    );
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5"
+          aria-label="Filter recent records by kind"
+          disabled={loading}
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Filter className="h-3.5 w-3.5" />}
+          Kinds
+          <span className="text-muted-foreground">
+            ({selectedKinds.length > 0 ? `${selectedKinds.length}/` : ""}{options.length})
+          </span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-80 max-h-80 overflow-y-auto">
+        <DropdownMenuLabel className="text-xs">
+          Distinct kinds across all pages
+        </DropdownMenuLabel>
+        <DropdownMenuCheckboxItem
+          checked={selectedKinds.length === 0}
+          onCheckedChange={() => onChange([])}
+          onSelect={(event) => event.preventDefault()}
+          className="text-xs"
+        >
+          <span className="flex-1">All kinds</span>
+          <span className="ml-2 text-muted-foreground">{totalRows}</span>
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={selectedKinds.includes(option.value)}
+            onCheckedChange={(checked) => toggleKind(option.value, checked === true)}
+            onSelect={(event) => event.preventDefault()}
+            className="text-xs"
+            title={option.value}
+          >
+            <span className="min-w-0 flex-1 truncate font-mono">
+              {displayCellValue("kind", option.value)}
+            </span>
+            <span className="ml-2 text-muted-foreground">{option.count}</span>
+          </DropdownMenuCheckboxItem>
+        ))}
+        {selectedKinds.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-xs"
+              onSelect={() => onChange([])}
+            >
+              Clear Kind filter
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function DashboardKindLoadingStatus({
+  progress,
+  onCancel,
+}: {
+  progress: DashboardRowsProgress | null;
+  onCancel: () => void;
+}) {
+  const pageLabel = progress?.totalPages
+    ? `page ${Math.min(progress.currentPage, progress.totalPages)} of ${progress.totalPages}`
+    : progress
+      ? `fetching page ${progress.currentPage}`
+      : "starting";
+  const rowsLabel = progress && progress.rowsFetched > 0
+    ? ` · ${progress.rowsFetched.toLocaleString()} rows loaded`
+    : "";
+
+  return (
+    <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
+      <Loader2 className="h-3 w-3 animate-spin" />
+      <span>
+        Loading Kind data: {pageLabel}
+        {progress && progress.completedPages > 0 && progress.totalPages
+          ? ` (${progress.completedPages} loaded)`
+          : ""}
+        {rowsLabel}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-6 gap-1 px-2 text-[11px]"
+        onClick={onCancel}
+        aria-label="Cancel Kind scan"
+      >
+        <X className="h-3 w-3" />
+        Cancel
+      </Button>
+    </span>
+  );
+}
+
+function DashboardKindErrorStatus({
+  error,
+  stale,
+  onRetry,
+  compact = false,
+}: {
+  error: string;
+  stale: boolean;
+  onRetry: () => void;
+  compact?: boolean;
+}) {
+  const message = stale
+    ? `Latest Kind scan incomplete: ${error}`
+    : error;
+
+  if (compact) {
+    return (
+      <div role="alert" className="inline-flex min-w-0 items-center gap-2 text-[11px] text-amber-700 dark:text-amber-300">
+        <span className="min-w-0 truncate" title={message}>{message}</span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-6 shrink-0 gap-1 px-2 text-[11px]"
+          onClick={onRetry}
+        >
+          <RefreshCw className="h-3 w-3" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Card role="alert" className="border-amber-500/40 bg-amber-500/5">
+      <CardContent className="flex items-center justify-between gap-3 px-4 py-3">
+        <div>
+          <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">
+            {stale
+              ? "Kind filters are showing the last successful scan"
+              : "Kind filtering is temporarily unavailable"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {stale
+              ? `The latest Kind scan could not be completed. ${error} Regular dashboard rows remain current.`
+              : error}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 gap-1.5"
+          onClick={onRetry}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Retry Kind loading
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+export default function SearchPage({ dashboardMode = false }: { dashboardMode?: boolean }) {
   const [kind, setKind]   = useState("*:*:*:*");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => {
+    const setting = loadDashboardWindowSetting();
+    return dashboardMode ? buildRecentRecordsQuery(setting.value, setting.unit, "createTime") : "";
+  });
   const [offset, setOffset] = useState(0);
   const [sortCol, setSortCol] = useState<ColKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [storageOpenId, setStorageOpenId] = useState<string | null>(null);
   const [colWidths, setColWidths] = useState<Record<ColKey, number>>(loadColWidths);
   const [colOrder, setColOrder] = useState<ColKey[]>(loadColOrder);
   const [colVisible, setColVisible] = useState<Record<ColKey, boolean>>(loadColVisible);
@@ -341,10 +298,19 @@ export default function SearchPage() {
   const [copied, setCopied] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   const [rowFilter, setRowFilter] = useState("");
+  const [dashboardKindFilter, setDashboardKindFilter] = useState<string[]>([]);
   const [tableFullscreen, setTableFullscreen] = useState(false);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
   const fsConsoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [dashboardWindow, setDashboardWindow] = useState<DashboardWindowSetting>(loadDashboardWindowSetting);
+  const [dashboardWindowDraft, setDashboardWindowDraft] = useState(() => {
+    return String(loadDashboardWindowSetting().value);
+  });
+  const [dashboardWindowUnitDraft, setDashboardWindowUnitDraft] = useState<DashboardWindowUnit>(
+    () => loadDashboardWindowSetting().unit,
+  );
+  const [dashboardSortMode, setDashboardSortMode] = useState<DashboardSortMode>("createTime");
   const [limit, setLimit] = useState<number>(() => {
     try {
       const v = Number(localStorage.getItem("osdu-explorer:page-size"));
@@ -357,8 +323,112 @@ export default function SearchPage() {
 
   const { data: kindsData } = useListOsduKinds({ limit: 1000 });
   const searchMutation = useSearchOsduRecords();
+  const dashboardKindLoadId = useRef(0);
+  const dashboardKindAbortController = useRef<AbortController | null>(null);
+  const [dashboardAllRows, setDashboardAllRows] = useState<FlatRow[]>([]);
+  const [dashboardKindRowsLoading, setDashboardKindRowsLoading] = useState(false);
+  const [dashboardKindRowsProgress, setDashboardKindRowsProgress] = useState<DashboardRowsProgress | null>(null);
+  const [dashboardKindRowsError, setDashboardKindRowsError] = useState<string | null>(null);
+  const [dashboardKindHasSuccessfulScan, setDashboardKindHasSuccessfulScan] = useState(false);
 
   const queryPlaceholder = useMemo(() => getQueryExample(kind), [kind]);
+
+  const loadDashboardKindRows = useCallback(async (recentQuery: string, sort: ReturnType<typeof dashboardSortFor>) => {
+    dashboardKindAbortController.current?.abort();
+    const loadId = ++dashboardKindLoadId.current;
+    const abortController = new AbortController();
+    dashboardKindAbortController.current = abortController;
+    setDashboardKindRowsLoading(true);
+    setDashboardKindRowsProgress(null);
+    setDashboardKindRowsError(null);
+
+    try {
+      const allRows = await collectDashboardRows(
+        async (offset) => {
+          const page = await searchOsduRecords({
+            kind: "*:*:*:*",
+            query: recentQuery,
+            limit: DASHBOARD_KIND_PAGE_SIZE,
+            offset,
+            sort,
+          }, {
+            signal: abortController.signal,
+          });
+          return {
+            results: (page.results as RawRecord[]).map(flatten),
+            totalCount: page.totalCount,
+          };
+        },
+        {
+          pageSize: DASHBOARD_KIND_PAGE_SIZE,
+          signal: abortController.signal,
+          onProgress: (progress) => {
+            if (loadId === dashboardKindLoadId.current) {
+              setDashboardKindRowsProgress(progress);
+            }
+          },
+        },
+      );
+
+      if (loadId === dashboardKindLoadId.current) {
+        setDashboardAllRows(allRows);
+        setDashboardKindHasSuccessfulScan(true);
+      }
+    } catch (error) {
+      if (loadId === dashboardKindLoadId.current) {
+        if (!abortController.signal.aborted) {
+          if (error instanceof DashboardRowsFetchError) {
+            const loadedRowsLabel = error.rowsFetched > 0
+              ? `${error.rowsFetched.toLocaleString()} rows loaded`
+              : "no rows loaded yet";
+            setDashboardKindRowsError(
+              `Could not load Kind data for page ${error.page} (offset ${error.offset.toLocaleString()}); ${loadedRowsLabel}.`,
+            );
+          } else {
+            setDashboardKindRowsError("Could not load all Dashboard pages for Kind filtering.");
+          }
+        }
+      }
+    } finally {
+      if (loadId === dashboardKindLoadId.current) {
+        dashboardKindAbortController.current = null;
+        setDashboardKindRowsLoading(false);
+        setDashboardKindRowsProgress(null);
+      }
+    }
+  }, []);
+
+  const cancelDashboardKindScan = useCallback(() => {
+    if (!dashboardKindRowsLoading) return;
+    dashboardKindLoadId.current += 1;
+    dashboardKindAbortController.current?.abort();
+    dashboardKindAbortController.current = null;
+    setDashboardKindRowsLoading(false);
+    setDashboardKindRowsProgress(null);
+    setDashboardKindRowsError("Kind scan canceled. Regular dashboard rows remain current.");
+  }, [dashboardKindRowsLoading]);
+
+  useEffect(() => () => {
+    dashboardKindLoadId.current += 1;
+    dashboardKindAbortController.current?.abort();
+    dashboardKindAbortController.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!dashboardMode) return;
+    const recentQuery = buildRecentRecordsQuery(
+      dashboardWindow.value,
+      dashboardWindow.unit,
+      dashboardSortMode,
+    );
+    setOffset(0);
+    setKind("*:*:*:*");
+    setQuery(recentQuery);
+    searchMutation.mutate({
+      data: { kind: "*:*:*:*", query: recentQuery, limit, offset: 0, sort: dashboardSortFor(dashboardSortMode) },
+    });
+    void loadDashboardKindRows(recentQuery, dashboardSortFor(dashboardSortMode));
+  }, [dashboardMode, dashboardSortMode]);
 
   useEffect(() => {
     if (!showRecent) return;
@@ -398,17 +468,80 @@ export default function SearchPage() {
 
   const handlePageChange = (newOffset: number) => {
     setOffset(newOffset);
-    searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: newOffset } });
+    if (dashboardMode && dashboardKindFilter.length > 0) return;
+    searchMutation.mutate({
+      data: {
+        kind,
+        query: query || undefined,
+        limit,
+        offset: newOffset,
+        ...(dashboardMode ? { sort: dashboardSortFor(dashboardSortMode) } : {}),
+      },
+    });
   };
 
   const handleLimitChange = (value: string) => {
     const newLimit = Number(value);
     setLimit(newLimit);
     try { localStorage.setItem("osdu-explorer:page-size", String(newLimit)); } catch { /* ignore */ }
+    if (dashboardMode && dashboardKindFilter.length > 0) {
+      setOffset(0);
+      return;
+    }
     if (searchMutation.data) {
       setOffset(0);
-      searchMutation.mutate({ data: { kind, query: query || undefined, limit: newLimit, offset: 0 } });
+      searchMutation.mutate({
+        data: {
+          kind,
+          query: query || undefined,
+          limit: newLimit,
+          offset: 0,
+          ...(dashboardMode ? { sort: dashboardSortFor(dashboardSortMode) } : {}),
+        },
+      });
     }
+  };
+
+  const handleDashboardRefresh = () => {
+    const parsed = Number(dashboardWindowDraft);
+    const value = clampDashboardWindowValue(parsed, dashboardWindowUnitDraft);
+    const nextWindow = { value, unit: dashboardWindowUnitDraft };
+    setDashboardWindow(nextWindow);
+    setDashboardWindowDraft(String(value));
+    try {
+      localStorage.setItem(DASHBOARD_WINDOW_VALUE_KEY, String(value));
+      localStorage.setItem(DASHBOARD_WINDOW_UNIT_KEY, dashboardWindowUnitDraft);
+    } catch { /* ignore */ }
+    const recentQuery = buildRecentRecordsQuery(value, dashboardWindowUnitDraft, dashboardSortMode);
+    setKind("*:*:*:*");
+    setQuery(recentQuery);
+    setOffset(0);
+    searchMutation.mutate({
+      data: { kind: "*:*:*:*", query: recentQuery, limit, offset: 0, sort: dashboardSortFor(dashboardSortMode) },
+    });
+    void loadDashboardKindRows(recentQuery, dashboardSortFor(dashboardSortMode));
+  };
+
+  const handleDashboardWindowUnitChange = (nextUnit: DashboardWindowUnit) => {
+    const currentValue = Number(dashboardWindowDraft);
+    const currentSeconds = dashboardWindowToSeconds(
+      Number.isFinite(currentValue) ? currentValue : dashboardWindow.value,
+      dashboardWindowUnitDraft,
+    );
+    const nextValue = clampDashboardWindowValue(
+      currentSeconds / getDashboardWindowUnit(nextUnit).seconds,
+      nextUnit,
+    );
+    setDashboardWindowUnitDraft(nextUnit);
+    setDashboardWindowDraft(String(nextValue));
+  };
+
+  const handleDashboardKindRetry = () => {
+    if (!dashboardMode || dashboardKindRowsLoading) return;
+    void loadDashboardKindRows(
+      buildRecentRecordsQuery(dashboardWindow.value, dashboardWindow.unit, dashboardSortMode),
+      dashboardSortFor(dashboardSortMode),
+    );
   };
 
   const persistColWidths = useCallback((widths: Record<ColKey, number>) => {
@@ -480,7 +613,10 @@ export default function SearchPage() {
   );
 
   const orderedCols = useMemo(
-    () => colOrder.filter((k) => colVisible[k]).map((k) => COLUMNS.find((c) => c.key === k)!),
+    () => colOrder
+      .filter((k) => colVisible[k])
+      .map((k) => COLUMNS.find((c) => c.key === k))
+      .filter((col): col is Col => Boolean(col)),
     [colOrder, colVisible],
   );
 
@@ -569,6 +705,9 @@ export default function SearchPage() {
   const rows: FlatRow[] = useMemo(() => {
     const raw = (searchMutation.data?.results ?? []) as RawRecord[];
     const flat = raw.map(flatten);
+    if (!sortCol && dashboardMode) {
+      return [...flat].sort((a, b) => compareDashboardRows(a, b, dashboardSortMode));
+    }
     if (!sortCol) return flat;
     return [...flat].sort((a, b) => {
       const av = a[sortCol] ?? "";
@@ -576,105 +715,226 @@ export default function SearchPage() {
       const cmp = av < bv ? -1 : av > bv ? 1 : 0;
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [searchMutation.data?.results, sortCol, sortDir]);
+  }, [dashboardMode, dashboardSortMode, searchMutation.data?.results, sortCol, sortDir]);
 
+  const kindFilterActive = dashboardMode && dashboardKindFilter.length > 0;
   const filteredRows = useMemo(() => {
+    const sourceRows = kindFilterActive ? dashboardAllRows : rows;
+    const kindFiltered = kindFilterActive
+      ? filterDashboardRows(sourceRows, dashboardKindFilter)
+      : sourceRows;
     const term = rowFilter.trim().toLowerCase();
-    if (!term) return rows;
-    return rows.filter((row) =>
+    if (!term) return kindFiltered;
+    return kindFiltered.filter((row) =>
       row.id.toLowerCase().includes(term) ||
       row.kind.toLowerCase().includes(term) ||
       row.name.toLowerCase().includes(term) ||
       row.code.toLowerCase().includes(term)
     );
-  }, [rows, rowFilter]);
+  }, [dashboardAllRows, dashboardKindFilter, kindFilterActive, rowFilter, rows]);
 
-  const total = searchMutation.data?.totalCount ?? 0;
+  const displayRows = useMemo(
+    () => kindFilterActive
+      ? paginateDashboardRows(filteredRows, offset, limit)
+      : filteredRows,
+    [filteredRows, kindFilterActive, limit, offset],
+  );
+
+  const dashboardKindOptions = useMemo(() => {
+    if (!dashboardMode) return [];
+    const sourceRows = dashboardKindHasSuccessfulScan ? dashboardAllRows : rows;
+    return getDashboardKindOptions(sourceRows);
+  }, [dashboardAllRows, dashboardKindHasSuccessfulScan, dashboardMode, rows]);
+  const dashboardKindDataIsStale = dashboardKindRowsError !== null && dashboardKindHasSuccessfulScan;
+
+  const hasActiveTableFilters = Boolean(
+    rowFilter.trim() || (dashboardMode && dashboardKindFilter.length > 0),
+  );
+
+  const handleRowDoubleClick = useCallback((row: FlatRow) => {
+    const id = row.id !== "—" ? row.id : null;
+    if (id) {
+      setStorageOpenId(id);
+    } else {
+      setSelected(row._raw);
+    }
+  }, []);
+
+  const handleRowClick = useCallback((row: FlatRow) => {
+    setSelectedRowId(row.id !== "—" ? row.id : null);
+  }, []);
+
+  const total = kindFilterActive ? filteredRows.length : (searchMutation.data?.totalCount ?? 0);
+
+  const handleDashboardKindFilterChange = (nextKinds: string[]) => {
+    setDashboardKindFilter(nextKinds);
+    setOffset(0);
+    if (nextKinds.length === 0 && dashboardMode) {
+      searchMutation.mutate({
+        data: {
+          kind,
+          query: query || undefined,
+          limit,
+          offset: 0,
+          sort: dashboardSortFor(dashboardSortMode),
+        },
+      });
+    }
+  };
 
   useEffect(() => {
-    if (selectedRowId !== null && !rows.some((r) => r.id === selectedRowId)) {
+    if (selectedRowId !== null && !displayRows.some((r) => r.id === selectedRowId)) {
       setSelectedRowId(null);
     }
-  }, [rows, selectedRowId]);
+  }, [displayRows, selectedRowId]);
 
   return (
-    <div className="p-8 max-w-full mx-auto space-y-6 isolate">
-      <div className="space-y-2">
+    <div className="p-4 sm:p-5 max-w-full mx-auto space-y-3 isolate">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1
-          className="text-3xl font-bold tracking-tight text-neon"
-          style={{ textShadow: "0 0 24px hsl(180 100% 55% / 0.45), 0 0 8px hsl(180 100% 55% / 0.25)" }}
+          className="text-xl font-bold tracking-tight text-foreground"
         >
-          Record Search
+          {dashboardMode ? "Dashboard" : "Record Search"}
         </h1>
         <p
-          className="text-muted-foreground pl-3"
-          style={{ borderLeft: "2px solid hsl(180 100% 55% / 0.5)" }}
+          className="text-sm text-muted-foreground border-l-2 border-neon/50 pl-3"
         >
-          Search and explore records in the OSDU data platform.
+          {dashboardMode
+            ? `Records ${dashboardSortMode === "createTime" ? "created" : "updated"} within the last ${dashboardWindow.value.toLocaleString()} ${dashboardWindow.unit}.`
+            : "Search and explore records in the OSDU data platform."}
         </p>
+        {dashboardMode && (
+          <div className="ml-auto flex items-center gap-2">
+            <label htmlFor="dashboard-window" className="text-xs text-muted-foreground whitespace-nowrap">
+              Window
+            </label>
+            <Input
+              id="dashboard-window"
+              type="number"
+              min={1}
+              max={getDashboardWindowUnit(dashboardWindowUnitDraft).max}
+              value={dashboardWindowDraft}
+              onChange={(e) => setDashboardWindowDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleDashboardRefresh(); }}
+              className="h-8 w-20 text-xs"
+              aria-label={`Recent records window in ${dashboardWindowUnitDraft}`}
+            />
+            <Select
+              value={dashboardWindowUnitDraft}
+              onValueChange={(value) => handleDashboardWindowUnitChange(value as DashboardWindowUnit)}
+            >
+              <SelectTrigger id="dashboard-window-unit" className="h-8 w-[100px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DASHBOARD_WINDOW_UNITS.map((unit) => (
+                  <SelectItem key={unit.value} value={unit.value} className="text-xs">
+                    {unit.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <label htmlFor="dashboard-sort-mode" className="text-xs text-muted-foreground whitespace-nowrap">
+              Newest by
+            </label>
+            <Select
+              value={dashboardSortMode}
+              onValueChange={(value) => {
+                setDashboardSortMode(value as DashboardSortMode);
+                setOffset(0);
+              }}
+            >
+              <SelectTrigger id="dashboard-sort-mode" className="h-8 w-[132px] text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="createTime" className="text-xs">Create Time</SelectItem>
+                <SelectItem value="modifyTime" className="text-xs">Update Time</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={handleDashboardRefresh}
+              disabled={searchMutation.isPending}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${searchMutation.isPending ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="glass-card p-6">
-        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 min-w-0 space-y-2">
-            <label className="text-sm font-medium leading-none">Kind</label>
-            <KindCombobox
-              value={kind}
-              onChange={setKind}
-              kinds={kindsData?.kinds ?? []}
-            />
-          </div>
-          <div className="flex-1 min-w-0 space-y-2">
-            <label className="text-sm font-medium leading-none">Lucene Query</label>
-            <div className="flex gap-2">
-              <div ref={queryWrapRef} className="relative flex-1">
-                <LuceneQueryInput
-                  placeholder={queryPlaceholder}
-                  value={query}
-                  onChange={setQuery}
-                  onFocus={() => { if (recent.length > 0) setShowRecent(true); }}
-                />
-                {showRecent && recent.length > 0 && (
-                  <RecentSearchesDropdown
-                    recent={recent}
-                    onSelect={handleSelectRecent}
-                    onClear={() => { clearRecent(); setShowRecent(false); }}
-                    onClose={() => setShowRecent(false)}
+      {!dashboardMode && <div className="glass-card p-3">
+        <form
+          onSubmit={handleSearch}
+          className="grid items-stretch gap-2.5 sm:grid-cols-[minmax(0,1fr)_3rem]"
+        >
+          <div className="min-w-0 space-y-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium leading-none">Kind</label>
+              <KindCombobox
+                value={kind}
+                onChange={setKind}
+                kinds={kindsData?.kinds ?? []}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium leading-none">Lucene Query</label>
+              <div className="flex min-w-0 gap-1.5">
+                <div ref={queryWrapRef} className="relative min-w-0 flex-1">
+                  <LuceneQueryInput
+                    placeholder={queryPlaceholder}
+                    value={query}
+                    onChange={setQuery}
+                    onFocus={() => { if (recent.length > 0) setShowRecent(true); }}
+                    className="min-w-0 max-w-full h-8"
                   />
-                )}
+                  {showRecent && recent.length > 0 && (
+                    <RecentSearchesDropdown
+                      recent={recent}
+                      onSelect={handleSelectRecent}
+                      onClear={() => { clearRecent(); setShowRecent(false); }}
+                      onClose={() => setShowRecent(false)}
+                    />
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCopy}
+                  title="Copy query"
+                  className={`h-8 w-8 shrink-0 focus-visible:ring-neon/60 ${copied ? "text-neon" : "text-muted-foreground hover:text-neon"}`}
+                >
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handleCopy}
-                title="Copy query"
-                className={`shrink-0 focus-visible:ring-neon/60 ${copied ? "text-neon" : "text-muted-foreground hover:text-neon"}`}
-              >
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </Button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="submit"
-                    disabled={searchMutation.isPending}
-                    className="shrink-0 bg-neon text-black hover:bg-neon/90 border-neon/80 focus-visible:ring-neon/60"
-                  >
-                    {searchMutation.isPending
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                      : <SearchIcon className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Search</TooltipContent>
-              </Tooltip>
             </div>
           </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="submit"
+                disabled={searchMutation.isPending}
+                aria-label="Run query"
+                className="h-8 w-full self-stretch bg-primary text-primary-foreground hover:bg-primary/90 border-primary/80 focus-visible:ring-primary/60 sm:h-auto sm:w-12"
+              >
+                {searchMutation.isPending
+                  ? <Loader2 className="h-5 w-5 animate-spin" />
+                  : <Rocket className="h-5 w-5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Launch query</TooltipContent>
+          </Tooltip>
         </form>
-      </div>
+      </div>}
 
       {searchMutation.isError && (
         <Card className="border-destructive/50 bg-destructive/5">
-          <CardContent className="pt-6">
+          <CardContent className="px-4 py-3">
             <p className="text-sm text-destructive font-medium">Search failed</p>
             <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
               {searchMutation.error instanceof Error
@@ -685,38 +945,72 @@ export default function SearchPage() {
         </Card>
       )}
 
+      {dashboardMode && dashboardKindRowsError && (
+        <DashboardKindErrorStatus
+          error={dashboardKindRowsError}
+          stale={dashboardKindDataIsStale}
+          onRetry={handleDashboardKindRetry}
+        />
+      )}
+
+      {dashboardMode && searchMutation.isPending && !searchMutation.data && (
+        <Card className="border-border/50">
+          <CardContent className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading recent records…
+          </CardContent>
+        </Card>
+      )}
+
       {searchMutation.data && (
         <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <div>
-              <CardTitle>Results</CardTitle>
-              <CardDescription>
-                {rowFilter.trim()
-                  ? `Showing ${filteredRows.length.toLocaleString()} of ${rows.length.toLocaleString()} on this page (${total.toLocaleString()} total)`
-                  : `${total.toLocaleString()} record${total !== 1 ? "s" : ""} found`}
-                {rows.length > 0 && !rowFilter.trim() && " — click a row to select, then Search; double-click for full JSON; drag column edges to resize"}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
+          <CardHeader className="space-y-2 px-4 pt-3 pb-2">
+            {rows.length > 0 && !hasActiveTableFilters && (
+              <p className="overflow-x-auto whitespace-nowrap text-[11px] leading-4 text-muted-foreground">
+                Click the Search API or Storage API icon to open the corresponding response; double-click a row to open its Storage API response
+              </p>
+            )}
+            <div className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm">{dashboardMode ? "Recent Records" : "Results"}</CardTitle>
+                {hasActiveTableFilters && (
+                  <CardDescription className="text-xs">
+                    Showing {displayRows.length.toLocaleString()} of {kindFilterActive
+                      ? filteredRows.length.toLocaleString()
+                      : rows.length.toLocaleString()} {kindFilterActive ? "across all pages" : "on this page"} ({total.toLocaleString()} total)
+                  </CardDescription>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8"
-                    disabled={!selectedRowId}
-                    onClick={() => {
-                      const row = rows.find((r) => r.id === selectedRowId);
-                      if (row) setSelected(row._raw);
-                    }}
-                    aria-label="View search result"
+                  <span
+                    className="inline-flex"
+                    tabIndex={!selectedRowId ? 0 : undefined}
+                    aria-label={!selectedRowId ? "Search API unavailable until a row is selected" : undefined}
                   >
-                    <SearchIcon className="h-4 w-4" />
-                  </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className={`h-8 w-8 ${selectedRowId ? "text-primary hover:text-primary" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
+                      disabled={!selectedRowId}
+                      onClick={() => {
+                        const row = displayRows.find((r) => r.id === selectedRowId);
+                        if (row) setSelected(row._raw);
+                      }}
+                      aria-label="Open Search API result"
+                    >
+                      <FileSearch2 className="h-4 w-4" />
+                    </Button>
+                  </span>
                 </TooltipTrigger>
-                <TooltipContent>Search result</TooltipContent>
+                <TooltipContent>Search API</TooltipContent>
               </Tooltip>
-              <RecordLookupDialog selectedId={selectedRowId ?? ""} />
+              <RecordLookupDialog
+                selectedId={selectedRowId ?? ""}
+                openRequestId={storageOpenId}
+                onOpenRequestHandled={() => setStorageOpenId(null)}
+              />
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-muted-foreground">Rows</span>
                 <Select value={String(limit)} onValueChange={handleLimitChange}>
@@ -761,11 +1055,12 @@ export default function SearchPage() {
                 </TooltipTrigger>
                 <TooltipContent>Full screen</TooltipContent>
               </Tooltip>
+              </div>
             </div>
           </CardHeader>
 
           <CardContent className="p-0">
-            <div className="px-4 py-2 border-t border-border flex items-center gap-2">
+            <div className="px-3 py-1.5 border-t border-border flex items-center gap-2">
               <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               <Input
                 placeholder="Filter by ID, kind, name, or code…"
@@ -785,6 +1080,25 @@ export default function SearchPage() {
                   <X className="h-3 w-3" />
                 </Button>
               )}
+              {dashboardMode && dashboardKindOptions.length > 0 && (
+                <DashboardKindFilter
+                  options={dashboardKindOptions}
+                  selectedKinds={dashboardKindFilter}
+                  onChange={handleDashboardKindFilterChange}
+                  loading={dashboardKindRowsLoading || (dashboardKindRowsError !== null && !dashboardKindHasSuccessfulScan)}
+                />
+              )}
+              {dashboardMode && dashboardKindRowsLoading && (
+                <DashboardKindLoadingStatus
+                  progress={dashboardKindRowsProgress}
+                  onCancel={cancelDashboardKindScan}
+                />
+              )}
+              {dashboardMode && dashboardKindDataIsStale && (
+                <span className="text-[11px] text-amber-700 dark:text-amber-300 whitespace-nowrap">
+                  Showing the last successful Kind scan; regular dashboard rows remain current.
+                </span>
+              )}
               <div className="ml-auto shrink-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -800,7 +1114,8 @@ export default function SearchPage() {
                     <DropdownMenuLabel className="text-xs">Toggle columns</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {colOrder.map((key) => {
-                      const col = COLUMNS.find((c) => c.key === key)!;
+                      const col = COLUMNS.find((c) => c.key === key);
+                      if (!col) return null;
                       const isLast = visibleCount === 1 && colVisible[key];
                       return (
                         <DropdownMenuCheckboxItem
@@ -826,9 +1141,9 @@ export default function SearchPage() {
                 </DropdownMenu>
               </div>
             </div>
-            <div className="border-t border-border overflow-auto" style={{ maxHeight: "55vh" }}>
+            <div className="border-t border-border overflow-auto" style={{ maxHeight: "min(72vh, calc(100vh - 340px))" }}>
               <Table
-                className="text-xs"
+                className="text-xs [&_th]:h-8"
                 style={{
                   tableLayout: "fixed",
                   width: orderedCols.reduce((sum, c) => sum + colWidths[c.key], 0),
@@ -879,30 +1194,34 @@ export default function SearchPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRows.length === 0 && (
+                  {displayRows.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={COLUMNS.length} className="text-center py-10 text-muted-foreground">
-                        {rowFilter.trim() ? "No rows match the current filter" : "No records found"}
+                        {dashboardKindRowsLoading
+                          ? "Loading records across all pages…"
+                          : hasActiveTableFilters
+                            ? "No rows match the current filters"
+                            : "No records found"}
                       </TableCell>
                     </TableRow>
                   )}
-                  {filteredRows.map((row, i) => (
+                  {displayRows.map((row, i) => (
                     <TableRow
                       key={row.id + i}
                       data-state={selectedRowId === row.id ? "selected" : undefined}
                       className="cursor-pointer hover:bg-muted/50 data-[state=selected]:bg-neon/10 data-[state=selected]:hover:bg-neon/15"
-                      onClick={() => setSelectedRowId(row.id !== "—" ? row.id : null)}
-                      onDoubleClick={() => setSelected(row._raw)}
+                      onClick={() => handleRowClick(row)}
+                      onDoubleClick={() => handleRowDoubleClick(row)}
                     >
                       {orderedCols.map((col) => {
                         const val = (row as Record<ColKey, string>)[col.key];
                         return (
                           <TableCell
                             key={col.key}
-                            className={CELL_CLASS[col.key]}
+                            className={`${CELL_CLASS[col.key]} py-1`}
                             title={CELL_HAS_TITLE.has(col.key) ? val : undefined}
                           >
-                            {val}
+                            {displayCellValue(col.key, val)}
                           </TableCell>
                         );
                       })}
@@ -945,6 +1264,14 @@ export default function SearchPage() {
               </Tooltip>
             </div>
 
+            {rows.length > 0 && !hasActiveTableFilters && (
+              <div className="shrink-0 overflow-x-auto border-b border-border/40 px-4 py-1.5">
+                <p className="whitespace-nowrap text-[11px] leading-4 text-muted-foreground">
+                  Click the Search API or Storage API icon to open the corresponding response; double-click a row to open its Storage API response
+                </p>
+              </div>
+            )}
+
             {/* 2. Filter + Columns toolbar */}
             <div className="px-4 py-2 border-b border-border flex items-center gap-2 shrink-0">
               <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -966,6 +1293,28 @@ export default function SearchPage() {
                   <X className="h-3 w-3" />
                 </Button>
               )}
+              {dashboardMode && dashboardKindOptions.length > 0 && (
+                <DashboardKindFilter
+                  options={dashboardKindOptions}
+                  selectedKinds={dashboardKindFilter}
+                  onChange={handleDashboardKindFilterChange}
+                  loading={dashboardKindRowsLoading || (dashboardKindRowsError !== null && !dashboardKindHasSuccessfulScan)}
+                />
+              )}
+              {dashboardMode && dashboardKindRowsLoading && (
+                <DashboardKindLoadingStatus
+                  progress={dashboardKindRowsProgress}
+                  onCancel={cancelDashboardKindScan}
+                />
+              )}
+              {dashboardMode && dashboardKindRowsError && (
+                <DashboardKindErrorStatus
+                  error={dashboardKindRowsError}
+                  stale={dashboardKindDataIsStale}
+                  onRetry={handleDashboardKindRetry}
+                  compact
+                />
+              )}
               <div className="ml-auto shrink-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -981,7 +1330,8 @@ export default function SearchPage() {
                     <DropdownMenuLabel className="text-xs">Toggle columns</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {colOrder.map((key) => {
-                      const col = COLUMNS.find((c) => c.key === key)!;
+                      const col = COLUMNS.find((c) => c.key === key);
+                      if (!col) return null;
                       const isLast = visibleCount === 1 && colVisible[key];
                       return (
                         <DropdownMenuCheckboxItem
@@ -1063,20 +1413,24 @@ export default function SearchPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredRows.length === 0 && (
+                  {displayRows.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={COLUMNS.length} className="text-center py-10 text-muted-foreground">
-                          {rowFilter.trim() ? "No rows match the current filter" : "No records found"}
+                        {dashboardKindRowsLoading
+                          ? "Loading records across all pages…"
+                          : hasActiveTableFilters
+                            ? "No rows match the current filters"
+                            : "No records found"}
                         </TableCell>
                       </TableRow>
                     )}
-                    {filteredRows.map((row, i) => (
+                  {displayRows.map((row, i) => (
                       <TableRow
                         key={row.id + i}
                         data-state={selectedRowId === row.id ? "selected" : undefined}
                         className="cursor-pointer hover:bg-muted/50 data-[state=selected]:bg-neon/10 data-[state=selected]:hover:bg-neon/15"
-                        onClick={() => setSelectedRowId(row.id !== "—" ? row.id : null)}
-                        onDoubleClick={() => setSelected(row._raw)}
+                        onClick={() => handleRowClick(row)}
+                        onDoubleClick={() => handleRowDoubleClick(row)}
                       >
                         {orderedCols.map((col) => {
                           const val = (row as Record<ColKey, string>)[col.key];
@@ -1086,7 +1440,7 @@ export default function SearchPage() {
                               className={CELL_CLASS[col.key]}
                               title={CELL_HAS_TITLE.has(col.key) ? val : undefined}
                             >
-                              {val}
+                              {displayCellValue(col.key, val)}
                             </TableCell>
                           );
                         })}
@@ -1140,6 +1494,7 @@ export default function SearchPage() {
           title="Record from Search Service"
           defaultFullscreen
           onFullscreenClose={() => setSelected(null)}
+          storageRecordId={selected.id as string | undefined}
         />
       )}
     </div>

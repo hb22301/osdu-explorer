@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { useGetOsduConfig, useClearOsduConfig, useGetOsduConsole, getGetOsduConsoleQueryKey, useListOsduSchemas, getListOsduSchemasQueryKey } from "@workspace/api-client-react";
-import { Database, Search, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp, Layers } from "lucide-react";
+import { Boxes, ScrollText, Tags, LogOut, Activity, Terminal, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConsolePanel } from "@/components/console-panel";
+import { APP_RELEASE_LABEL } from "@/lib/app-metadata";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { ReservoirDdmsIcon } from "@/components/reservoir-ddms-icon";
+import { OsduIcon } from "@/components/osdu-icon";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
 const MIN_CONSOLE_HEIGHT = 80;
@@ -31,10 +35,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { query: { refetchInterval: 3000, queryKey: getGetOsduConsoleQueryKey({ limit: 1, offset: 0 }) } }
   );
   const entryCount = consoleData?.total ?? 0;
-
-  useEffect(() => {
-    document.documentElement.classList.add("dark");
-  }, []);
 
   useEffect(() => {
     if (!isLoading && !config?.configured && location !== "/") {
@@ -75,10 +75,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { label: "Dashboard", href: "/dashboard", icon: Activity },
-    { label: "Legal Tags", href: "/legal-tags", icon: Tags },
+    { label: "Core APIs", href: "/search", icon: Boxes },
+    { label: "Reservoir DDMS", href: "/reservoir-dms", icon: ReservoirDdmsIcon },
     { label: "Schemas", href: "/schemas", icon: ScrollText },
-    { label: "Search", href: "/search", icon: Search },
-    { label: "Reservoir DMS", href: "/reservoir-dms", icon: Layers },
+    { label: "Legal Tags", href: "/legal-tags", icon: Tags },
   ];
 
   if (isLoading) {
@@ -99,7 +99,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <TooltipProvider delayDuration={200}>
         <div className="w-14 border-r border-border bg-card flex flex-col h-full shrink-0 items-center">
           <div className="h-14 flex items-center justify-center border-b border-border w-full shrink-0">
-            <Database className="w-5 h-5 text-primary" />
+            <OsduIcon className="w-6 h-6 text-primary" />
           </div>
 
           <div className="flex-1 py-3 w-full flex flex-col items-center gap-1">
@@ -127,6 +127,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="pb-3 w-full flex flex-col items-center gap-1 border-t border-border pt-3">
+            <ThemeToggle className="w-9 h-9 text-muted-foreground hover:text-foreground" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -159,6 +160,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           />
           <span className="text-[11px] font-mono text-muted-foreground truncate">
             {config?.baseUrl ?? "Not connected"}
+          </span>
+          <span className="ml-auto shrink-0 text-[10px] font-mono text-muted-foreground/70">
+            {APP_RELEASE_LABEL}
           </span>
         </div>
 

@@ -69,6 +69,7 @@
 
 /* LIGHT MODE */
 :root {
+  --neon: 190 75% 35%;
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
 
@@ -226,13 +227,13 @@
 @layer utilities {
 
   .glass-card {
-    background: hsl(222 47% 9% / 0.6);
+    background: hsl(var(--card) / 0.72);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid hsl(var(--neon) / 0.25);
     box-shadow:
       0 0 0 1px hsl(var(--neon) / 0.10),
-      0 8px 32px hsl(222 47% 4% / 0.6),
+      0 8px 32px hsl(var(--foreground) / 0.08),
       0 2px 8px hsl(var(--neon) / 0.08);
     border-radius: var(--radius-lg);
   }

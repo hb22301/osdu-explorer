@@ -293,16 +293,16 @@ export function KindCombobox({ value, onChange, kinds, className }: KindCombobox
           value={inputText}
           placeholder="Any kind  (*:*:*:*)"
           className={cn(
-            "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 pr-8",
-            "text-sm font-mono shadow-sm transition-colors",
-            "placeholder:text-muted-foreground placeholder:font-sans placeholder:text-sm",
+            "flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-0 pr-7",
+            "text-xs font-mono shadow-sm transition-colors",
+            "placeholder:text-muted-foreground placeholder:font-sans placeholder:text-xs",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           )}
           onFocus={() => setOpen(true)}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
         />
-        <ChevronsUpDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 opacity-40 pointer-events-none" />
+        <ChevronsUpDown className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 opacity-40 pointer-events-none" />
       </div>
 
       {/* Dropdown */}

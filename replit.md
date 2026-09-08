@@ -1,6 +1,6 @@
-# [Project name]
+# OSDU Explorer
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A web interface for connecting to and exploring OSDU platform records, schemas, legal tags, and reservoir data.
 
 ## Run & Operate
 
@@ -26,7 +26,8 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Application releases use `major.minor.patch`, with each user-facing update incrementing the patch number. After patch 9, increment minor and reset patch to 0 (for example, `v1.0.9` becomes `v1.1.0`); after minor 9, increment major and reset minor and patch to 0.
+- Source the displayed version from `artifacts/osdu-explorer/package.json`; inject the build date through `artifacts/osdu-explorer/vite.config.ts` so release metadata stays current.
 
 ## Product
 

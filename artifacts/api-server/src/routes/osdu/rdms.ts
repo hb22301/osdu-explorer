@@ -17,7 +17,7 @@ router.get("/osdu/rdms/dataspaces", async (req, res): Promise<void> => {
     if (status === 200 && data) {
       res.json(data);
     } else {
-      res.status(status).json({ error: `HTTP ${status} from Reservoir DMS` });
+      res.status(status).json({ error: `HTTP ${status} from Reservoir DDMS` });
     }
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Failed to fetch dataspaces" });
@@ -44,7 +44,7 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources", async (req, res): Promi
     if (status === 200 && data) {
       res.json(data);
     } else {
-      res.status(status).json({ error: `HTTP ${status} from Reservoir DMS` });
+      res.status(status).json({ error: `HTTP ${status} from Reservoir DDMS` });
     }
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Failed to fetch resources" });
@@ -73,7 +73,7 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid/arrays", 
     if (status === 200 && data) {
       res.json(data);
     } else {
-      res.status(status).json({ error: `HTTP ${status} from Reservoir DMS` });
+      res.status(status).json({ error: `HTTP ${status} from Reservoir DDMS` });
     }
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Failed to fetch array data" });
@@ -100,7 +100,7 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", async (
     if (status === 200 && data) {
       res.json(data);
     } else {
-      res.status(status).json({ error: `HTTP ${status} from Reservoir DMS` });
+      res.status(status).json({ error: `HTTP ${status} from Reservoir DDMS` });
     }
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Failed to fetch record" });
@@ -127,7 +127,7 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype", async (req, r
     if (status === 200 && data) {
       res.json(data);
     } else {
-      res.status(status).json({ error: `HTTP ${status} from Reservoir DMS` });
+      res.status(status).json({ error: `HTTP ${status} from Reservoir DDMS` });
     }
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Failed to fetch resource records" });

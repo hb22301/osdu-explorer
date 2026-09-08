@@ -1,3 +1,18 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+<svg width="180" height="180" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="24" height="24" rx="4.5" fill="#0B1220"/>
+  <g transform="translate(0 -2)" stroke="#69A7FF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m12 2.5 8.25 4.65v9.7L12 21.5l-8.25-4.65v-9.7L12 2.5Z" fill="#69A7FF" fill-opacity="0.08"/>
+    <path d="m12 4.75 6.25 3.5L12 11.75 5.75 8.25 12 4.75Z" fill="#69A7FF" fill-opacity="0.2"/>
+    <path d="M5.75 8.25 12 11.75l6.25-3.5M12 11.75v7.5"/>
+    <path d="m9.15 9.95 2.85-1.6 2.85 1.6-2.85 1.6-2.85-1.6Z" stroke-opacity="0.55"/>
+    <path d="M9.15 9.95v3.1l2.85 1.6 2.85-1.6v-3.1" stroke-opacity="0.55"/>
+    <path d="M4.15 7.15 2.75 6.35M19.85 7.15l1.4-.8M4.15 16.85l-1.4.8M19.85 16.85l1.4.8"/>
+    <circle cx="2.5" cy="6.2" r="1.15" fill="#69A7FF" stroke="none"/>
+    <circle cx="21.5" cy="6.2" r="1.15" fill="#69A7FF" stroke="none"/>
+    <circle cx="2.5" cy="17.8" r="1.15" fill="#69A7FF" stroke="none"/>
+    <circle cx="21.5" cy="17.8" r="1.15" fill="#69A7FF" stroke="none"/>
+    <circle cx="12" cy="11.75" r="1.25" fill="#69A7FF" stroke="none"/>
+    <path d="M12 13.5v3.35M10.35 16.9h3.3" stroke-opacity="0.55"/>
+  </g>
+  <text x="12" y="23.2" text-anchor="middle" font-family="Arial, sans-serif" font-size="5.9" font-weight="800" letter-spacing="0.1" textLength="17" lengthAdjust="spacingAndGlyphs" fill="#69A7FF">OSDU</text>
 </svg>

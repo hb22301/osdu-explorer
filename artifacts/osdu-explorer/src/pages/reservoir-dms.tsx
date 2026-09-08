@@ -176,7 +176,7 @@ export default function ReservoirDmsPage() {
         setSelectedDataspace(names[0]);
       }
     } catch {
-      setDataspaceError("Failed to connect to Reservoir DMS");
+      setDataspaceError("Failed to connect to Reservoir DDMS");
     }
   }, [selectedDataspace]);
 
@@ -262,7 +262,7 @@ export default function ReservoirDmsPage() {
       {/* Top bar */}
       <div className="shrink-0 flex items-center gap-2 px-6 py-3 border-b border-border bg-card/40">
         <FlaskConical className="h-4 w-4 text-emerald-500 shrink-0" />
-        <span className="text-sm font-semibold text-foreground mr-2">Reservoir DMS Data</span>
+        <span className="text-sm font-semibold text-foreground mr-2">Reservoir DDMS Data</span>
         <div className="h-4 border-l border-border mx-1" />
         {dataspaceError ? (
           <span className="text-xs text-destructive">{dataspaceError}</span>

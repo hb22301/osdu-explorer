@@ -285,12 +285,11 @@ export default function SchemasPage() {
       {/* Header */}
       <div className="space-y-2">
         <h1
-          className="text-3xl font-bold tracking-tight text-neon"
-          style={{ textShadow: "0 0 24px hsl(180 100% 55% / 0.45), 0 0 8px hsl(180 100% 55% / 0.25)" }}
+          className="text-3xl font-bold tracking-tight text-foreground"
         >
           Schema Browser
         </h1>
-        <p className="text-muted-foreground pl-3" style={{ borderLeft: "2px solid hsl(180 100% 55% / 0.5)" }}>
+        <p className="text-muted-foreground pl-3" style={{ borderLeft: "2px solid hsl(var(--neon) / 0.5)" }}>
           Browse and inspect OSDU data schemas.
         </p>
       </div>
@@ -313,7 +312,7 @@ export default function SchemasPage() {
           <Button
             type="submit"
             disabled={isLoading}
-            className="shrink-0 bg-neon text-black hover:bg-neon/90 border-neon/80 focus-visible:ring-neon/60"
+            className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90 border-primary/80 focus-visible:ring-primary/60"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
             <span className="ml-2">Search</span>

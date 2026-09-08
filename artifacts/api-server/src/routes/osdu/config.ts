@@ -5,7 +5,7 @@ import {
   GetOsduConfigResponse,
   ClearOsduConfigResponse,
 } from "@workspace/api-zod";
-import { clearTokenCache } from "../../lib/osdu-client";
+import { clearTokenCache, validateOsduConfig } from "../../lib/osdu-client";
 
 const router: IRouter = Router();
 
@@ -21,7 +21,7 @@ router.get("/osdu/config", (req, res): void => {
   res.json(result);
 });
 
-router.post("/osdu/config", (req, res): void => {
+router.post("/osdu/config", async (req, res): Promise<void> => {
   const parsed = SaveOsduConfigBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -29,12 +29,7 @@ router.post("/osdu/config", (req, res): void => {
   }
 
   const { baseUrl, partitionId, tokenEndpoint, clientId, clientSecret, scope } = parsed.data;
-
-  if (req.session.osduConfig) {
-    clearTokenCache(req.session.osduConfig);
-  }
-
-  req.session.osduConfig = {
+  const nextConfig = {
     baseUrl,
     partitionId,
     tokenEndpoint,
@@ -42,6 +37,23 @@ router.post("/osdu/config", (req, res): void => {
     clientSecret,
     scope: scope ?? undefined,
   };
+
+  // Always validate the credentials currently in the form, even when this
+  // client ID and endpoint previously had a cached token.
+  clearTokenCache(nextConfig);
+  try {
+    await validateOsduConfig(nextConfig);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to create an access token";
+    res.status(401).json({ error: message });
+    return;
+  }
+
+  if (req.session.osduConfig) {
+    clearTokenCache(req.session.osduConfig);
+  }
+
+  req.session.osduConfig = nextConfig;
 
   const result = SaveOsduConfigResponse.parse({
     configured: true,

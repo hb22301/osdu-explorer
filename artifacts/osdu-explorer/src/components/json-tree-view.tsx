@@ -926,6 +926,7 @@ export function JsonTreeView({
       <div className="relative">
         <div
           ref={scrollContainerRef}
+          data-json-content="true"
           className="bg-muted/50 rounded-b-lg p-3 border border-t-0 border-border/40 overflow-auto select-text"
         >
           <JsonTreeNode

@@ -194,8 +194,8 @@ export function LuceneQueryInput({
         handleInput();
       }}
       className={cn(
-        "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1",
-        "text-sm font-mono shadow-xs outline-none",
+        "flex items-center h-8 w-full rounded-md border border-input bg-transparent px-2 py-0",
+        "text-xs font-mono leading-4 shadow-xs outline-none",
         "focus-visible:ring-2 focus-visible:ring-neon/60 focus-visible:border-neon/40",
         "transition-[color,box-shadow] duration-150",
         "cursor-text whitespace-nowrap overflow-x-auto",

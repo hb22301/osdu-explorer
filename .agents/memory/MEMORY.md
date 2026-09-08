@@ -1,0 +1,1 @@
+- [Browser regression checks](browser-regression-checks.md) — OSDU Explorer has a system Chromium binary available for dependency-free UI checks.

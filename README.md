@@ -2,7 +2,7 @@
 
 A web-based explorer and management interface for the [OSDU Data Platform](https://osduforum.org/). Browse, search, and inspect subsurface energy data records, schemas, legal tags, and reservoir resources — all from a fast, keyboard-friendly UI.
 
-**Live at [osdudatamanager.com](https://osdudatamanager.com) and [osdu-manager.replit.app](https://osdu-manager.replit.app)**
+**Live at [osdudatamanager.com](https://osdudatamanager.com)**
 
 ---
 
@@ -28,7 +28,7 @@ A web-based explorer and management interface for the [OSDU Data Platform](https
 - **In-viewer search** with key and value highlighting
 - **Expand/collapse state** saved per record (100 most recent layouts persisted)
 - **Pop-out window** — open any JSON in a standalone tab; state stays in sync via `BroadcastChannel`
-- One-click **Storage lookup** and **Wellbore DMS lookup** for any UUID referenced in the payload
+- One-click **Storage lookup** and **Wellbore DDMS lookup** for any UUID referenced in the payload
 
 ### Schema Browser
 - List and filter all OSDU schemas by Authority, Source, and Entity Type
@@ -37,7 +37,7 @@ A web-based explorer and management interface for the [OSDU Data Platform](https
 ### Legal Tags
 - Browse all valid legal tags with descriptions, country of origin, and contract IDs
 
-### Reservoir DMS (RDMS)
+### Reservoir DDMS (RDMS)
 - Dedicated explorer for Reservoir Domain Management Services
 - Navigate by **Dataspace → Resource Type → Record**
 - Double-click any record row to open its full JSON in a fullscreen viewer
