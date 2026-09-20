@@ -26,12 +26,20 @@ if (!basePath) {
   );
 }
 
-const appPublishDate = new Intl.DateTimeFormat("en-US", {
+const publishNow = new Date();
+const appPublishDateOnly = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/Chicago",
   month: "long",
   day: "numeric",
   year: "numeric",
-}).format(new Date());
+}).format(publishNow);
+const appPublishTime = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
+}).format(publishNow);
+const appPublishDate = `${appPublishDateOnly} at ${appPublishTime}`;
 
 export default defineConfig({
   base: basePath,

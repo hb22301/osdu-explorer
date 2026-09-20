@@ -1,42 +1,4 @@
-e:"Block 34" AND data.ProjectedCRSID:"*WGS84*"',
-  field:     'data.FieldName:"Volve" AND data.GeoPoliticalEntityID:"*Norway*"',
-  facility:  'data.FacilityName:"Platform A" AND data.FacilityTypeID:"*Wellhead*"',
-  document:  'data.DocumentTitle:"Well Report" AND data.DocumentTypeID:"*Completion*"',
-  dataset:   'data.Name:"Seismic Dataset" AND data.DatasetProperties.FileSourceInfo.FileSize:[1000 TO *]',
-};
-
-const GENERIC_EXAMPLE = 'data.ProjectName:"MyProject"';
-
-function getQueryExample(kind: string): string {
-  if (!kind || kind === "*:*:*:*") return GENERIC_EXAMPLE;
-  const lower = kind.toLowerCase();
-  const entries = Object.entries(KIND_QUERY_EXAMPLES).sort(
-    ([a], [b]) => b.length - a.length
-  );
-  for (const [key, example] of entries) {
-    if (lower.includes(key)) return example;
-  }
-  return GENERIC_EXAMPLE;
-}
-
-function buildRecentRecordsQuery(
-  value: number,
-  unit: DashboardWindowUnit,
-  sortMode: DashboardSortMode,
-): string {
-  const { suffix } = getDashboardWindowUnit(unit);
-  const timeField = sortMode === "createTime" ? "createTime" : "modifyTime";
-  return `${timeField}:[now-${value}${suffix} TO now]`;
-}
-
-function RecentSearchesDropdown({
-  recent,
-  onSelect,
-  onClear,
-  onClose,
-}: {
-  recent: RecentSearch[];
-  onSelect: (r: RecentSearch) => void;
+;
   onClear: () => void;
   onClose: () => void;
 }) {
@@ -303,6 +265,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
   const fsConsoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
+  const fsConsoleDragCleanupRef = useRef<(() => void) | null>(null);
   const [dashboardWindow, setDashboardWindow] = useState<DashboardWindowSetting>(loadDashboardWindowSetting);
   const [dashboardWindowDraft, setDashboardWindowDraft] = useState(() => {
     return String(loadDashboardWindowSetting().value);
@@ -454,6 +417,13 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     setOffset(0);
     setShowRecent(false);
     addRecent(kind, query);
+    trackEvent("search_submitted", {
+      surface: dashboardMode ? "dashboard" : "search",
+      source: "form",
+      has_query: Boolean(query.trim()),
+      has_kind_filter: kind !== "*:*:*:*",
+      page_size: limit,
+    });
     searchMutation.mutate({ data: { kind, query: query || undefined, limit, offset: 0 } });
   };
 
@@ -463,6 +433,13 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     setShowRecent(false);
     setOffset(0);
     addRecent(r.kind, r.query);
+    trackEvent("search_submitted", {
+      surface: dashboardMode ? "dashboard" : "search",
+      source: "history",
+      has_query: Boolean(r.query.trim()),
+      has_kind_filter: r.kind !== "*:*:*:*",
+      page_size: limit,
+    });
     searchMutation.mutate({ data: { kind: r.kind, query: r.query || undefined, limit, offset: 0 } });
   };
 
@@ -513,6 +490,12 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
       localStorage.setItem(DASHBOARD_WINDOW_UNIT_KEY, dashboardWindowUnitDraft);
     } catch { /* ignore */ }
     const recentQuery = buildRecentRecordsQuery(value, dashboardWindowUnitDraft, dashboardSortMode);
+    trackEvent("dashboard_refreshed", {
+      window_value: value,
+      window_unit: dashboardWindowUnitDraft,
+      timestamp_field: dashboardSortMode === "createTime" ? "create_time" : "update_time",
+      page_size: limit,
+    });
     setKind("*:*:*:*");
     setQuery(recentQuery);
     setOffset(0);
@@ -677,6 +660,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
 
   const handleFsConsoleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    fsConsoleDragCleanupRef.current?.();
     fsConsoleDragState.current = { startY: e.clientY, startHeight: fsConsoleHeight };
     const onMove = (ev: MouseEvent) => {
       if (!fsConsoleDragState.current) return;
@@ -684,14 +668,21 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
       const next = Math.min(FS_CONSOLE_MAX, Math.max(FS_CONSOLE_MIN, fsConsoleDragState.current.startHeight + delta));
       setFsConsoleHeight(next);
     };
-    const onUp = () => {
+    const cleanup = () => {
       fsConsoleDragState.current = null;
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      if (fsConsoleDragCleanupRef.current === cleanup) fsConsoleDragCleanupRef.current = null;
     };
+    const onUp = cleanup;
+    fsConsoleDragCleanupRef.current = cleanup;
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [fsConsoleHeight]);
+
+  useEffect(() => () => {
+    fsConsoleDragCleanupRef.current?.();
+  }, []);
 
   const handleSortClick = (col: ColKey) => {
     if (sortCol === col) {
@@ -753,6 +744,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
 
   const handleRowDoubleClick = useCallback((row: FlatRow) => {
     const id = row.id !== "—" ? row.id : null;
+    trackEvent("record_opened", {
+      source: "table",
+      mode: id ? "storage_lookup" : "json_viewer",
+    });
     if (id) {
       setStorageOpenId(id);
     } else {
@@ -769,6 +764,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   const handleDashboardKindFilterChange = (nextKinds: string[]) => {
     setDashboardKindFilter(nextKinds);
     setOffset(0);
+    trackEvent("dashboard_kind_filter_changed", {
+      selected_count: nextKinds.length,
+      cleared: nextKinds.length === 0,
+    });
     if (nextKinds.length === 0 && dashboardMode) {
       searchMutation.mutate({
         data: {

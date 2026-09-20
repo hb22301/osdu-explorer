@@ -1,171 +1,4 @@
-_SIZE = 20;
-
-  const viewMode = sharedViewerState ? sharedViewerState.viewMode : localViewMode;
-  const searchOpen = sharedViewerState ? sharedViewerState.searchOpen : localSearchOpen;
-  const query = sharedViewerState ? sharedViewerState.query : localQuery;
-
-  const setViewMode = useCallback(
-    (mode: ViewMode) => {
-      if (sharedViewerState) {
-        sharedViewerState.onViewModeChange(mode);
-      } else {
-        setLocalViewMode(mode);
-      }
-    },
-    [sharedViewerState],
-  );
-
-  const setSearchOpen = useCallback(
-    (open: boolean) => {
-      if (sharedViewerState) {
-        sharedViewerState.onSearchOpenChange(open);
-      } else {
-        setLocalSearchOpen(open);
-      }
-    },
-    [sharedViewerState],
-  );
-
-  const setQuery = useCallback(
-    (q: string) => {
-      if (sharedViewerState) {
-        sharedViewerState.onQueryChange(q);
-      } else {
-        setLocalQuery(q);
-      }
-    },
-    [sharedViewerState],
-  );
-
-  const displayJson = overlayJson ?? json;
-
-  const parsedJson: JsonValue | null = useMemo(() => {
-    try {
-      return JSON.parse(displayJson) as JsonValue;
-    } catch {
-      return null;
-    }
-  }, [displayJson]);
-
-  const showTree = viewMode === "tree" && parsedJson !== null;
-  const displayedRecordId = useMemo(() => {
-    const rootId = getRootField<string>(parsedJson, "id")?.trim();
-    return rootId || storageRecordId?.trim() || searchRecordId?.trim() || null;
-  }, [parsedJson, storageRecordId, searchRecordId]);
-  const ddmsTarget = useMemo(() => {
-    const target = parsedJson ? findReservoirDdmsTarget(parsedJson) : null;
-    if (!target) return null;
-    return {
-      ...target,
-      datatype: target.datatype ?? findFirstStringField(parsedJson, "$type"),
-      uuid: target.uuid ?? findFirstStringField(parsedJson, "uuid"),
-    };
-  }, [parsedJson]);
-
-  // --- Tree mode matches ---
-  const treeMatches: TreeMatch[] = useMemo(() => {
-    if (!showTree || !query || !parsedJson) return [];
-    const raw = buildTreeMatches(parsedJson, "root", query);
-    return raw.map((m, i) => ({ ...m, globalIndex: i }));
-  }, [showTree, query, parsedJson]);
-
-  // --- Raw mode matches ---
-  const rawMatches: RawMatch[] = useMemo(() => {
-    if (showTree || !query) return [];
-    const lower = displayJson.toLowerCase();
-    const q = query.toLowerCase();
-    const found: RawMatch[] = [];
-    let idx = 0;
-    while (idx < lower.length) {
-      const pos = lower.indexOf(q, idx);
-      if (pos === -1) break;
-      found.push({ start: pos, end: pos + q.length });
-      idx = pos + q.length;
-    }
-    return found;
-  }, [showTree, query, displayJson]);
-
-  const totalMatches = showTree ? treeMatches.length : rawMatches.length;
-
-  // Reset active index when matches change
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [treeMatches, rawMatches]);
-
-  // Animate badge in/out when match count crosses zero
-  const hasMatches = totalMatches > 0 && !!query;
-  useEffect(() => {
-    if (hasMatches) {
-      if (badgeExitTimerRef.current) {
-        clearTimeout(badgeExitTimerRef.current);
-        badgeExitTimerRef.current = null;
-      }
-      setBadgeExiting(false);
-      setBadgeRendered(true);
-    } else if (badgeRendered) {
-      setBadgeExiting(true);
-      badgeExitTimerRef.current = setTimeout(() => {
-        setBadgeRendered(false);
-        setBadgeExiting(false);
-        badgeExitTimerRef.current = null;
-      }, 160);
-    }
-    return () => {
-      if (badgeExitTimerRef.current) {
-        clearTimeout(badgeExitTimerRef.current);
-      }
-    };
-  }, [hasMatches]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSelectAll = useCallback(() => {
-    const target = showTree
-      ? treeRef.current?.querySelector<HTMLElement>("[data-json-content]")
-      : preRef.current;
-    if (!target) return;
-    const sel = window.getSelection();
-    if (selectionCoversTarget(sel, target)) {
-      sel?.removeAllRanges();
-      setAllSelected(false);
-      return;
-    }
-    const range = document.createRange();
-    range.selectNodeContents(target);
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    setAllSelected(true);
-  }, [showTree]);
-
-  const handleCopy = useCallback(() => {
-    const sel = window.getSelection();
-    const selectedText = sel && sel.toString().length > 0 ? sel.toString() : null;
-    void navigator.clipboard.writeText(selectedText ?? displayJson).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [json]);
-
-  const toggleSearch = useCallback(() => {
-    setSearchOpen(!searchOpen);
-  }, [searchOpen, setSearchOpen]);
-
-  const closeAndClearSearch = useCallback(() => {
-    setSearchOpen(false);
-    setQuery("");
-    setActiveIndex(0);
-  }, [setSearchOpen, setQuery]);
-
-  useEffect(() => {
-    if (searchOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 0);
-    }
-  }, [searchOpen]);
-
-  // Scroll active raw match into view
-  useEffect(() => {
-    if (!showTree && activeRawMatchRef.current) {
-      activeRawMatchRef.current.scrollIntoView({ block: "nearest" });
-    }
-  }, [activeIndex, rawMatches, showTree]);
+wTree]);
 
   // Scroll active tree match into view
   useEffect(() => {
@@ -202,7 +35,7 @@ _SIZE = 20;
 
   const handleActiveTreeRef = useCallback((el: HTMLElement | null) => {
     activeTreeMatchRef.current = el;
-  }, []);
+  }, [viewMode]);
 
   // Auto-select the full OSDU record ID when clicking anywhere inside its quoted value.
   const handleContainerClick = useCallback(() => {
@@ -256,9 +89,23 @@ _SIZE = 20;
     };
   }, [lookupError]);
 
+  useEffect(() => () => {
+    if (badgeExitTimerRef.current) clearTimeout(badgeExitTimerRef.current);
+    if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+    if (searchFocusTimerRef.current) clearTimeout(searchFocusTimerRef.current);
+    if (errorDismissTimerRef.current) clearTimeout(errorDismissTimerRef.current);
+    lookupAbortControllerRef.current?.abort();
+    wdmsAbortControllerRef.current?.abort();
+    arrayAbortControllerRef.current?.abort();
+  }, []);
+
   const openRecordInPopout = useCallback((recordJson: string, label: string) => {
     const dataKey = `osdu-json-popout-${Date.now()}`;
     localStorage.setItem(dataKey, recordJson);
+    trackEvent("json_popout_opened", {
+      source: "lookup",
+      view_mode: viewMode,
+    });
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     const params = new URLSearchParams({ data: dataKey, label });
     window.open(`${base}/json-popout?${params.toString()}`, "_blank");
@@ -270,17 +117,21 @@ _SIZE = 20;
     if (!lookupId || lookupLoading) return;
     setLookupLoading("storage");
     setLookupError(null);
+    const controller = new AbortController();
+    lookupAbortControllerRef.current = controller;
     try {
-      const res = await fetch(`/api/osdu/records/${encodeURIComponent(lookupId)}`);
+      const res = await fetch(`/api/osdu/records/${encodeURIComponent(lookupId)}`, { signal: controller.signal });
       if (res.status === 404) { setLookupError("Record not found"); return; }
       if (!res.ok) { setLookupError("Failed to fetch record"); return; }
       const data: unknown = await res.json();
       setOverlayJson(JSON.stringify(data, null, 2));
       setOverlayLabel(lookupId);
       onResponseTypeChange?.("storage");
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       setLookupError("Failed to fetch record");
     } finally {
+      if (lookupAbortControllerRef.current === controller) lookupAbortControllerRef.current = null;
       setLookupLoading(null);
     }
   }, [selectedText, displayedRecordId, lookupLoading, onResponseTypeChange]);
@@ -291,11 +142,14 @@ _SIZE = 20;
     if (!lookupId || lookupLoading) return;
     setLookupLoading("search");
     setLookupError(null);
+    const controller = new AbortController();
+    lookupAbortControllerRef.current = controller;
     try {
       const res = await fetch("/api/osdu/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "*:*:*:*", query: `id:"${lookupId}"`, limit: 1 }),
+        signal: controller.signal,
       });
       if (!res.ok) { setLookupError("Search failed"); return; }
       const data = await res.json() as { results: unknown[]; totalCount: number };
@@ -303,9 +157,11 @@ _SIZE = 20;
       setOverlayJson(JSON.stringify(data.results[0], null, 2));
       setOverlayLabel(lookupId);
       onResponseTypeChange?.("search");
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       setLookupError("Search failed");
     } finally {
+      if (lookupAbortControllerRef.current === controller) lookupAbortControllerRef.current = null;
       setLookupLoading(null);
     }
   }, [selectedText, displayedRecordId, lookupLoading, onResponseTypeChange]);
@@ -318,30 +174,55 @@ _SIZE = 20;
     }
     setLookupLoading("ddms");
     setLookupError(null);
+    const controller = new AbortController();
+    lookupAbortControllerRef.current = controller;
     try {
       const url = `/api/osdu/rdms/dataspaces/${encodeURIComponent(ddmsTarget.dataspace)}/resources/${encodeURIComponent(ddmsTarget.datatype)}/${encodeURIComponent(ddmsTarget.uuid)}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         setLookupError(err.error ?? "Failed to fetch Reservoir DDMS record");
         return;
       }
-      const data: unknown = await res.json();
-      setOverlayJson(JSON.stringify(data, null, 2));
-      setOverlayLabel(ddmsTarget.uuid);
+      const result: JsonViewerLookupResult = {
+        responseType: "ddms",
+        json: JSON.stringify(await res.json(), null, 2),
+        label: ddmsTarget.uuid,
+        storageKey: `rdms:${ddmsTarget.dataspace}:${ddmsTarget.datatype}:${ddmsTarget.uuid}`,
+        rdmsContext: {
+          dataspace: ddmsTarget.dataspace,
+          datatype: ddmsTarget.datatype,
+          uuid: ddmsTarget.uuid,
+        },
+      };
+      if (lookupResult !== undefined) {
+        onLookupResult?.(result);
+      } else {
+        setOverlayJson(result.json);
+        setOverlayLabel(result.label);
+        setResolvedRdmsContext(result.rdmsContext ?? null);
+      }
       onResponseTypeChange?.("ddms");
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       setLookupError("Failed to fetch Reservoir DDMS record");
     } finally {
+      if (lookupAbortControllerRef.current === controller) lookupAbortControllerRef.current = null;
       setLookupLoading(null);
     }
-  }, [ddmsTarget, lookupLoading, onResponseTypeChange]);
+  }, [ddmsTarget, lookupLoading, lookupResult, onLookupResult, onResponseTypeChange]);
 
   const handleBackToOriginal = useCallback(() => {
-    setOverlayJson(null);
-    setOverlayLabel(null);
+    if (lookupResult) {
+      onLookupResult?.(null);
+    }
+    if (overlayJson) {
+      setOverlayJson(null);
+      setOverlayLabel(null);
+      setResolvedRdmsContext(null);
+    }
     if (originalResponseType) onResponseTypeChange?.(originalResponseType);
-  }, [originalResponseType, onResponseTypeChange]);
+  }, [lookupResult, onLookupResult, originalResponseType, onResponseTypeChange, overlayJson]);
 
   // Extract OSDU record IDs from selectedText (handles single ID or text containing multiple IDs)
   const selectedUrns = useMemo(() => {
@@ -364,11 +245,14 @@ _SIZE = 20;
     setWdmsLoading(true);
     setWdmsError(null);
     setWdmsResults([]);
+    const controller = new AbortController();
+    wdmsAbortControllerRef.current = controller;
     try {
       const res = await fetch("/api/osdu/wdms/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urns: wdmsUrns }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
@@ -391,52 +275,54 @@ _SIZE = 20;
       });
       setWdmsResults(parsed);
       setWdmsOpen(true);
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       setWdmsError("Failed to connect to WDMS");
       setWdmsOpen(true);
     } finally {
+      if (wdmsAbortControllerRef.current === controller) wdmsAbortControllerRef.current = null;
       setWdmsLoading(false);
     }
   }, [selectedUrns, wdmsLoading]);
 
   // RDMS lookup: detect UUID in selectedText, resolve $type from JSON context
   const selectedUuid = useMemo(() => {
-    if (!rdmsContext || !_isFullscreen) return null;
+    if (!activeRdmsContext || !_isFullscreen) return null;
     const t = selectedText.trim();
     return UUID_RE.test(t) ? t : null;
-  }, [rdmsContext, _isFullscreen, selectedText]);
+  }, [activeRdmsContext, _isFullscreen, selectedText]);
 
   const rdmsDatatype = useMemo(() => {
     if (!selectedUuid || !parsedJson) return null;
     return findObjectTypeForUuid(parsedJson, selectedUuid);
   }, [selectedUuid, parsedJson]);
 
-  // RDMS array-data: detect entity type and UUID from the root of the original record
-  const parsedOriginalJson: JsonValue | null = useMemo(() => {
-    try { return JSON.parse(json) as JsonValue; } catch { return null; }
-  }, [json]);
+  // Array paths belong to the Reservoir response currently shown in the viewer.
+  // Using the original Storage/Search JSON here makes a valid RDDMS overlay fail
+  // with misleading missing-path errors.
+  const parsedArrayJson = parsedJson;
   const rdmsArrayType = useMemo((): RdmsArrayType | null => {
-    if (!rdmsContext) return null;
+    if (!activeRdmsContext) return null;
     // Prefer the datatype passed directly via rdmsContext (set from the resource selection),
     // fall back to parsing $type from the JSON root.
-    const candidate = rdmsContext.datatype ?? getRootField<string>(parsedOriginalJson, "$type");
+    const candidate = activeRdmsContext.datatype ?? getRootField<string>(parsedArrayJson, "$type");
     if (typeof candidate === "string" && (RDMS_ARRAY_TYPES as readonly string[]).includes(candidate)) {
       return candidate as RdmsArrayType;
     }
     return null;
-  }, [rdmsContext, parsedOriginalJson]);
+  }, [activeRdmsContext, parsedArrayJson]);
   const rdmsRootUuid = useMemo(
-    () => rdmsContext?.uuid ?? getRootUuid(parsedOriginalJson),
-    [rdmsContext, parsedOriginalJson],
+    () => activeRdmsContext?.uuid ?? getRootUuid(parsedArrayJson),
+    [activeRdmsContext, parsedArrayJson],
   );
 
   const handleRdmsLookup = useCallback(async () => {
-    if (!selectedUuid || !rdmsContext || lookupLoading) return;
+    if (!selectedUuid || !activeRdmsContext || lookupLoading) return;
     setLookupLoading("search");
     setLookupError(null);
     const datatype = rdmsDatatype ?? "";
     try {
-      const url = `/api/osdu/rdms/dataspaces/${encodeURIComponent(rdmsContext.dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(selectedUuid)}`;
+      const url = `/api/osdu/rdms/dataspaces/${encodeURIComponent(activeRdmsContext.dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(selectedUuid)}`;
       const res = await fetch(url);
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
@@ -451,22 +337,25 @@ _SIZE = 20;
     } finally {
       setLookupLoading(null);
     }
-  }, [selectedUuid, rdmsContext, rdmsDatatype, lookupLoading]);
+  }, [selectedUuid, activeRdmsContext, rdmsDatatype, lookupLoading]);
 
   const handleArrayData = useCallback(async () => {
-    if (!rdmsContext || !parsedOriginalJson || !rdmsArrayType || !rdmsRootUuid) return;
+    if (!activeRdmsContext || !parsedArrayJson || !rdmsArrayType || !rdmsRootUuid) return;
+    const finishActivity = startActivity("Loading array data");
     setArrayOpen(true);
     setArrayLoading(true);
     setArrayError(null);
     setArrayResults([]);
+    const controller = new AbortController();
+    arrayAbortControllerRef.current = controller;
 
-    const ds = encodeURIComponent(rdmsContext.dataspace);
+    const ds = encodeURIComponent(activeRdmsContext.dataspace);
     const dt = encodeURIComponent(rdmsArrayType);
     const uid = encodeURIComponent(rdmsRootUuid);
     const base = `/api/osdu/rdms/dataspaces/${ds}/resources/${dt}/${uid}/arrays`;
 
     async function fetchArrayPath(hdfPath: string): Promise<ArrayDataResult> {
-      const res = await fetch(`${base}?path=${encodeURIComponent(hdfPath)}`);
+      const res = await fetch(`${base}?path=${encodeURIComponent(hdfPath)}`, { signal: controller.signal });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         return { label: hdfPath, error: err.error ?? `HTTP ${res.status}` };
@@ -478,12 +367,11 @@ _SIZE = 20;
     }
 
     try {
-      console.log("[ArrayData] Full JSON:", parsedOriginalJson);
-
       // The API may return an array of records; always use the first element.
-      const root: JsonValue = Array.isArray(parsedOriginalJson)
-        ? (parsedOriginalJson as JsonValue[])[0] ?? null
-        : parsedOriginalJson;
+      const recordRoot: JsonValue = Array.isArray(parsedArrayJson)
+        ? (parsedArrayJson as JsonValue[])[0] ?? null
+        : parsedArrayJson;
+      const root = recordRoot ? unwrapRecordData(recordRoot) : null;
 
       if (!root || typeof root !== "object" || Array.isArray(root)) {
         setArrayError("JSON root is not an object (empty or unexpected structure)");
@@ -528,12 +416,15 @@ _SIZE = 20;
 
         setArrayResults(results);
       }
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       setArrayError("Failed to fetch array data");
     } finally {
+      if (arrayAbortControllerRef.current === controller) arrayAbortControllerRef.current = null;
       setArrayLoading(false);
+      finishActivity();
     }
-  }, [rdmsContext, parsedOriginalJson, rdmsArrayType, rdmsRootUuid]);
+  }, [activeRdmsContext, parsedArrayJson, rdmsArrayType, rdmsRootUuid, startActivity]);
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -544,7 +435,7 @@ _SIZE = 20;
   const selectedSearchId = extractFirstOsduId(selectedText);
   const hasRecordResponse = Boolean(displayedRecordId);
   const storageLookupDisabled = hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading;
-  const searchLookupDisabled = rdmsContext
+  const searchLookupDisabled = activeRdmsContext
     ? !selectedUuid || !!lookupLoading
     : hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading;
   const ddmsLookupDisabled = !ddmsTarget || !!lookupLoading;
@@ -676,7 +567,7 @@ _SIZE = 20;
 
         {_isFullscreen && (
           <>
-            {overlayJson && (
+            {(Boolean(lookupResult) || Boolean(overlayJson)) && (
               <>
                 <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
                 <Tooltip>
@@ -693,9 +584,9 @@ _SIZE = 20;
                   </TooltipTrigger>
                   <TooltipContent>Back to original</TooltipContent>
                 </Tooltip>
-                {overlayLabel && (
+                {(lookupResult?.label ?? overlayLabel) && (
                   <span className="text-xs text-muted-foreground font-mono truncate max-w-[200px]">
-                    {overlayLabel}
+                    {lookupResult?.label ?? overlayLabel}
                   </span>
                 )}
               </>
@@ -813,74 +704,78 @@ _SIZE = 20;
               </Tooltip>
             )}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="inline-flex"
-                  tabIndex={searchLookupDisabled ? 0 : undefined}
-                  aria-label={searchLookupDisabled ? (rdmsContext ? "Reservoir DDMS lookup unavailable until a UUID is selected" : "Search unavailable until a record ID is available") : undefined}
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-7 w-7",
-                      iconStateClass(!searchLookupDisabled),
-                    )}
-                    onClick={() => { rdmsContext ? void handleRdmsLookup() : void handleSearchLookup(); }}
-                    aria-label={rdmsContext ? "Look up UUID in Reservoir DDMS" : "Search record in Search API"}
-                    disabled={searchLookupDisabled}
+            {!hideSearchLookup && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="inline-flex"
+                    tabIndex={searchLookupDisabled ? 0 : undefined}
+                    aria-label={searchLookupDisabled ? (activeRdmsContext ? "Reservoir DDMS lookup unavailable until a UUID is selected" : "Search unavailable until a record ID is available") : undefined}
                   >
-                    {lookupLoading === "search" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : rdmsContext ? (
-                      <Search className="h-3.5 w-3.5" />
-                    ) : (
-                      <FileSearch2 className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {rdmsContext
-                  ? (selectedUuid ? "Look up UUID in Reservoir DDMS" : "Click a UUID value to enable lookup")
-                  : selectedSearchId
-                    ? `Search selected ID: ${selectedSearchId}`
-                    : displayedRecordId
-                      ? `Search record: ${displayedRecordId}`
-                      : (selectedText ? "Search by ID" : "Select text to search by ID")}
-              </TooltipContent>
-            </Tooltip>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-7 w-7",
+                        iconStateClass(!searchLookupDisabled),
+                      )}
+                      onClick={() => { rdmsContext ? void handleRdmsLookup() : void handleSearchLookup(); }}
+                      aria-label={rdmsContext ? "Look up UUID in Reservoir DDMS" : "Search record in Search API"}
+                      disabled={searchLookupDisabled}
+                    >
+                      {lookupLoading === "search" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : rdmsContext ? (
+                        <Search className="h-3.5 w-3.5" />
+                      ) : (
+                        <FileSearch2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {rdmsContext
+                    ? (selectedUuid ? "Look up UUID in Reservoir DDMS" : "Click a UUID value to enable lookup")
+                    : selectedSearchId
+                      ? `Search selected ID: ${selectedSearchId}`
+                      : displayedRecordId
+                        ? `Search record: ${displayedRecordId}`
+                        : (selectedText ? "Search by ID" : "Select text to search by ID")}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="inline-flex"
-                  tabIndex={ddmsLookupDisabled ? 0 : undefined}
-                  aria-label={ddmsLookupDisabled ? "Reservoir DDMS unavailable for this record" : undefined}
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn("h-7 w-7", iconStateClass(!ddmsLookupDisabled))}
-                    onClick={() => { void handleDdmsLookup(); }}
-                    aria-label="Open record in Reservoir DDMS"
-                    disabled={ddmsLookupDisabled}
+            {!hideDdmsLookup && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="inline-flex"
+                    tabIndex={ddmsLookupDisabled ? 0 : undefined}
+                    aria-label={ddmsLookupDisabled ? "Reservoir DDMS unavailable for this record" : undefined}
                   >
-                    {lookupLoading === "ddms" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <ReservoirDdmsIcon className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {ddmsTarget
-                  ? `Open Reservoir DDMS record (${ddmsTarget.dataspace})`
-                  : "Reservoir DDMS unavailable: no DDMS dataset is listed"}
-              </TooltipContent>
-            </Tooltip>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!ddmsLookupDisabled))}
+                      onClick={() => { void handleDdmsLookup(); }}
+                      aria-label="Open record in Reservoir DDMS"
+                      disabled={ddmsLookupDisabled}
+                    >
+                      {lookupLoading === "ddms" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ReservoirDdmsIcon className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {ddmsTarget
+                    ? `Open Reservoir DDMS record (${ddmsTarget.dataspace})`
+                    : "Reservoir DDMS unavailable: no DDMS dataset is listed"}
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {!hideWdmsLookup && (
               <Tooltip>
@@ -916,7 +811,7 @@ _SIZE = 20;
               </Tooltip>
             )}
 
-            {rdmsContext && rdmsArrayType && (
+            {activeRdmsContext && rdmsArrayType && (
               <>
                 <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
                 <Tooltip>
@@ -1067,12 +962,16 @@ _SIZE = 20;
         >
           <JsonTreeView
             parsed={parsedJson}
-            storageKey={overlayJson ? (overlayLabel ?? undefined) : storageKey}
-            treeMatches={searchOpen ? treeMatches : []}
+            storageKey={
+              lookupResult
+                ? (lookupResult.storageKey ?? lookupResult.label)
+                : (overlayJson ? (overlayLabel ?? undefined) : storageKey)
+            }
+            treeMatches={treeMatches}
             activeMatchIndex={searchOpen ? activeIndex : -1}
             onActiveRef={handleActiveTreeRef}
             onMatchClick={searchOpen ? setActiveIndex : undefined}
-            sharedState={overlayJson ? undefined : sharedTreeState}
+            sharedState={lookupResult || overlayJson ? undefined : sharedTreeState}
           />
         </div>
       ) : (
@@ -1239,8 +1138,9 @@ _SIZE = 20;
             )}
 
             {!arrayLoading && arrayError && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {arrayError}
+              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <span className="min-w-0 flex-1 break-words">{arrayError}</span>
+                <CopyErrorButton error={arrayError} />
               </div>
             )}
 
@@ -1273,11 +1173,15 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
   const fsConsoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [lookupResult, setLookupResult] = useState<JsonViewerLookupResult | null>(null);
+  const activeJson = lookupResult?.json ?? json;
+  const activeStorageKey = lookupResult?.storageKey ?? storageKey;
+  const activeRdmsContext = lookupResult?.rdmsContext ?? rdmsContext;
   const defaultResponseTitle = storageRecordId
     ? RESPONSE_TITLES.search
     : searchRecordId
@@ -1288,6 +1192,15 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
   useEffect(() => {
     setDisplayedTitle(defaultResponseTitle);
   }, [json, defaultResponseTitle]);
+
+  useEffect(() => {
+    setLookupResult(null);
+  }, [json]);
+
+  const handleLookupResult = useCallback((result: JsonViewerLookupResult | null) => {
+    setLookupResult(result);
+    setDisplayedTitle(result ? RESPONSE_TITLES[result.responseType] : defaultResponseTitle);
+  }, [defaultResponseTitle]);
 
   const handleResponseTypeChange = useCallback((type: ResponseType) => {
     setDisplayedTitle(RESPONSE_TITLES[type]);
@@ -1320,16 +1233,16 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
     onFullscreenClose?.();
   }, [onFullscreenClose]);
 
-  const parsedJson: JsonValue | null = (() => {
+  const parsedJson: JsonValue | null = useMemo(() => {
     try {
-      return JSON.parse(json) as JsonValue;
+      return JSON.parse(activeJson) as JsonValue;
     } catch {
       return null;
     }
-  })();
+  }, [activeJson]);
 
   // Shared collapse state — lifted here so inline and fullscreen views stay in sync.
-  const sharedTreeState = useTreeCollapsed(parsedJson, storageKey);
+  const sharedTreeState = useTreeCollapsed(parsedJson, activeStorageKey);
 
   // Shared viewer state — lifted here so inline and fullscreen views stay in sync.
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
@@ -1388,34 +1301,44 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
 
   const handlePopOut = useCallback(() => {
     const dataKey = `osdu-json-popout-${Date.now()}`;
-    localStorage.setItem(dataKey, json);
+    localStorage.setItem(dataKey, activeJson);
+    trackEvent("json_popout_opened", {
+      source: "viewer",
+      view_mode: viewMode,
+      search_open: searchOpen,
+    });
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     const params = new URLSearchParams({ data: dataKey });
-    if (storageKey) params.set("key", storageKey);
-    params.set("label", storageKey ?? "JSON");
+    if (activeStorageKey) params.set("key", activeStorageKey);
+    params.set("label", activeStorageKey ?? "JSON");
     params.set("viewMode", viewMode);
     params.set("query", query);
     params.set("searchOpen", searchOpen ? "1" : "0");
     if (channelName) params.set("channel", channelName);
     window.open(`${base}/json-popout?${params.toString()}`, "_blank");
-  }, [json, storageKey, viewMode, query, searchOpen, channelName]);
+  }, [activeJson, activeStorageKey, viewMode, query, searchOpen, channelName]);
 
   return (
     <>
       {!defaultFullscreen && (
         <JsonViewerContent
-          json={json}
+          key={lookupResult?.label ?? "original"}
+          json={activeJson}
           className={className}
-          storageKey={storageKey}
+          storageKey={activeStorageKey}
           onMaximize={() => setFullscreenOpen(true)}
           onPopOut={handlePopOut}
           sharedTreeState={sharedTreeState}
           sharedViewerState={sharedViewerState}
-          hideStorageLookup={hideStorageLookup}
-          hideWdmsLookup={hideWdmsLookup}
-          rdmsContext={rdmsContext}
-          searchRecordId={searchRecordId}
-          storageRecordId={storageRecordId}
+          hideStorageLookup={hideStorageLookup || Boolean(lookupResult)}
+          hideSearchLookup={hideSearchLookup || Boolean(lookupResult)}
+          hideDdmsLookup={hideDdmsLookup || Boolean(lookupResult)}
+          hideWdmsLookup={hideWdmsLookup || Boolean(lookupResult)}
+          rdmsContext={activeRdmsContext}
+          searchRecordId={lookupResult ? undefined : searchRecordId}
+          storageRecordId={lookupResult ? undefined : storageRecordId}
+          lookupResult={lookupResult}
+          onLookupResult={handleLookupResult}
           onResponseTypeChange={handleResponseTypeChange}
         />
       )}
@@ -1434,17 +1357,22 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           </div>
           <div className="flex-1 overflow-hidden min-h-0 p-4">
             <JsonViewerContent
-              json={json}
-              storageKey={storageKey}
+              key={lookupResult?.label ?? "original"}
+              json={activeJson}
+              storageKey={activeStorageKey}
               _isFullscreen
               className="h-full"
               sharedTreeState={sharedTreeState}
               sharedViewerState={sharedViewerState}
-              hideStorageLookup={hideStorageLookup}
-              hideWdmsLookup={hideWdmsLookup}
-              rdmsContext={rdmsContext}
-              searchRecordId={searchRecordId}
-              storageRecordId={storageRecordId}
+              hideStorageLookup={hideStorageLookup || Boolean(lookupResult)}
+              hideSearchLookup={hideSearchLookup || Boolean(lookupResult)}
+              hideDdmsLookup={hideDdmsLookup || Boolean(lookupResult)}
+              hideWdmsLookup={hideWdmsLookup || Boolean(lookupResult)}
+              rdmsContext={activeRdmsContext}
+              searchRecordId={lookupResult ? undefined : searchRecordId}
+              storageRecordId={lookupResult ? undefined : storageRecordId}
+              lookupResult={lookupResult}
+              onLookupResult={handleLookupResult}
               onResponseTypeChange={handleResponseTypeChange}
             />
           </div>

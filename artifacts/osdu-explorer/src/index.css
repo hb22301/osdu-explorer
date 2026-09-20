@@ -4,12 +4,30 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@keyframes activity-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.activity-progress-indicator {
+  animation: activity-progress-slide 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-progress-indicator {
+    animation: none;
+    width: 100%;
+    opacity: 0.8;
+  }
+}
+
 @theme inline {
   --color-neon: hsl(var(--neon));
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
+  --color-field-border: hsl(var(--field-border));
   --color-ring: hsl(var(--ring));
 
   --color-card: hsl(var(--card));
@@ -39,6 +57,7 @@
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-destructive-border: var(--destructive-border);
+  --color-error-text: hsl(var(--error-text));
 
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
@@ -112,8 +131,10 @@
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
+  --error-text: 0 72% 40%;
 
   --input: 214 32% 91%;
+  --field-border: 215 20% 55%;
   --ring: 221 83% 53%;
 
   --chart-1: 221 83% 53%;
@@ -181,8 +202,10 @@
 
   --destructive: 0 62% 30%;
   --destructive-foreground: 210 40% 98%;
+  --error-text: 0 100% 80%;
 
   --input: 217 33% 17%;
+  --field-border: 215 20% 60%;
   --ring: 224 76% 48%;
 
   --chart-1: 217 91% 60%;

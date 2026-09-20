@@ -14,6 +14,7 @@ import { APP_RELEASE_LABEL } from "@/lib/app-metadata";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { OsduIcon } from "@/components/osdu-icon";
 import { parsePostmanEnvironment, resolvePostmanVariables } from "@/lib/postman-env";
+import { trackEvent } from "@/lib/analytics";
 
 const formSchema = z.object({
   baseUrl: z.string().url({ message: "Please enter a valid URL" }),
@@ -78,6 +79,9 @@ export default function ConnectPage() {
       },
       onSuccess: () => {
         setConnectionError(null);
+        trackEvent("connection_saved", {
+          has_scope: Boolean(form.getValues("scope")?.trim()),
+        });
         queryClient.invalidateQueries({ queryKey: getGetOsduConfigQueryKey() });
         setLocation("/dashboard");
       }
@@ -106,7 +110,13 @@ export default function ConnectPage() {
             shouldDirty: true,
           });
         }
+        trackEvent("connection_environment_imported", {
+          matched_fields: Object.keys(mapped).length,
+        });
       } catch (error) {
+        trackEvent("connection_environment_import_failed", {
+          error_type: "invalid_file",
+        });
         setConnectionError(
           error instanceof Error
             ? `Unable to import Postman environment: ${error.message}`
@@ -154,7 +164,7 @@ export default function ConnectPage() {
             {connectionError && (
               <div
                 role="alert"
-                className="mb-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-destructive"
+                className="mb-4 flex items-start gap-2 rounded-md border border-error-text/50 bg-destructive/10 px-3 py-2.5 text-sm text-error-text"
               >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="break-words">{connectionError}</span>
@@ -192,13 +202,11 @@ export default function ConnectPage() {
                   control={form.control}
                   name="baseUrl"
                   render={({ field }) => (
-                    <FormItem className="space-y-1.5 sm:col-span-2">
+                    <FormItem className="relative space-y-1.5 sm:col-span-2">
                       <FormLabel>Base URL</FormLabel>
+                      <Terminal className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
-                        <div className="relative">
-                          <Terminal className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="https://osdu.example.com" className="pl-9 font-mono text-sm" {...field} />
-                        </div>
+                        <Input placeholder="https://osdu.example.com" className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -208,13 +216,11 @@ export default function ConnectPage() {
                   control={form.control}
                   name="tokenEndpoint"
                   render={({ field }) => (
-                    <FormItem className="space-y-1.5 sm:col-span-2">
+                    <FormItem className="relative space-y-1.5 sm:col-span-2">
                       <FormLabel>Token Endpoint</FormLabel>
+                      <LinkIcon className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
-                        <div className="relative">
-                          <LinkIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="https://login.microsoftonline.com/..." className="pl-9 font-mono text-sm" {...field} />
-                        </div>
+                        <Input placeholder="https://login.microsoftonline.com/..." className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -224,13 +230,11 @@ export default function ConnectPage() {
                   control={form.control}
                   name="partitionId"
                   render={({ field }) => (
-                    <FormItem className="space-y-1.5">
+                    <FormItem className="relative space-y-1.5">
                       <FormLabel>Data Partition ID</FormLabel>
+                      <OsduIcon className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
-                        <div className="relative">
-                          <OsduIcon className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="opendes" className="pl-9 font-mono text-sm" {...field} />
-                        </div>
+                        <Input placeholder="opendes" className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -240,13 +244,11 @@ export default function ConnectPage() {
                   control={form.control}
                   name="clientId"
                   render={({ field }) => (
-                    <FormItem className="space-y-1.5">
+                    <FormItem className="relative space-y-1.5">
                       <FormLabel>Client ID</FormLabel>
+                      <User className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
-                        <div className="relative">
-                          <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="Client ID" className="pl-9 font-mono text-sm" {...field} />
-                        </div>
+                        <Input placeholder="Client ID" className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -256,13 +258,11 @@ export default function ConnectPage() {
                   control={form.control}
                   name="scope"
                   render={({ field }) => (
-                    <FormItem className="space-y-1.5">
+                    <FormItem className="relative space-y-1.5">
                       <FormLabel>Scope</FormLabel>
+                      <Shield className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
-                        <div className="relative">
-                          <Shield className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input placeholder="api://.../.default" className="pl-9 font-mono text-sm" {...field} />
-                        </div>
+                        <Input placeholder="api://.../.default" className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>
                       <FormDescription>Defaults to clientId/.default</FormDescription>
                       <FormMessage />
@@ -273,13 +273,11 @@ export default function ConnectPage() {
                   control={form.control}
                   name="clientSecret"
                   render={({ field }) => (
-                    <FormItem className="space-y-1.5">
+                    <FormItem className="relative space-y-1.5">
                       <FormLabel>Client Secret</FormLabel>
+                      <Key className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
-                        <div className="relative">
-                          <Key className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                          <Input type="password" placeholder="Client Secret" className="pl-9 font-mono text-sm" {...field} />
-                        </div>
+                        <Input type="password" placeholder="Client Secret" className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

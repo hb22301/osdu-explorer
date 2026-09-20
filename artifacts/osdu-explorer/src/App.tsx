@@ -15,8 +15,24 @@ import ReservoirDmsPage from "@/pages/reservoir-dms";
 import JsonPopoutPage from "@/pages/json-popout";
 import NotFound from "@/pages/not-found";
 import { migrateLegacyLayouts } from "@/components/json-tree-view";
+import { ActivityProgressProvider } from "@/components/activity-progress";
 
 const queryClient = new QueryClient();
+const PRIVATE_APP_ROBOTS_POLICY = "noindex, nofollow";
+
+function enforcePrivateAppRobotsPolicy() {
+  let robotsMeta = document.querySelector<HTMLMetaElement>(
+    'meta[name="robots"]',
+  );
+
+  if (!robotsMeta) {
+    robotsMeta = document.createElement("meta");
+    robotsMeta.name = "robots";
+    document.head.appendChild(robotsMeta);
+  }
+
+  robotsMeta.content = PRIVATE_APP_ROBOTS_POLICY;
+}
 
 function Router() {
   return (
@@ -52,19 +68,22 @@ function Router() {
 
 function App() {
   useEffect(() => {
+    enforcePrivateAppRobotsPolicy();
     migrateLegacyLayouts();
   }, []);
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-          <Toaster />
-        </TooltipProvider>
-      </QueryClientProvider>
+      <ActivityProgressProvider>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+            </WouterRouter>
+            <Toaster />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ActivityProgressProvider>
     </ThemeProvider>
   );
 }

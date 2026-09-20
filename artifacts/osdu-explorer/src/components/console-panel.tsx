@@ -231,10 +231,12 @@ export function ConsolePanel({ height = 280 }: ConsolePanelProps) {
   const [isPaused, setIsPaused] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data } = useGetOsduConsole(undefined, {
+  const { data } = useGetOsduConsole({ limit: 100, offset: 0 }, {
     query: {
-      refetchInterval: isPaused ? false : 1000,
-      queryKey: getGetOsduConsoleQueryKey(),
+      refetchInterval: isPaused ? false : 2500,
+      refetchIntervalInBackground: false,
+      staleTime: 1500,
+      queryKey: getGetOsduConsoleQueryKey({ limit: 100, offset: 0 }),
     },
   });
 

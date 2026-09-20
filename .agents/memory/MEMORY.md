@@ -1,1 +1,4 @@
 - [Browser regression checks](browser-regression-checks.md) — OSDU Explorer has a system Chromium binary available for dependency-free UI checks.
+- [GitHub sync constraints](github-sync-constraints.md) — Secret-scanned environment files must stay out of the repository; pace Git Data API blob uploads.
+- [Large-response UI stability](large-response-ui-stability.md) — Bound diagnostic payloads and avoid allocating hidden JSON children; polling and render loops magnify retained response costs.
+- [Array table scrolling](array-table-scrolling.md) — Synchronized scroll containers must measure the actual table, not a nested overflow wrapper.

@@ -20,6 +20,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
   const dragState = useRef<{ startY: number; startHeight: number } | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
   const { data: config, isLoading } = useGetOsduConfig();
   const clearConfig = useClearOsduConfig();
 
@@ -32,7 +33,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
   // Poll console entry count for the badge (lightweight — just total)
   const { data: consoleData } = useGetOsduConsole(
     { limit: 1, offset: 0 },
-    { query: { refetchInterval: 3000, queryKey: getGetOsduConsoleQueryKey({ limit: 1, offset: 0 }) } }
+    {
+      query: {
+        refetchInterval: 10000,
+        refetchIntervalInBackground: false,
+        staleTime: 5000,
+        queryKey: getGetOsduConsoleQueryKey({ limit: 1, offset: 0 }),
+      },
+    }
   );
   const entryCount = consoleData?.total ?? 0;
 
@@ -44,6 +52,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
+    dragCleanupRef.current?.();
     dragState.current = { startY: e.clientY, startHeight: consoleHeight };
     document.body.style.cursor = "ns-resize";
     document.body.style.userSelect = "none";
@@ -55,17 +64,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
       setConsoleHeight(next);
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       dragState.current = null;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      if (dragCleanupRef.current === cleanup) dragCleanupRef.current = null;
     };
+    const onUp = cleanup;
 
+    dragCleanupRef.current = cleanup;
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   }, [consoleHeight]);
+
+  useEffect(() => () => {
+    dragCleanupRef.current?.();
+  }, []);
 
   const handleLogout = () => {
     clearConfig.mutate(undefined, {

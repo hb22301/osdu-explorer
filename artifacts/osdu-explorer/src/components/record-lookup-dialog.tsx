@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp } from "lucide-react";
-import { JsonViewerContent } from "@/components/json-viewer-toolbar";
+import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
@@ -25,6 +25,7 @@ export function RecordLookupDialog({
   const [open, setOpen] = useState(false);
   const [recordId, setRecordId] = useState("");
   const [displayedTitle, setDisplayedTitle] = useState("Record from Storage Service");
+  const [lookupResult, setLookupResult] = useState<JsonViewerLookupResult | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
   const consoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
@@ -43,8 +44,10 @@ export function RecordLookupDialog({
       const seed = selectedId.trim();
       setRecordId(seed);
       setDisplayedTitle("Record from Storage Service");
+      setLookupResult(null);
     } else {
       setRecordId("");
+      setLookupResult(null);
       setConsoleOpen(false);
     }
   }, [selectedId]);
@@ -88,6 +91,16 @@ export function RecordLookupDialog({
   }, [consoleHeight]);
 
   const json = data ? JSON.stringify(data, null, 2) : "";
+  const activeJson = lookupResult?.json ?? json;
+  const isReservoirDdmsResponse = Boolean(lookupResult);
+  const handleLookupResult = useCallback((result: JsonViewerLookupResult | null) => {
+    setLookupResult(result);
+    setDisplayedTitle(
+      result?.responseType === "ddms"
+        ? "Record from Reservoir DDMS"
+        : "Record from Storage Service",
+    );
+  }, []);
 
   return (
     <>
@@ -144,12 +157,19 @@ export function RecordLookupDialog({
             )}
             {!isError && data && (
               <JsonViewerContent
-                key={recordId}
-                json={json}
-                storageKey={recordId || undefined}
+                key={`${recordId}:${lookupResult?.label ?? "original"}`}
+                json={activeJson}
+                storageKey={lookupResult?.storageKey ?? (recordId || undefined)}
                 _isFullscreen
                 className="h-full"
                  searchRecordId={recordId}
+                 rdmsContext={lookupResult?.rdmsContext}
+                 hideStorageLookup={isReservoirDdmsResponse}
+                 hideSearchLookup={isReservoirDdmsResponse}
+                 hideDdmsLookup={isReservoirDdmsResponse}
+                 hideWdmsLookup={isReservoirDdmsResponse}
+                 lookupResult={lookupResult}
+                 onLookupResult={handleLookupResult}
                  onResponseTypeChange={handleResponseTypeChange}
               />
             )}

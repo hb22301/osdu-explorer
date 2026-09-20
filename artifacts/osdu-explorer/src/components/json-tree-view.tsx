@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo, useLayoutEffect } from "react";
+import { memo, useState, useCallback, useEffect, useRef, useMemo, useLayoutEffect } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +35,7 @@ interface JsonTreeNodeProps {
 
 const INDENT = 16;
 const AUTO_COLLAPSE_DEPTH = 2;
+export const MAX_SEARCH_MATCHES = 10_000;
 const LS_PREFIX = "osdu-tree-state:";
 const LS_LRU_KEY = "osdu-tree-state-lru";
 const MAX_SAVED_LAYOUTS = 100;
@@ -280,13 +281,18 @@ function JsonTreeNode({
 
   const paddingLeft = depth * INDENT;
 
-  const entries = isObj
-    ? Object.entries(value)
+  const count = isObj
+    ? Object.keys(value).length
     : isArr
-      ? (value as JsonValue[]).map((v, i) => [String(i), v] as [string, JsonValue])
-      : [];
-
-  const count = entries.length;
+      ? value.length
+      : 0;
+  const entries = isCol
+    ? []
+    : isObj
+      ? Object.entries(value)
+      : isArr
+        ? value.map((v, i) => [String(i), v] as [string, JsonValue])
+        : [];
   const openBracket = isObj ? "{" : "[";
   const closeBracket = isObj ? "}" : "]";
 
@@ -695,50 +701,54 @@ export function buildTreeMatches(
   path: string,
   query: string,
   keyName?: string,
+  maxMatches = MAX_SEARCH_MATCHES,
 ): Omit<TreeMatch, "globalIndex">[] {
   const q = query.toLowerCase();
   const matches: Omit<TreeMatch, "globalIndex">[] = [];
 
-  if (keyName !== undefined) {
-    const keyText = `"${keyName}"`;
-    const lower = keyText.toLowerCase();
+  const addTextMatches = (text: string, matchIn: "key" | "value", matchPath: string) => {
+    const lower = text.toLowerCase();
     let idx = 0;
-    while (idx < lower.length) {
+    while (idx < lower.length && matches.length < maxMatches) {
       const pos = lower.indexOf(q, idx);
       if (pos === -1) break;
-      matches.push({ path, matchIn: "key", start: pos, end: pos + q.length });
+      matches.push({ path: matchPath, matchIn, start: pos, end: pos + q.length });
       idx = pos + q.length;
     }
-  }
+  };
 
-  if (!isObject(value) && !isArray(value)) {
-    let valText: string;
-    if (value === null) valText = "null";
-    else if (typeof value === "boolean") valText = String(value);
-    else if (typeof value === "number") valText = String(value);
-    else valText = `"${value}"`;
+  const walk = (node: JsonValue, nodePath: string, nodeKey?: string) => {
+    if (matches.length >= maxMatches) return;
 
-    const lower = valText.toLowerCase();
-    let idx = 0;
-    while (idx < lower.length) {
-      const pos = lower.indexOf(q, idx);
-      if (pos === -1) break;
-      matches.push({ path, matchIn: "value", start: pos, end: pos + q.length });
-      idx = pos + q.length;
+    if (nodeKey !== undefined) {
+      addTextMatches(`"${nodeKey}"`, "key", nodePath);
     }
-  }
 
-  if (isObject(value)) {
-    for (const [k, v] of Object.entries(value)) {
-      const child = buildTreeMatches(v, `${path}.${k}`, query, k);
-      matches.push(...child);
+    if (!isObject(node) && !isArray(node)) {
+      const valueText =
+        node === null
+          ? "null"
+          : typeof node === "boolean" || typeof node === "number"
+            ? String(node)
+            : `"${node}"`;
+      addTextMatches(valueText, "value", nodePath);
+      return;
     }
-  } else if (isArray(value)) {
-    for (let i = 0; i < (value as JsonValue[]).length; i++) {
-      const child = buildTreeMatches((value as JsonValue[])[i], `${path}.${i}`, query);
-      matches.push(...child);
+
+    if (isObject(node)) {
+      for (const [key, child] of Object.entries(node)) {
+        walk(child, `${nodePath}.${key}`, key);
+        if (matches.length >= maxMatches) return;
+      }
+    } else {
+      for (let i = 0; i < node.length; i++) {
+        walk(node[i], `${nodePath}.${i}`);
+        if (matches.length >= maxMatches) return;
+      }
     }
-  }
+  };
+
+  walk(value, path, keyName);
 
   return matches;
 }
@@ -761,29 +771,34 @@ function ScrollGutter({
   onTickClick?: (globalIndex: number) => void;
 }) {
   const [ticks, setTicks] = useState<{ index: number; pct: number }[]>([]);
+  const frameRef = useRef<number | null>(null);
 
   const recalculate = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
     const container = scrollRef.current;
-    if (!container) return;
-    const { scrollHeight } = container;
-    if (scrollHeight === 0) return;
+      if (!container) return;
+      const { scrollHeight } = container;
+      if (scrollHeight === 0) return;
 
-    const containerTop = container.getBoundingClientRect().top;
-    const marks = container.querySelectorAll<HTMLElement>("[data-match-index]");
-    const seen = new Set<number>();
-    const newTicks: { index: number; pct: number }[] = [];
+      const containerTop = container.getBoundingClientRect().top;
+      const marks = container.querySelectorAll<HTMLElement>("[data-match-index]");
+      const seen = new Set<number>();
+      const newTicks: { index: number; pct: number }[] = [];
 
-    for (const mark of marks) {
-      const idx = parseInt(mark.dataset.matchIndex ?? "", 10);
-      if (isNaN(idx) || seen.has(idx)) continue;
-      seen.add(idx);
-      const rect = mark.getBoundingClientRect();
-      const midY = rect.top - containerTop + container.scrollTop + rect.height / 2;
-      const pct = Math.min(99, Math.max(0, (midY / scrollHeight) * 100));
-      newTicks.push({ index: idx, pct });
-    }
+      for (const mark of marks) {
+        const idx = parseInt(mark.dataset.matchIndex ?? "", 10);
+        if (isNaN(idx) || seen.has(idx)) continue;
+        seen.add(idx);
+        const rect = mark.getBoundingClientRect();
+        const midY = rect.top - containerTop + container.scrollTop + rect.height / 2;
+        const pct = Math.min(99, Math.max(0, (midY / scrollHeight) * 100));
+        newTicks.push({ index: idx, pct });
+      }
 
-    setTicks(newTicks);
+      setTicks(newTicks);
+    });
   }, [scrollRef]);
 
   // Recalculate whenever matches change or the tree content changes.
@@ -806,6 +821,10 @@ function ScrollGutter({
     return () => {
       resizeObs.disconnect();
       mutationObs.disconnect();
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
     };
   }, [scrollRef, recalculate]);
 
@@ -850,7 +869,7 @@ interface JsonTreeViewProps {
   sharedState?: TreeCollapsedState;
 }
 
-export function JsonTreeView({
+export const JsonTreeView = memo(function JsonTreeView({
   parsed,
   storageKey,
   className,
@@ -952,4 +971,4 @@ export function JsonTreeView({
       </div>
     </div>
   );
-}
+});
