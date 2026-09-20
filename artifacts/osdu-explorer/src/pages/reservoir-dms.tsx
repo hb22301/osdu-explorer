@@ -611,6 +611,22 @@ export default function ReservoirDmsPage() {
   const recordPageEnd = Math.min(recordOffset + displayRecords.length, sortedRecords.length);
   const recordRowKey = (record: ResourceRecord, index: number) => `${record.uuid || "row"}-${index}`;
 
+  // The record currently highlighted in the table (single-click), resolved from
+  // its row key. Drives the "Open in Reservoir DDMS viewer" toolbar button.
+  const selectedRecord = useMemo(() => {
+    if (!selectedRecordKey) return null;
+    return (
+      displayRecords.find(
+        (record, index) => `${record.uuid || "row"}-${recordOffset + index}` === selectedRecordKey,
+      ) ?? null
+    );
+  }, [displayRecords, recordOffset, selectedRecordKey]);
+
+  const openSelectedRecord = useCallback(() => {
+    if (!selectedRecord) return;
+    void fetchRecordDetail(selectedRecord.uuid, selectedResource ?? "");
+  }, [selectedRecord, selectedResource, fetchRecordDetail]);
+
   const showRecords = records !== null || recordsLoading || recordsError !== null;
 
   const renderRecordTable = (fullscreen = false) => (
@@ -859,6 +875,22 @@ export default function ReservoirDmsPage() {
               </div>
               {records && records.length > 0 && (
                 <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={cn(
+                      "h-8 w-8",
+                      selectedRecord
+                        ? "text-emerald-500 hover:text-emerald-500"
+                        : "disabled:opacity-100 disabled:text-muted-foreground",
+                    )}
+                    disabled={!selectedRecord}
+                    onClick={openSelectedRecord}
+                    aria-label="Open selected record in Reservoir DDMS viewer"
+                    title={selectedRecord ? "Open record JSON (Reservoir DDMS)" : "Select a record first"}
+                  >
+                    <FlaskConical className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="outline"
                     size="icon"
