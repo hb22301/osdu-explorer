@@ -318,8 +318,6 @@ export default function ReservoirDmsPage() {
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
-  // Per-type record counts, filled in asynchronously after resources load.
-  // Missing key = still loading; null = count unavailable/errored; number = done.
   const [resourceCounts, setResourceCounts] = useState<Record<string, number | null>>({});
   const countAbortRef = useRef<AbortController | null>(null);
 
@@ -367,43 +365,44 @@ export default function ReservoirDmsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch a record count for each resource type in the background so the left
-  // table can show per-type counts. Uses the API-provided count when present,
-  // otherwise counts the records list. Cancels on dataspace/resource change.
   useEffect(() => {
     countAbortRef.current?.abort();
     if (!resources || resources.length === 0 || !selectedDataspace) {
       setResourceCounts({});
       return;
     }
+
     const controller = new AbortController();
     countAbortRef.current = controller;
-    const ds = selectedDataspace;
+    const dataspace = selectedDataspace;
     setResourceCounts({});
-    resources.forEach((r) => {
-      if (r.count > 0) {
-        setResourceCounts((prev) => ({ ...prev, [r.name]: r.count }));
+
+    resources.forEach((resource) => {
+      if (resource.count > 0) {
+        setResourceCounts((previous) => ({ ...previous, [resource.name]: resource.count }));
         return;
       }
+
       fetch(
-        `/api/osdu/rdms/dataspaces/${encodeURIComponent(ds)}/resources/${encodeURIComponent(r.name)}`,
+        `/api/osdu/rdms/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(resource.name)}`,
         { signal: controller.signal },
       )
-        .then(async (res) => {
-          if (!res.ok) throw new Error("count fetch failed");
-          return parseRecords(await res.json()).length;
+        .then(async (response) => {
+          if (!response.ok) throw new Error("count fetch failed");
+          return parseRecords(await response.json()).length;
         })
         .then((count) => {
           if (!controller.signal.aborted) {
-            setResourceCounts((prev) => ({ ...prev, [r.name]: count }));
+            setResourceCounts((previous) => ({ ...previous, [resource.name]: count }));
           }
         })
         .catch(() => {
           if (!controller.signal.aborted) {
-            setResourceCounts((prev) => ({ ...prev, [r.name]: null }));
+            setResourceCounts((previous) => ({ ...previous, [resource.name]: null }));
           }
         });
     });
+
     return () => controller.abort();
   }, [resources, selectedDataspace]);
 
@@ -656,8 +655,6 @@ export default function ReservoirDmsPage() {
   const recordPageEnd = Math.min(recordOffset + displayRecords.length, sortedRecords.length);
   const recordRowKey = (record: ResourceRecord, index: number) => `${record.uuid || "row"}-${index}`;
 
-  // The record currently highlighted in the table (single-click), resolved from
-  // its row key. Drives the "Open in Reservoir DDMS viewer" toolbar button.
   const selectedRecord = useMemo(() => {
     if (!selectedRecordKey) return null;
     return (
@@ -885,12 +882,12 @@ export default function ReservoirDmsPage() {
                           </TableCell>
                           <TableCell className="text-xs tabular-nums text-right py-1.5 text-muted-foreground">
                             {(() => {
-                              const c = resourceCounts[r.name];
-                              if (c === undefined) {
+                              const count = resourceCounts[r.name];
+                              if (count === undefined) {
                                 return <Loader2 className="inline-block h-3 w-3 animate-spin opacity-50" />;
                               }
-                              if (c === null) return "—";
-                              return c.toLocaleString();
+                              if (count === null) return "—";
+                              return count.toLocaleString();
                             })()}
                           </TableCell>
                         </TableRow>
@@ -936,8 +933,8 @@ export default function ReservoirDmsPage() {
                     )}
                     disabled={!selectedRecord}
                     onClick={openSelectedRecord}
-                    aria-label="Open record in Reservoir DDMS"
-                    title={selectedRecord ? "Reservoir DDMS" : "Select a record first"}
+                    aria-label="Open selected record in Reservoir DDMS viewer"
+                    title={selectedRecord ? "Open record JSON (Reservoir DDMS)" : "Select a record first"}
                   >
                     <DatabaseZap className="h-4 w-4" />
                   </Button>

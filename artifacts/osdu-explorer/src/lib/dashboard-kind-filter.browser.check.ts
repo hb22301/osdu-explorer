@@ -2400,7 +2400,7 @@ async function runReservoirTableBrowserCheck(): Promise<void> {
       const row = [...document.querySelectorAll("table:first-of-type tbody tr")]
         .find((candidate) => candidate.textContent?.includes("Grid2dRepresentation"));
       if (!row) throw new Error("Reservoir resource row was not found");
-      row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     }));
     await waitFor(
       () => evaluate<boolean>(browser!, "document.body?.innerText.includes('of 75 records') ?? false"),
@@ -2656,7 +2656,7 @@ async function runReservoirTableBrowserCheck(): Promise<void> {
       const row = [...document.querySelectorAll("table:first-of-type tbody tr")]
         .find((candidate) => candidate.textContent?.includes("Grid2dRepresentation"));
       if (!row) throw new Error("Reservoir resource row was not found after reload");
-      row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     }));
     await waitFor(
       () => evaluate<boolean>(browser!, "document.body?.innerText.includes('1–25 / 75') ?? false"),
