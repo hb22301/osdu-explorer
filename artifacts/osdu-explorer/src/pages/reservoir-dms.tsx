@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
+  DatabaseZap,
   Filter,
   FlaskConical,
   GripVertical,
@@ -317,6 +318,10 @@ export default function ReservoirDmsPage() {
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
+  // Per-type record counts, filled in asynchronously after resources load.
+  // Missing key = still loading; null = count unavailable/errored; number = done.
+  const [resourceCounts, setResourceCounts] = useState<Record<string, number | null>>({});
+  const countAbortRef = useRef<AbortController | null>(null);
 
   const [records, setRecords] = useState<ResourceRecord[] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
@@ -361,6 +366,46 @@ export default function ReservoirDmsPage() {
     void loadDataspaces();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch a record count for each resource type in the background so the left
+  // table can show per-type counts. Uses the API-provided count when present,
+  // otherwise counts the records list. Cancels on dataspace/resource change.
+  useEffect(() => {
+    countAbortRef.current?.abort();
+    if (!resources || resources.length === 0 || !selectedDataspace) {
+      setResourceCounts({});
+      return;
+    }
+    const controller = new AbortController();
+    countAbortRef.current = controller;
+    const ds = selectedDataspace;
+    setResourceCounts({});
+    resources.forEach((r) => {
+      if (r.count > 0) {
+        setResourceCounts((prev) => ({ ...prev, [r.name]: r.count }));
+        return;
+      }
+      fetch(
+        `/api/osdu/rdms/dataspaces/${encodeURIComponent(ds)}/resources/${encodeURIComponent(r.name)}`,
+        { signal: controller.signal },
+      )
+        .then(async (res) => {
+          if (!res.ok) throw new Error("count fetch failed");
+          return parseRecords(await res.json()).length;
+        })
+        .then((count) => {
+          if (!controller.signal.aborted) {
+            setResourceCounts((prev) => ({ ...prev, [r.name]: count }));
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setResourceCounts((prev) => ({ ...prev, [r.name]: null }));
+          }
+        });
+    });
+    return () => controller.abort();
+  }, [resources, selectedDataspace]);
 
   const fetchResources = useCallback(async () => {
     if (!selectedDataspace || resourcesLoading) return;
@@ -804,7 +849,7 @@ export default function ReservoirDmsPage() {
                 </Badge>
               </div>
               {!showRecords && (
-                <p className="text-[11px] text-muted-foreground">Double-click a row to view its records.</p>
+                <p className="text-[11px] text-muted-foreground">Click a row to view its records.</p>
               )}
 
               {resources.length === 0 ? (
@@ -817,9 +862,7 @@ export default function ReservoirDmsPage() {
                     <TableHeader>
                       <TableRow className="bg-muted/40">
                         <TableHead className="text-xs font-semibold text-muted-foreground py-2">name</TableHead>
-                        {!showRecords && (
-                          <TableHead className="text-xs font-semibold text-muted-foreground py-2 text-right w-24">count</TableHead>
-                        )}
+                        <TableHead className="text-xs font-semibold text-muted-foreground py-2 text-right w-20">count</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -831,8 +874,8 @@ export default function ReservoirDmsPage() {
                               ? "bg-emerald-500/10 hover:bg-emerald-500/15"
                               : "hover:bg-muted/40"
                           }`}
-                          onDoubleClick={() => { void fetchRecords(r.name); }}
-                          title="Double-click to view records"
+                          onClick={() => { void fetchRecords(r.name); }}
+                          title="Click to view records"
                         >
                           <TableCell
                             className="text-xs font-mono py-1.5 truncate max-w-[14rem]"
@@ -840,9 +883,16 @@ export default function ReservoirDmsPage() {
                           >
                             {displayResourceName(r.name)}
                           </TableCell>
-                          {!showRecords && (
-                            <TableCell className="text-xs tabular-nums text-right py-1.5 text-muted-foreground">{r.count.toLocaleString()}</TableCell>
-                          )}
+                          <TableCell className="text-xs tabular-nums text-right py-1.5 text-muted-foreground">
+                            {(() => {
+                              const c = resourceCounts[r.name];
+                              if (c === undefined) {
+                                return <Loader2 className="inline-block h-3 w-3 animate-spin opacity-50" />;
+                              }
+                              if (c === null) return "—";
+                              return c.toLocaleString();
+                            })()}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -886,10 +936,10 @@ export default function ReservoirDmsPage() {
                     )}
                     disabled={!selectedRecord}
                     onClick={openSelectedRecord}
-                    aria-label="Open selected record in Reservoir DDMS viewer"
-                    title={selectedRecord ? "Open record JSON (Reservoir DDMS)" : "Select a record first"}
+                    aria-label="Open record in Reservoir DDMS"
+                    title={selectedRecord ? "Reservoir DDMS" : "Select a record first"}
                   >
-                    <FlaskConical className="h-4 w-4" />
+                    <DatabaseZap className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="outline"
