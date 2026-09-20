@@ -1,4 +1,1027 @@
-wTree]);
+import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Copy,
+  Check,
+  ListChecks,
+  TextSearch,
+  X,
+  ChevronUp,
+  ChevronDown,
+  ListTree,
+  Rows3,
+  Maximize2,
+  ExternalLink,
+  WrapText,
+  ArrowLeft,
+  Search,
+  FileSearch2,
+  DatabaseZap,
+  Loader2,
+  Terminal,
+  Grid3x3,
+  Download,
+} from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ConsolePanel } from "@/components/console-panel";
+import { WellboreDmsIcon } from "@/components/wellbore-dms-icon";
+import { ReservoirDdmsIcon } from "@/components/reservoir-ddms-icon";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import { trackEvent } from "@/lib/analytics";
+import { useActivityProgress } from "@/components/activity-progress";
+import {
+  JsonTreeView,
+  buildTreeMatches,
+  useTreeCollapsed,
+  MAX_SEARCH_MATCHES,
+  type JsonValue,
+  type TreeMatch,
+  type TreeCollapsedState,
+} from "@/components/json-tree-view";
+
+interface JsonViewerToolbarProps {
+  json: string;
+  className?: string;
+  storageKey?: string;
+  /** Label shown in the fullscreen overlay header */
+  title?: string;
+  /** Internal: when true the component is already inside the fullscreen overlay */
+  _isFullscreen?: boolean;
+  /** When true, open directly in fullscreen (no inline view rendered) */
+  defaultFullscreen?: boolean;
+  /** Called when the fullscreen overlay is closed (only relevant with defaultFullscreen) */
+  onFullscreenClose?: () => void;
+  /** When true, hide the Storage lookup button in fullscreen mode */
+  hideStorageLookup?: boolean;
+  /** When true, hide the Search lookup button in fullscreen mode */
+  hideSearchLookup?: boolean;
+  /** When true, hide the Reservoir DDMS lookup button in fullscreen mode */
+  hideDdmsLookup?: boolean;
+  /** When true, hide the Wellbore DDMS lookup button in fullscreen mode */
+  hideWdmsLookup?: boolean;
+  /** When provided, the Search lookup button performs an RDMS lookup instead of OSDU search */
+  rdmsContext?: { dataspace: string; datatype?: string; uuid?: string };
+  /** Default record ID to search when this viewer is showing a Storage response */
+  searchRecordId?: string;
+  /** Default record ID to fetch when this viewer is showing a Search response */
+  storageRecordId?: string;
+  /** Controlled lookup result used to replace the active viewer payload */
+  lookupResult?: JsonViewerLookupResult | null;
+  /** Called when a controlled lookup result is opened or closed */
+  onLookupResult?: (result: JsonViewerLookupResult | null) => void;
+}
+
+interface RawMatch {
+  start: number;
+  end: number;
+}
+
+function buildRawSegments(text: string, matches: RawMatch[], activeIndex: number) {
+  if (matches.length === 0) return [{ text, highlight: false, active: false }];
+  const segments: { text: string; highlight: boolean; active: boolean }[] = [];
+  let cursor = 0;
+  matches.forEach((m, i) => {
+    if (m.start > cursor) {
+      segments.push({ text: text.slice(cursor, m.start), highlight: false, active: false });
+    }
+    segments.push({ text: text.slice(m.start, m.end), highlight: true, active: i === activeIndex });
+    cursor = m.end;
+  });
+  if (cursor < text.length) {
+    segments.push({ text: text.slice(cursor), highlight: false, active: false });
+  }
+  return segments;
+}
+
+type ViewMode = "tree" | "raw";
+type ResponseType = "search" | "storage" | "ddms";
+
+export interface JsonViewerLookupResult {
+  responseType: ResponseType;
+  json: string;
+  label: string;
+  storageKey?: string;
+  rdmsContext?: { dataspace: string; datatype?: string; uuid?: string };
+}
+
+const RESPONSE_TITLES: Record<ResponseType, string> = {
+  search: "Record from Search Service",
+  storage: "Record from Storage Service",
+  ddms: "Record from Reservoir DDMS",
+};
+
+const ENABLED_ICON_CLASS = "text-primary hover:text-primary";
+const DISABLED_ICON_CLASS = "text-foreground disabled:text-foreground disabled:opacity-100";
+const iconStateClass = (enabled: boolean) => enabled ? ENABLED_ICON_CLASS : DISABLED_ICON_CLASS;
+
+interface SharedViewerState {
+  viewMode: ViewMode;
+  onViewModeChange: (mode: ViewMode) => void;
+  query: string;
+  onQueryChange: (q: string) => void;
+  searchOpen: boolean;
+  onSearchOpenChange: (open: boolean) => void;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const OSDU_ID_EXTRACT_RE = /[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:[^\s"'\[\]{},\n\\]+/g;
+const OSDU_ID_RE = /^[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:.+$/;
+
+function extractFirstOsduId(text: string): string | null {
+  return text.match(OSDU_ID_EXTRACT_RE)?.[0]?.replace(/:+$/, "") ?? null;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function selectionCoversTarget(selection: Selection | null, target: HTMLElement | null): boolean {
+  if (!selection || !target || selection.rangeCount === 0 || selection.isCollapsed) return false;
+  const selectionRange = selection.getRangeAt(0);
+  const targetRange = document.createRange();
+  targetRange.selectNodeContents(target);
+  return (
+    selectionRange.compareBoundaryPoints(Range.START_TO_START, targetRange) === 0 &&
+    selectionRange.compareBoundaryPoints(Range.END_TO_END, targetRange) === 0
+  );
+}
+
+function getTextOffset(root: HTMLElement, node: Node, offset: number): number | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let cursor = 0;
+  let current: Node | null;
+  while ((current = walker.nextNode())) {
+    const length = current.textContent?.length ?? 0;
+    if (current === node) return cursor + Math.min(offset, length);
+    cursor += length;
+  }
+  return null;
+}
+
+function findQuotedLookupRange(text: string, offset: number): { start: number; end: number } | null {
+  let quoteStart = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (text[i] !== '"') continue;
+    if (quoteStart === -1) {
+      quoteStart = i;
+      continue;
+    }
+
+    const value = text.slice(quoteStart + 1, i).replace(/\\"/g, '"');
+    if (offset >= quoteStart && offset <= i && (UUID_RE.test(value) || OSDU_ID_RE.test(value))) {
+      return { start: quoteStart + 1, end: i };
+    }
+    quoteStart = -1;
+  }
+  return null;
+}
+
+function createTextRange(root: HTMLElement, start: number, end: number): Range | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  let current: Node | null;
+  while ((current = walker.nextNode())) textNodes.push(current as Text);
+
+  const locate = (position: number): [Text, number] | null => {
+    let cursor = 0;
+    for (const node of textNodes) {
+      const length = node.textContent?.length ?? 0;
+      if (position <= cursor + length) return [node, position - cursor];
+      cursor += length;
+    }
+    const last = textNodes.at(-1);
+    return last ? [last, last.textContent?.length ?? 0] : null;
+  };
+
+  const startPoint = locate(start);
+  const endPoint = locate(end);
+  if (!startPoint || !endPoint) return null;
+  const range = document.createRange();
+  range.setStart(startPoint[0], startPoint[1]);
+  range.setEnd(endPoint[0], endPoint[1]);
+  return range;
+}
+
+function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
+  if (typeof node !== "object" || node === null) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findObjectTypeForUuid(item, uuid);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  const obj = node as Record<string, JsonValue>;
+
+  // If this object directly contains the UUID as a value, check its own $type.
+  // Only qualify if $type starts with "resqml" — otherwise keep searching other occurrences.
+  const containsUuid = Object.values(obj).some((v) => typeof v === "string" && v === uuid);
+  if (containsUuid) {
+    const ownType = typeof obj["$type"] === "string" ? (obj["$type"] as string) : undefined;
+    if (ownType !== undefined && /^resqml/i.test(ownType)) return ownType;
+  }
+
+  // Recurse into child objects regardless, to find other occurrences of the UUID.
+  for (const val of Object.values(obj)) {
+    if (val && typeof val === "object") {
+      const found = findObjectTypeForUuid(val, uuid);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+// ─── RDMS array-data helpers ───────────────────────────────────────────────
+
+const RDMS_ARRAY_TYPES = [
+  "resqml20.obj_Grid2dRepresentation",
+  "resqml20.obj_PolylineSetRepresentation",
+] as const;
+type RdmsArrayType = (typeof RDMS_ARRAY_TYPES)[number];
+
+function getRootField<T>(parsed: JsonValue | null, key: string): T | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const v = (parsed as Record<string, JsonValue>)[key];
+  return (v as T) ?? null;
+}
+
+interface PathTraversalOk { ok: true; value: string }
+interface PathTraversalFail {
+  ok: false;
+  failedKey: string;
+  parentPath: string;
+  availableKeys: string[] | null;
+}
+type PathTraversalResult = PathTraversalOk | PathTraversalFail;
+
+function traversePathDebug(root: JsonValue, keys: string[], pathPrefix = ""): PathTraversalResult {
+  const fullPath = [pathPrefix, ...keys].filter(Boolean).join(".");
+  console.log("[ArrayData] Traversing path:", fullPath);
+
+  let cur: JsonValue = root;
+  const traversed: string[] = pathPrefix ? [pathPrefix] : [];
+
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const displayPath = [...traversed, key].join(".");
+
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+      console.log(`[ArrayData] ${displayPath} => FAILED (parent is ${Array.isArray(cur) ? "array" : typeof cur})`);
+      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys: null };
+    }
+
+    const obj = cur as Record<string, JsonValue>;
+    const next = obj[key];
+
+    if (next === null || next === undefined) {
+      const availableKeys = Object.keys(obj);
+      console.log(`[ArrayData] ${displayPath} => FAILED (value is ${next === undefined ? "undefined" : "null"})`);
+      if (i === 0 && !pathPrefix) console.log("[ArrayData] Top-level keys:", availableKeys);
+      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys };
+    }
+
+    if (i === keys.length - 1) {
+      if (typeof next === "string") {
+        console.log(`[ArrayData] ${displayPath} => OK`);
+        return { ok: true, value: next };
+      }
+      const availableKeys = Object.keys(obj);
+      console.log(`[ArrayData] ${displayPath} => FAILED (expected string, got ${Array.isArray(next) ? "array" : typeof next})`);
+      return { ok: false, failedKey: key, parentPath: traversed.join(".") || "(root)", availableKeys };
+    }
+
+    console.log(`[ArrayData] ${displayPath} => OK`);
+    traversed.push(key);
+    cur = next;
+  }
+
+  return { ok: false, failedKey: "", parentPath: "(root)", availableKeys: null };
+}
+
+function formatPathError(result: PathTraversalFail): string {
+  const keysStr = result.availableKeys ? `[${result.availableKeys.join(", ")}]` : "N/A";
+  return `Path not found: '${result.failedKey}' not found under '${result.parentPath}'. Available keys: ${keysStr}`;
+}
+
+function unwrapRecordData(node: JsonValue): JsonValue {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+  const data = (node as Record<string, JsonValue>)["data"];
+  return data && typeof data === "object" && !Array.isArray(data) ? data : node;
+}
+
+function getRdmsArrayType(parsed: JsonValue | null): RdmsArrayType | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const t = (parsed as Record<string, JsonValue>)["$type"];
+  if (typeof t === "string" && (RDMS_ARRAY_TYPES as readonly string[]).includes(t)) {
+    return t as RdmsArrayType;
+  }
+  return null;
+}
+
+function getRootUuid(parsed: JsonValue | null): string | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const v = (parsed as Record<string, JsonValue>)["uuid"];
+  return typeof v === "string" ? v : null;
+}
+
+const DDMS_DATASET_RE = /^eml:\/\/(?:\/|[^/]+\/)dataspace\(([^)]*)\)(?:\/([^/(]+)\(([^)]+)\))?/;
+
+interface ParsedDdmsDataset {
+  dataspace: string;
+  datatype: string | null;
+  uuid: string | null;
+}
+
+interface ReservoirDdmsTarget {
+  dataspace: string;
+  datatype: string | null;
+  uuid: string | null;
+}
+
+function parseDdmsDataset(value: string): ParsedDdmsDataset | null {
+  const match = DDMS_DATASET_RE.exec(value);
+  if (!match) return null;
+  const dataspace = match[1].replace(/^(['"])(.*)\1$/, "$2").trim();
+  if (!dataspace) return null;
+  return {
+    dataspace,
+    datatype: match[2] ?? null,
+    uuid: match[3] ?? null,
+  };
+}
+
+function findReservoirDdmsTarget(node: JsonValue): ReservoirDdmsTarget | null {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findReservoirDdmsTarget(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof node !== "object" || node === null) return null;
+
+  const obj = node as Record<string, JsonValue>;
+  const datasets = obj["DDMSDatasets"];
+  if (Array.isArray(datasets)) {
+    const dataset = datasets
+      .filter((value): value is string => typeof value === "string")
+      .map(parseDdmsDataset)
+      .find((value): value is ParsedDdmsDataset => value !== null);
+    if (dataset) {
+      return {
+        dataspace: dataset.dataspace,
+        datatype: typeof obj["$type"] === "string" ? obj["$type"] : dataset.datatype,
+        uuid: typeof obj.uuid === "string" ? obj.uuid : dataset.uuid,
+      };
+    }
+  }
+
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === "object") {
+      const found = findReservoirDdmsTarget(value);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findFirstStringField(node: JsonValue, key: string): string | null {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = findFirstStringField(item, key);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof node !== "object" || node === null) return null;
+
+  const obj = node as Record<string, JsonValue>;
+  if (typeof obj[key] === "string" && obj[key].trim()) return obj[key].trim();
+  for (const value of Object.values(obj)) {
+    if (value && typeof value === "object") {
+      const found = findFirstStringField(value, key);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+interface ArrayDataResult {
+  label: string;
+  dimensions?: number[];
+  data?: unknown[];
+  error?: string;
+}
+
+const MAX_RENDERED_ROWS = 500;
+
+function formatNumber(n: number): string {
+  if (!isFinite(n)) return String(n);
+  return Math.trunc(n).toLocaleString();
+}
+
+function CopyErrorButton({ error }: { error: string }) {
+  const [copied, setCopied] = useState(false);
+  const copiedResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (copiedResetRef.current) clearTimeout(copiedResetRef.current);
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) return;
+    void writeText.call(navigator.clipboard, error).then(() => {
+      setCopied(true);
+      if (copiedResetRef.current) clearTimeout(copiedResetRef.current);
+      copiedResetRef.current = setTimeout(() => {
+        setCopied(false);
+        copiedResetRef.current = null;
+      }, 1500);
+    }).catch(() => {
+      setCopied(false);
+    });
+  }, [error]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 shrink-0 text-destructive hover:bg-destructive/15 hover:text-destructive"
+          onClick={handleCopy}
+          aria-label={copied ? "Error copied" : "Copy error"}
+        >
+          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? "Copied!" : "Copy error"}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ArrayDataTable({ result }: { result: ArrayDataResult }) {
+  const { startActivity } = useActivityProgress();
+  const [flashCell, setFlashCell] = useState<string | null>(null);
+  const [csvDownloading, setCsvDownloading] = useState(false);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const scrollbarRef = useRef<HTMLDivElement>(null);
+  const [scrollMetrics, setScrollMetrics] = useState({ contentWidth: 0, viewportWidth: 0 });
+
+  useEffect(() => () => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+  }, []);
+
+  const shortPath = result.label.split("/").filter(Boolean).slice(-2).join("/");
+
+  if (result.error) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="text-[11px] font-mono text-cyan-500 truncate px-1 cursor-default">…/{shortPath}</div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs font-mono text-[10px] break-all">{result.label}</TooltipContent>
+        </Tooltip>
+        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <span className="min-w-0 flex-1 break-words">{result.error}</span>
+          <CopyErrorButton error={result.error} />
+        </div>
+      </div>
+    );
+  }
+
+  const data = result.data ?? [];
+  const dims = result.dimensions ?? [data.length];
+  const is2D = dims.length >= 2;
+  const rowCount = dims[0] ?? 0;
+  const colCount = is2D ? (dims[1] ?? 1) : 1;
+  const visibleRows = Math.min(rowCount, MAX_RENDERED_ROWS);
+  const truncated = rowCount > MAX_RENDERED_ROWS;
+
+  useLayoutEffect(() => {
+    const updateScrollMetrics = () => {
+      const container = tableScrollRef.current;
+      if (!container) return;
+      setScrollMetrics({
+        contentWidth: container.scrollWidth,
+        viewportWidth: container.clientWidth,
+      });
+    };
+
+    updateScrollMetrics();
+    const resizeObserver = new ResizeObserver(updateScrollMetrics);
+    if (tableScrollRef.current) resizeObserver.observe(tableScrollRef.current);
+    return () => resizeObserver.disconnect();
+  }, [colCount, rowCount]);
+
+  const hasHorizontalOverflow = scrollMetrics.contentWidth > scrollMetrics.viewportWidth + 1;
+
+  function getCell(row: number, col: number): unknown {
+    if (Array.isArray(data[row])) return (data[row] as unknown[])[col];
+    if (is2D) return data[row * colCount + col];
+    return data[row];
+  }
+
+  function renderCellValue(val: unknown) {
+    if (val === null || val === undefined) return <span className="text-muted-foreground/40">—</span>;
+    if (typeof val === "number") return formatNumber(val);
+    if (typeof val === "object") return <span className="font-mono text-muted-foreground/80">{JSON.stringify(val)}</span>;
+    return String(val);
+  }
+
+  function copyCell(val: unknown, key: string) {
+    const text = val === null || val === undefined ? "" : String(val);
+    void navigator.clipboard.writeText(text);
+    setFlashCell(key);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => {
+      setFlashCell(prev => prev === key ? null : prev);
+      flashTimerRef.current = null;
+    }, 700);
+  }
+
+  async function downloadCsv() {
+    if (csvDownloading) return;
+    const finishActivity = startActivity("Preparing CSV");
+    const header = is2D
+      ? ["row", ...Array.from({ length: colCount }, (_, i) => String(i))].join(",")
+      : "row,value";
+    setCsvDownloading(true);
+    try {
+      // Keep each synchronous slice bounded so large exports yield to input,
+      // paint, and other browser work between chunks. Blob accepts parts, so
+      // the completed CSV does not need another giant string concatenation.
+      const chunkSize = 1_000;
+      const csvParts: BlobPart[] = [header];
+      for (let start = 0; start < rowCount; start += chunkSize) {
+        const end = Math.min(rowCount, start + chunkSize);
+        const chunkRows = Array.from({ length: end - start }, (_, offset) => {
+          const ri = start + offset;
+          const cells = is2D
+            ? Array.from({ length: colCount }, (_, ci) => {
+                const v = getCell(ri, ci);
+                const s = v === null || v === undefined ? "" : String(v);
+                return s.includes(",") ? `"${s}"` : s;
+              })
+            : [String(getCell(ri, 0) ?? "")];
+          return [ri, ...cells].join(",");
+        });
+        csvParts.push(`\n${chunkRows.join("\n")}`);
+        if (end < rowCount) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
+      }
+
+      const blob = new Blob(csvParts, { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${shortPath.replace(/\//g, "_")}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setCsvDownloading(false);
+      finishActivity();
+    }
+  }
+
+  const statsLabel = `${rowCount.toLocaleString()} row${rowCount !== 1 ? "s" : ""}${is2D ? ` × ${colCount.toLocaleString()} col${colCount !== 1 ? "s" : ""}` : ""} · [${dims.join(", ")}]`;
+
+  return (
+    <div className="flex flex-col gap-2 h-full">
+      {/* Header: path + stats + download */}
+      <div className="flex items-center justify-between gap-3 px-1 min-w-0">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="text-[11px] font-mono text-cyan-500 truncate cursor-default min-w-0">…/{shortPath}</div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-sm font-mono text-[10px] break-all">{result.label}</TooltipContent>
+        </Tooltip>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">{statsLabel}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0"
+                onClick={() => void downloadCsv()}
+                disabled={csvDownloading}
+                aria-label={csvDownloading ? "Preparing CSV" : "Download CSV"}
+              >
+                <Download className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Download CSV ({rowCount.toLocaleString()} rows)</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-md border border-border/50 flex flex-col flex-1 min-h-0 overflow-hidden">
+        {hasHorizontalOverflow && (
+          <div
+            ref={scrollbarRef}
+            className="shrink-0 h-3 overflow-x-auto overflow-y-hidden border-b border-border/40 bg-muted/20"
+            onScroll={(event) => {
+              if (tableScrollRef.current) {
+                tableScrollRef.current.scrollLeft = event.currentTarget.scrollLeft;
+              }
+            }}
+            aria-label="Horizontal array table scrollbar"
+          >
+            <div style={{ width: scrollMetrics.contentWidth, height: 1 }} />
+          </div>
+        )}
+        <div
+          ref={tableScrollRef}
+          className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
+          aria-label="Array data table viewport"
+          onScroll={(event) => {
+            if (scrollbarRef.current) {
+              scrollbarRef.current.scrollLeft = event.currentTarget.scrollLeft;
+            }
+          }}
+        >
+          <table
+            aria-label="Array data table"
+            className="w-max caption-bottom text-sm min-w-max border-collapse"
+          >
+            <TableHeader>
+              <TableRow className="bg-muted/50 hover:bg-muted/50 leading-none">
+                <TableHead className="sticky top-0 left-0 z-30 bg-muted/50 border-r border-border/40 text-[11px] font-semibold text-muted-foreground py-0 px-0 w-8 text-center select-none">
+                  #
+                </TableHead>
+                {is2D
+                  ? Array.from({ length: colCount }, (_, ci) => (
+                      <TableHead key={ci} className="sticky top-0 z-20 bg-muted/50 text-[11px] font-semibold text-muted-foreground py-0 px-0 text-right tabular-nums whitespace-nowrap min-w-[40px]">
+                        {ci}
+                      </TableHead>
+                    ))
+                  : <TableHead className="sticky top-0 z-20 bg-muted/50 text-[11px] font-semibold text-muted-foreground py-0 px-0">value</TableHead>
+                }
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {Array.from({ length: visibleRows }, (_, ri) => {
+                const isOdd = ri % 2 === 1;
+                const rowBg = isOdd ? "hsl(var(--muted) / 0.25)" : "transparent";
+                return (
+                  <TableRow
+                    key={ri}
+                    data-array-row-index={ri}
+                    style={{ background: rowBg }}
+                    className="hover:!bg-accent/40"
+                  >
+                    <TableCell
+                      data-array-row-label={ri}
+                      className="sticky left-0 z-10 min-w-8 w-8 border-r border-border/30 text-[11px] tabular-nums text-muted-foreground text-center py-0 px-0 select-none leading-none"
+                      style={{ background: isOdd ? "hsl(var(--muted))" : "hsl(var(--background))" }}
+                    >
+                      {ri}
+                    </TableCell>
+                    {is2D
+                      ? Array.from({ length: colCount }, (_, ci) => {
+                          const val = getCell(ri, ci);
+                          const key = `${ri}-${ci}`;
+                          return (
+                            <TableCell
+                              key={ci}
+                              onClick={() => copyCell(val, key)}
+                              title="Click to copy"
+                              className={cn(
+                                "text-xs py-0 px-0 tabular-nums text-right whitespace-nowrap cursor-pointer transition-colors duration-150 leading-none",
+                                flashCell === key ? "!bg-yellow-400/40" : ""
+                              )}
+                            >
+                              {renderCellValue(val)}
+                            </TableCell>
+                          );
+                        })
+                      : (() => {
+                          const val = getCell(ri, 0);
+                          const key = `${ri}-0`;
+                          return (
+                            <TableCell
+                              onClick={() => copyCell(val, key)}
+                              title="Click to copy"
+                              className={cn(
+                                "text-xs py-0 px-0 tabular-nums cursor-pointer transition-colors duration-150 leading-none",
+                                flashCell === key ? "!bg-yellow-400/40" : ""
+                              )}
+                            >
+                              {renderCellValue(val)}
+                            </TableCell>
+                          );
+                        })()
+                    }
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </table>
+        </div>
+        <div className="px-3 py-1.5 border-t border-border/40 bg-muted/20 text-[11px] text-muted-foreground flex items-center justify-between gap-2">
+          {truncated
+            ? <span className="text-amber-500">Showing first {MAX_RENDERED_ROWS.toLocaleString()} of {rowCount.toLocaleString()} rows — download CSV for all data</span>
+            : <span>Click any value cell to copy · {rowCount.toLocaleString()} row{rowCount !== 1 ? "s" : ""} total</span>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+
+export function JsonViewerContent({
+  json,
+  className,
+  storageKey,
+  _isFullscreen = false,
+  onMaximize,
+  onPopOut,
+  sharedTreeState,
+  sharedViewerState,
+  hideStorageLookup,
+  hideSearchLookup,
+  hideDdmsLookup,
+  hideWdmsLookup,
+  rdmsContext,
+  searchRecordId,
+  storageRecordId,
+  lookupResult,
+  onLookupResult,
+  onResponseTypeChange,
+}: JsonViewerToolbarProps & {
+  onMaximize?: () => void;
+  onPopOut?: () => void;
+  sharedTreeState?: TreeCollapsedState;
+  sharedViewerState?: SharedViewerState;
+  onResponseTypeChange?: (type: ResponseType) => void;
+}) {
+  const { startActivity } = useActivityProgress();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const activeRawMatchRef = useRef<HTMLElement>(null);
+  const activeTreeMatchRef = useRef<HTMLElement | null>(null);
+
+  const [localViewMode, setLocalViewMode] = useState<ViewMode>("tree");
+  const [copied, setCopied] = useState(false);
+  const [localSearchOpen, setLocalSearchOpen] = useState(false);
+  const [localQuery, setLocalQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [lineWrap, setLineWrap] = useState(true);
+  const [fontSize, setFontSize] = useState(12);
+  const [badgeRendered, setBadgeRendered] = useState(false);
+  const [badgeExiting, setBadgeExiting] = useState(false);
+  const badgeExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [selectedText, setSelectedText] = useState("");
+  const [allSelected, setAllSelected] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState<"search" | "storage" | "ddms" | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const errorDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [overlayJson, setOverlayJson] = useState<string | null>(null);
+  const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
+  const [resolvedRdmsContext, setResolvedRdmsContext] = useState<JsonViewerToolbarProps["rdmsContext"] | null>(null);
+  const activeRdmsContext = lookupResult?.rdmsContext ?? resolvedRdmsContext ?? rdmsContext;
+  const originalResponseType: ResponseType | null = storageRecordId
+    ? "search"
+    : searchRecordId
+      ? "storage"
+      : null;
+
+  type WdmsResult = {
+    urn: string;
+    status: "found" | "error";
+    columns?: string[];
+    dataRows?: unknown[][];
+    error?: string;
+  };
+  const [wdmsOpen, setWdmsOpen] = useState(false);
+  const [wdmsResults, setWdmsResults] = useState<WdmsResult[]>([]);
+  const [wdmsLoading, setWdmsLoading] = useState(false);
+  const [wdmsError, setWdmsError] = useState<string | null>(null);
+
+  const [arrayOpen, setArrayOpen] = useState(false);
+  const [arrayLoading, setArrayLoading] = useState(false);
+  const [arrayError, setArrayError] = useState<string | null>(null);
+  const [arrayResults, setArrayResults] = useState<ArrayDataResult[]>([]);
+  const lookupAbortControllerRef = useRef<AbortController | null>(null);
+  const wdmsAbortControllerRef = useRef<AbortController | null>(null);
+  const arrayAbortControllerRef = useRef<AbortController | null>(null);
+
+  const MIN_FONT_SIZE = 10;
+  const MAX_FONT_SIZE = 20;
+
+  const viewMode = sharedViewerState ? sharedViewerState.viewMode : localViewMode;
+  const searchOpen = sharedViewerState ? sharedViewerState.searchOpen : localSearchOpen;
+  const query = sharedViewerState ? sharedViewerState.query : localQuery;
+
+  const setViewMode = useCallback(
+    (mode: ViewMode) => {
+      if (sharedViewerState) {
+        sharedViewerState.onViewModeChange(mode);
+      } else {
+        setLocalViewMode(mode);
+      }
+    },
+    [sharedViewerState],
+  );
+
+  const setSearchOpen = useCallback(
+    (open: boolean) => {
+      if (sharedViewerState) {
+        sharedViewerState.onSearchOpenChange(open);
+      } else {
+        setLocalSearchOpen(open);
+      }
+    },
+    [sharedViewerState],
+  );
+
+  const setQuery = useCallback(
+    (q: string) => {
+      if (sharedViewerState) {
+        sharedViewerState.onQueryChange(q);
+      } else {
+        setLocalQuery(q);
+      }
+    },
+    [sharedViewerState],
+  );
+
+  const displayJson = lookupResult?.json ?? overlayJson ?? json;
+
+  const parsedJson: JsonValue | null = useMemo(() => {
+    try {
+      return JSON.parse(displayJson) as JsonValue;
+    } catch {
+      return null;
+    }
+  }, [displayJson]);
+
+  const showTree = viewMode === "tree" && parsedJson !== null;
+  const displayedRecordId = useMemo(() => {
+    const rootId = getRootField<string>(parsedJson, "id")?.trim();
+    return rootId || storageRecordId?.trim() || searchRecordId?.trim() || null;
+  }, [parsedJson, storageRecordId, searchRecordId]);
+  const ddmsTarget = useMemo(() => {
+    const target = parsedJson ? findReservoirDdmsTarget(parsedJson) : null;
+    if (!target) return null;
+    return {
+      ...target,
+      datatype: target.datatype ?? findFirstStringField(parsedJson, "$type"),
+      uuid: target.uuid ?? findFirstStringField(parsedJson, "uuid"),
+    };
+  }, [parsedJson]);
+
+  // --- Tree mode matches ---
+  const treeMatches: TreeMatch[] = useMemo(() => {
+    if (!showTree || !query || !parsedJson) return [];
+    const raw = buildTreeMatches(parsedJson, "root", query);
+    return raw.map((m, i) => ({ ...m, globalIndex: i }));
+  }, [showTree, query, parsedJson]);
+
+  // --- Raw mode matches ---
+  const rawMatches: RawMatch[] = useMemo(() => {
+    if (showTree || !query) return [];
+    const lower = displayJson.toLowerCase();
+    const q = query.toLowerCase();
+    const found: RawMatch[] = [];
+    let idx = 0;
+    while (idx < lower.length && found.length < MAX_SEARCH_MATCHES) {
+      const pos = lower.indexOf(q, idx);
+      if (pos === -1) break;
+      found.push({ start: pos, end: pos + q.length });
+      idx = pos + q.length;
+    }
+    return found;
+  }, [showTree, query, displayJson]);
+
+  const totalMatches = showTree ? treeMatches.length : rawMatches.length;
+
+  // Reset active index when matches change
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [treeMatches, rawMatches]);
+
+  // Animate badge in/out when match count crosses zero
+  const hasMatches = totalMatches > 0 && !!query;
+  useEffect(() => {
+    if (hasMatches) {
+      if (badgeExitTimerRef.current) {
+        clearTimeout(badgeExitTimerRef.current);
+        badgeExitTimerRef.current = null;
+      }
+      setBadgeExiting(false);
+      setBadgeRendered(true);
+    } else if (badgeRendered) {
+      setBadgeExiting(true);
+      badgeExitTimerRef.current = setTimeout(() => {
+        setBadgeRendered(false);
+        setBadgeExiting(false);
+        badgeExitTimerRef.current = null;
+      }, 160);
+    }
+    return () => {
+      if (badgeExitTimerRef.current) {
+        clearTimeout(badgeExitTimerRef.current);
+      }
+    };
+  }, [hasMatches]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSelectAll = useCallback(() => {
+    const target = showTree
+      ? treeRef.current?.querySelector<HTMLElement>("[data-json-content]")
+      : preRef.current;
+    if (!target) return;
+    const sel = window.getSelection();
+    if (selectionCoversTarget(sel, target)) {
+      sel?.removeAllRanges();
+      setAllSelected(false);
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    setAllSelected(true);
+  }, [showTree]);
+
+  const handleCopy = useCallback(() => {
+    const sel = window.getSelection();
+    const selectedText = sel && sel.toString().length > 0 ? sel.toString() : null;
+    void navigator.clipboard.writeText(selectedText ?? displayJson).then(() => {
+      setCopied(true);
+      if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        copyResetTimerRef.current = null;
+      }, 2000);
+    });
+  }, [displayJson]);
+
+  const toggleSearch = useCallback(() => {
+    setSearchOpen(!searchOpen);
+  }, [searchOpen, setSearchOpen]);
+
+  const closeAndClearSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery("");
+    setActiveIndex(0);
+  }, [setSearchOpen, setQuery]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    if (searchFocusTimerRef.current) clearTimeout(searchFocusTimerRef.current);
+    searchFocusTimerRef.current = setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchFocusTimerRef.current = null;
+    }, 0);
+    return () => {
+      if (searchFocusTimerRef.current) {
+        clearTimeout(searchFocusTimerRef.current);
+        searchFocusTimerRef.current = null;
+      }
+    };
+  }, [searchOpen]);
+
+  // Scroll active raw match into view
+  useEffect(() => {
+    if (!showTree && activeRawMatchRef.current) {
+      activeRawMatchRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeIndex, rawMatches, showTree]);
 
   // Scroll active tree match into view
   useEffect(() => {
