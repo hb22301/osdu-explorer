@@ -32,13 +32,17 @@ function webglAvailable(): boolean {
   }
 }
 
+type ViewPreset = "default" | "top";
+
 /** Creates OrbitControls, frames the camera to `bounds`, re-fits on resetKey. */
 function SceneControls({
   bounds,
   resetKey,
+  view,
 }: {
   bounds: { min: [number, number, number]; max: [number, number, number] };
   resetKey: number;
+  view: ViewPreset;
 }) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
@@ -66,9 +70,18 @@ function SceneControls({
       max[2] - min[2],
     );
     const radius = Math.max(size.length() * 0.5, 1e-3);
-    const dir = new THREE.Vector3(1, -1, 0.8).normalize();
-    camera.position.copy(center).addScaledVector(dir, radius * 2.4);
-    camera.up.set(0, 0, 1);
+    if (view === "top") {
+      // Plan / map view: look straight down the +Z axis. Screen-up is +Y so
+      // north/south of the grid stays vertical on screen.
+      const dist = Math.max(size.x, size.y) * 0.5 || radius;
+      camera.position.set(center.x, center.y, center.z + dist * 2.4);
+      camera.up.set(0, 1, 0);
+    } else {
+      // Default oblique perspective.
+      const dir = new THREE.Vector3(1, -1, 0.8).normalize();
+      camera.position.copy(center).addScaledVector(dir, radius * 2.4);
+      camera.up.set(0, 0, 1);
+    }
     if (camera instanceof THREE.PerspectiveCamera) {
       camera.near = radius / 100;
       camera.far = radius * 100;
@@ -76,7 +89,7 @@ function SceneControls({
     }
     controls.target.copy(center);
     controls.update();
-  }, [bounds, resetKey, camera, controls]);
+  }, [bounds, resetKey, view, camera, controls]);
 
   useFrame(() => controls.update());
   return null;
@@ -124,7 +137,15 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
   const [wireframe, setWireframe] = useState(false);
   const [zScale, setZScale] = useState(1);
   const [resetKey, setResetKey] = useState(0);
+  const [view, setView] = useState<ViewPreset>("default");
   const hasWebgl = useMemo(webglAvailable, []);
+
+  // Bumping resetKey re-runs the camera-framing effect even when re-selecting
+  // the current preset.
+  const applyView = (next: ViewPreset) => {
+    setView(next);
+    setResetKey((k) => k + 1);
+  };
 
   const domain = useMemo(() => robustDomain(surface.z), [surface]);
   const mesh = useMemo(() => buildGrid2dMesh(surface, zScale), [surface, zScale]);
@@ -182,10 +203,20 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           {wireframe ? "Solid" : "Wireframe"}
         </Button>
         <Button
+          variant={view === "top" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => applyView("top")}
+          title="Look straight down (plan view)"
+        >
+          Top view
+        </Button>
+        <Button
           variant="ghost"
           size="sm"
           className="h-6 px-2 text-[11px]"
-          onClick={() => setResetKey((k) => k + 1)}
+          onClick={() => applyView("default")}
+          title="Reset to oblique 3D view"
         >
           Reset view
         </Button>
@@ -222,7 +253,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           colors={colors}
           wireframe={wireframe}
         />
-        <SceneControls bounds={mesh.bounds} resetKey={resetKey} />
+        <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} />
       </Canvas>
     </div>
   );
