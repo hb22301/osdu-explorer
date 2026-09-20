@@ -320,6 +320,7 @@ export default function ReservoirDmsPage() {
   const [selectedResource, setSelectedResource] = useState<string | null>(null);
   const [resourceCounts, setResourceCounts] = useState<Record<string, number | null>>({});
   const countAbortRef = useRef<AbortController | null>(null);
+  const autoOpenFirstRef = useRef(false);
 
   const [records, setRecords] = useState<ResourceRecord[] | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
@@ -423,7 +424,9 @@ export default function ReservoirDmsPage() {
         return;
       }
       const data = await res.json() as unknown;
-      setResources(parseResources(data));
+      const parsed = parseResources(data);
+      autoOpenFirstRef.current = parsed.length > 0;
+      setResources(parsed);
     } catch {
       setResourcesError("Failed to fetch resources");
     } finally {
@@ -479,6 +482,13 @@ export default function ReservoirDmsPage() {
       setRecordsLoading(false);
     }
   }, [selectedDataspace, recordsLoading]);
+
+  useEffect(() => {
+    if (!autoOpenFirstRef.current || !resources || resources.length === 0) return;
+    autoOpenFirstRef.current = false;
+    void fetchRecords(resources[0].name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resources]);
 
   const persistRecordColWidths = useCallback((widths: Record<RecordColKey, number>) => {
     try {
