@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo, useLayoutEffect, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,6 +21,7 @@ import {
   Loader2,
   Terminal,
   Grid3x3,
+  Mountain,
   Download,
 } from "lucide-react";
 import {
@@ -54,6 +55,11 @@ import {
   type TreeMatch,
   type TreeCollapsedState,
 } from "@/components/json-tree-view";
+import type { Grid2dSurface } from "@/lib/grid2d-mesh";
+
+// Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
+// out of the load path unless a Grid2d surface is actually visualized.
+const Grid2dSurfaceView = lazy(() => import("@/components/grid2d-surface-view"));
 
 interface JsonViewerToolbarProps {
   json: string;
@@ -327,6 +333,138 @@ function unwrapRecordData(node: JsonValue): JsonValue {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const data = (node as Record<string, JsonValue>)["data"];
   return data && typeof data === "object" && !Array.isArray(data) ? data : node;
+}
+
+// --- Grid2dRepresentation → Grid2dSurface parsing (best-effort, defensive) ---
+
+// Values at/above this magnitude are treated as RESQML/HDF null sentinels
+// (commonly 1e30 or similar) rather than real elevations.
+const GRID2D_NULL_SENTINEL = 1e29;
+
+/** Walk keys from a node, stepping into the first element of any array. */
+function gridReadNode(node: JsonValue | undefined, keys: string[]): JsonValue | undefined {
+  let cur: JsonValue | undefined = node ?? undefined;
+  for (const key of keys) {
+    if (Array.isArray(cur)) cur = cur[0];
+    if (!cur || typeof cur !== "object" || Array.isArray(cur)) return undefined;
+    const next: JsonValue | undefined = (cur as Record<string, JsonValue>)[key];
+    if (next === undefined || next === null) return undefined;
+    cur = next;
+  }
+  return cur ?? undefined;
+}
+
+function gridReadNumber(node: JsonValue | undefined, keys: string[]): number | undefined {
+  const v = gridReadNode(node, keys);
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function gridReadString(node: JsonValue | undefined, keys: string[]): string | undefined {
+  const v = gridReadNode(node, keys);
+  return typeof v === "string" ? v : undefined;
+}
+
+interface Grid2dMeta {
+  title: string;
+  ni?: number;
+  nj?: number;
+  origin?: [number, number, number];
+  iStep?: [number, number, number];
+  jStep?: [number, number, number];
+}
+
+/** Resolve grid shape + XY lattice from a Grid2dRepresentation record (no Z). */
+function resolveGrid2dMeta(root: JsonValue): Grid2dMeta {
+  const title = gridReadString(root, ["Citation", "Title"]) ?? "Grid2dRepresentation";
+  const ni = gridReadNumber(root, ["Grid2dPatch", "FastestAxisCount"]);
+  const nj = gridReadNumber(root, ["Grid2dPatch", "SlowestAxisCount"]);
+
+  const meta: Grid2dMeta = { title, ni, nj };
+
+  const sg = gridReadNode(root, ["Grid2dPatch", "Geometry", "Points", "SupportingGeometry"]);
+  if (sg) {
+    const ox = gridReadNumber(sg, ["Origin", "Coordinate1"]);
+    const oy = gridReadNumber(sg, ["Origin", "Coordinate2"]);
+    const oz = gridReadNumber(sg, ["Origin", "Coordinate3"]) ?? 0;
+    const offsetArr = gridReadNode(sg, ["Offset"]);
+    const offsets = Array.isArray(offsetArr) ? offsetArr : [];
+
+    const step = (off: JsonValue | undefined): [number, number, number] | undefined => {
+      if (!off) return undefined;
+      const dx = gridReadNumber(off, ["Offset", "Coordinate1"]);
+      const dy = gridReadNumber(off, ["Offset", "Coordinate2"]);
+      const dz = gridReadNumber(off, ["Offset", "Coordinate3"]) ?? 0;
+      const spacing =
+        gridReadNumber(off, ["Spacing", "Value"]) ??
+        gridReadNumber(off, ["Spacing", "Values", "Value"]);
+      if (dx === undefined || dy === undefined || spacing === undefined) return undefined;
+      return [dx * spacing, dy * spacing, dz * spacing];
+    };
+
+    const iStep = step(offsets[0]);
+    const jStep = step(offsets[1]);
+    if (ox !== undefined && oy !== undefined && iStep && jStep) {
+      meta.origin = [ox, oy, oz];
+      meta.iStep = iStep;
+      meta.jStep = jStep;
+    }
+  }
+
+  return meta;
+}
+
+/**
+ * Combine parsed meta + fetched Z array into a Grid2dSurface. Resolves ni/nj
+ * from the record, falling back to the array's reported dimensions ([nj, ni]).
+ * Returns an error message instead when the shape can't be reconciled.
+ */
+function buildGrid2dSurface(
+  meta: Grid2dMeta,
+  rawData: unknown[],
+  dimensions: number[] | undefined,
+): { surface: Grid2dSurface } | { error: string } {
+  // Flatten one level if the array came back as rows.
+  const flat: number[] =
+    rawData.length > 0 && Array.isArray(rawData[0])
+      ? (rawData as unknown[]).flat() as number[]
+      : (rawData as number[]);
+
+  let ni = meta.ni;
+  let nj = meta.nj;
+  if ((ni === undefined || nj === undefined) && dimensions && dimensions.length >= 2) {
+    // RDDMS reports [slowest, fastest] = [nj, ni].
+    nj = nj ?? dimensions[0];
+    ni = ni ?? dimensions[1];
+  }
+  if (ni === undefined || nj === undefined) {
+    return { error: "Could not determine grid dimensions (FastestAxisCount / SlowestAxisCount missing and array dimensions unavailable)." };
+  }
+  if (ni < 2 || nj < 2) {
+    return { error: `Grid too small to render a surface: ${ni}×${nj}.` };
+  }
+  if (flat.length !== ni * nj) {
+    return { error: `Z value count (${flat.length}) does not match grid ${ni}×${nj} = ${ni * nj}.` };
+  }
+
+  const z = new Float32Array(flat.length);
+  for (let i = 0; i < flat.length; i++) {
+    const v = flat[i];
+    z[i] = typeof v === "number" && Number.isFinite(v) && Math.abs(v) < GRID2D_NULL_SENTINEL
+      ? v
+      : NaN;
+  }
+
+  return {
+    surface: {
+      ni,
+      nj,
+      z,
+      origin: meta.origin,
+      iStep: meta.iStep,
+      jStep: meta.jStep,
+      title: meta.title,
+    },
+  };
 }
 
 function getRdmsArrayType(parsed: JsonValue | null): RdmsArrayType | null {
@@ -836,9 +974,14 @@ export function JsonViewerContent({
   const [arrayLoading, setArrayLoading] = useState(false);
   const [arrayError, setArrayError] = useState<string | null>(null);
   const [arrayResults, setArrayResults] = useState<ArrayDataResult[]>([]);
+  const [grid2dOpen, setGrid2dOpen] = useState(false);
+  const [grid2dLoading, setGrid2dLoading] = useState(false);
+  const [grid2dError, setGrid2dError] = useState<string | null>(null);
+  const [grid2dSurface, setGrid2dSurface] = useState<Grid2dSurface | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
   const wdmsAbortControllerRef = useRef<AbortController | null>(null);
   const arrayAbortControllerRef = useRef<AbortController | null>(null);
+  const grid2dAbortControllerRef = useRef<AbortController | null>(null);
 
   const MIN_FONT_SIZE = 10;
   const MAX_FONT_SIZE = 20;
@@ -1120,6 +1263,7 @@ export function JsonViewerContent({
     lookupAbortControllerRef.current?.abort();
     wdmsAbortControllerRef.current?.abort();
     arrayAbortControllerRef.current?.abort();
+    grid2dAbortControllerRef.current?.abort();
   }, []);
 
   const openRecordInPopout = useCallback((recordJson: string, label: string) => {
@@ -1448,6 +1592,64 @@ export function JsonViewerContent({
       finishActivity();
     }
   }, [activeRdmsContext, parsedArrayJson, rdmsArrayType, rdmsRootUuid, startActivity]);
+
+  const handleVisualizeGrid2d = useCallback(async () => {
+    if (!activeRdmsContext || !parsedArrayJson || !rdmsRootUuid) return;
+    if (rdmsArrayType !== "resqml20.obj_Grid2dRepresentation") return;
+    const finishActivity = startActivity("Loading grid surface");
+    setGrid2dOpen(true);
+    setGrid2dLoading(true);
+    setGrid2dError(null);
+    setGrid2dSurface(null);
+    const controller = new AbortController();
+    grid2dAbortControllerRef.current = controller;
+
+    const ds = encodeURIComponent(activeRdmsContext.dataspace);
+    const dt = encodeURIComponent(rdmsArrayType);
+    const uid = encodeURIComponent(rdmsRootUuid);
+    const base = `/api/osdu/rdms/dataspaces/${ds}/resources/${dt}/${uid}/arrays`;
+
+    try {
+      const recordRoot: JsonValue = Array.isArray(parsedArrayJson)
+        ? (parsedArrayJson as JsonValue[])[0] ?? null
+        : parsedArrayJson;
+      const root = recordRoot ? unwrapRecordData(recordRoot) : null;
+      if (!root || typeof root !== "object" || Array.isArray(root)) {
+        setGrid2dError("JSON root is not an object (empty or unexpected structure)");
+        return;
+      }
+
+      const zPath = traversePathDebug(
+        root,
+        ["Grid2dPatch", "Geometry", "Points", "ZValues", "Values", "PathInHdfFile"],
+      );
+      if (!zPath.ok) { setGrid2dError(formatPathError(zPath)); return; }
+
+      const res = await fetch(`${base}?path=${encodeURIComponent(zPath.value)}`, { signal: controller.signal });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setGrid2dError(err.error ?? `Failed to fetch Z values (HTTP ${res.status})`);
+        return;
+      }
+      const payload = await res.json() as { data?: { data?: unknown; dimensions?: number[] } };
+      const rawData = Array.isArray(payload.data?.data) ? payload.data.data as unknown[] : [];
+      const dimensions = Array.isArray(payload.data?.dimensions) ? payload.data.dimensions as number[] : undefined;
+
+      const meta = resolveGrid2dMeta(root);
+      const built = buildGrid2dSurface(meta, rawData, dimensions);
+      if ("error" in built) { setGrid2dError(built.error); return; }
+      setGrid2dSurface(built.surface);
+    } catch (error) {
+      if (isAbortError(error)) return;
+      setGrid2dError("Failed to load grid surface");
+    } finally {
+      if (grid2dAbortControllerRef.current === controller) grid2dAbortControllerRef.current = null;
+      setGrid2dLoading(false);
+      finishActivity();
+    }
+  }, [activeRdmsContext, parsedArrayJson, rdmsArrayType, rdmsRootUuid, startActivity]);
+
+  const isGrid2dRepresentation = rdmsArrayType === "resqml20.obj_Grid2dRepresentation";
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -1862,6 +2064,34 @@ export function JsonViewerContent({
                   </TooltipTrigger>
                   <TooltipContent>Get Array Data from Reservoir DDMS</TooltipContent>
                 </Tooltip>
+
+                {isGrid2dRepresentation && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="inline-flex"
+                        tabIndex={grid2dLoading ? 0 : undefined}
+                        aria-label={grid2dLoading ? "Surface visualization unavailable while loading" : undefined}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn("h-7 w-7", iconStateClass(!grid2dLoading))}
+                          onClick={() => { void handleVisualizeGrid2d(); }}
+                          aria-label="Visualize Grid2d surface"
+                          disabled={grid2dLoading}
+                        >
+                          {grid2dLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Mountain className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Visualize Grid2d Surface (3D)</TooltipContent>
+                  </Tooltip>
+                )}
               </>
             )}
 
@@ -2179,6 +2409,62 @@ export function JsonViewerContent({
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Grid2d surface visualization overlay — constrained to the JSON viewer area */}
+      {grid2dOpen && (
+        <div className="absolute inset-0 z-[60] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
+          <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Mountain className="h-4 w-4 text-sky-500" />
+              Grid2d Surface — 3D
+              {grid2dSurface?.title && (
+                <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">
+                  {grid2dSurface.title}
+                </Badge>
+              )}
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setGrid2dOpen(false)} aria-label="Close">
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Close</TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="flex flex-1 min-h-0 overflow-hidden p-4">
+            {grid2dLoading && (
+              <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Loading grid surface…</span>
+              </div>
+            )}
+
+            {!grid2dLoading && grid2dError && (
+              <div className="flex items-start gap-2 self-start rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <span className="min-w-0 flex-1 break-words">{grid2dError}</span>
+                <CopyErrorButton error={grid2dError} />
+              </div>
+            )}
+
+            {!grid2dLoading && !grid2dError && grid2dSurface && (
+              <Suspense
+                fallback={
+                  <div className="flex flex-1 items-center justify-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span className="text-sm">Loading 3D renderer…</span>
+                  </div>
+                }
+              >
+                <div className="flex-1 min-h-0">
+                  <Grid2dSurfaceView surface={grid2dSurface} />
+                </div>
+              </Suspense>
             )}
           </div>
         </div>
