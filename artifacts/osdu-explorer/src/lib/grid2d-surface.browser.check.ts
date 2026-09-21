@@ -297,7 +297,7 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
   const renderedUi = await evaluate<{ controls: boolean; legend: boolean; fallback: boolean }>(browser, `(() => {
     const text = document.body.innerText;
     return {
-      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Hide axes") && text.includes("Animate") && text.includes("Reset view"),
+      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Hide world") && text.includes("Local") && text.includes("Animate") && text.includes("Reset view"),
       legend: text.includes("Browser Grid2d surface") && document.querySelector('[style*="linear-gradient"]') !== null,
       fallback: text.includes("3D rendering is unavailable — this browser/session has no WebGL context.")
     };
@@ -356,28 +356,52 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
       "the animation toggle to reset",
     );
 
-    // The axis-annotation toggle starts on ("Hide axes") and flips to "Axes".
+    // The world-coordinate toggle starts on ("Hide world") and flips to "World".
     await evaluate<void>(browser, browserFunction(() => {
       const button = [...document.querySelectorAll("button")]
-        .find((candidate) => candidate.textContent?.trim() === "Hide axes");
-      if (!button) throw new Error("Hide axes toggle button was not found");
+        .find((candidate) => candidate.textContent?.trim() === "Hide world");
+      if (!button) throw new Error("Hide world toggle button was not found");
       (button as HTMLElement).click();
     }));
     await waitFor(
-      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Axes')"),
-      "the axes toggle to switch to Axes",
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'World')"),
+      "the world-axes toggle to switch to World",
     );
-    const axesLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Axes')?.textContent?.trim() ?? '')");
-    assert.equal(axesLabel, "Axes", "the axes toggle should switch to Axes when hidden");
+    const worldLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'World')?.textContent?.trim() ?? '')");
+    assert.equal(worldLabel, "World", "the world-axes toggle should switch to World when hidden");
     await evaluate<void>(browser, browserFunction(() => {
       const button = [...document.querySelectorAll("button")]
-        .find((candidate) => candidate.textContent?.trim() === "Axes");
-      if (!button) throw new Error("Axes button was not found");
+        .find((candidate) => candidate.textContent?.trim() === "World");
+      if (!button) throw new Error("World button was not found");
       (button as HTMLElement).click();
     }));
     await waitFor(
-      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Hide axes')"),
-      "the axes toggle to reset",
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Hide world')"),
+      "the world-axes toggle to reset",
+    );
+
+    // The local grid-index toggle starts off ("Local") and flips to "Hide local".
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Local");
+      if (!button) throw new Error("Local toggle button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Hide local')"),
+      "the local-axes toggle to switch to Hide local",
+    );
+    const localLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Hide local')?.textContent?.trim() ?? '')");
+    assert.equal(localLabel, "Hide local", "the local-axes toggle should switch to Hide local when enabled");
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Hide local");
+      if (!button) throw new Error("Hide local button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Local')"),
+      "the local-axes toggle to reset",
     );
   }
 

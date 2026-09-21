@@ -325,3 +325,76 @@ export function buildGrid2dAxisAnnotations(
     zAxisEnd: [min[0], min[1], max[2]],
   };
 }
+
+export interface Grid2dLocalTick {
+  /** Grid index the label reports (I column 0..ni-1, or J row 0..nj-1). */
+  index: number;
+  /** Display position of the labelled node (on the i=0 or j=0 edge). */
+  position: [number, number, number];
+  /** The index rendered as text. */
+  label: string;
+}
+
+export interface Grid2dLocalAnnotations {
+  /** Ticks along the I edge (row j=0), labelled with the column index. */
+  i: Grid2dLocalTick[];
+  /** Ticks along the J edge (column i=0), labelled with the row index. */
+  j: Grid2dLocalTick[];
+  /** Display position of the lattice origin node (i=0, j=0). */
+  origin: [number, number, number];
+  iAxisEnd: [number, number, number];
+  jAxisEnd: [number, number, number];
+}
+
+/** Indices 0..n-1 thinned to at most ~maxCount labels, always keeping the ends. */
+function pickIndices(n: number, maxCount: number): number[] {
+  const step = Math.max(1, Math.ceil((n - 1) / Math.max(maxCount, 1)));
+  const indices: number[] = [];
+  for (let value = 0; value < n - 1; value += step) indices.push(value);
+  indices.push(n - 1);
+  return indices;
+}
+
+/**
+ * Build local grid-index (I/J) tick annotations along the two lattice edges that
+ * meet at the origin node (i=0, j=0), reusing the vertex positions from
+ * {@link buildGrid2dMesh} so labels sit on the surface. Indices are thinned to at
+ * most ~maxTicksPerAxis per edge so the labels stay readable.
+ *
+ * @param positions The `positions` array from `buildGrid2dMesh(surface, zScale)`.
+ */
+export function buildGrid2dLocalAnnotations(
+  surface: Grid2dSurface,
+  positions: Float32Array,
+  maxTicksPerAxis = 6,
+): Grid2dLocalAnnotations {
+  const { ni, nj } = surface;
+  const expected = ni * nj;
+  if (positions.length !== expected * 3) {
+    throw new Error(`Grid2d positions length ${positions.length} != ni*nj*3 (${expected * 3})`);
+  }
+
+  const at = (i: number, j: number): [number, number, number] => {
+    const o = (j * ni + i) * 3;
+    return [positions[o], positions[o + 1], positions[o + 2]];
+  };
+
+  const i = pickIndices(ni, maxTicksPerAxis).map<Grid2dLocalTick>((index) => ({
+    index,
+    position: at(index, 0),
+    label: String(index),
+  }));
+  const j = pickIndices(nj, maxTicksPerAxis).map<Grid2dLocalTick>((index) => ({
+    index,
+    position: at(0, index),
+    label: String(index),
+  }));
+
+  return {
+    i,
+    j,
+    origin: at(0, 0),
+    iAxisEnd: at(ni - 1, 0),
+    jAxisEnd: at(0, nj - 1),
+  };
+}

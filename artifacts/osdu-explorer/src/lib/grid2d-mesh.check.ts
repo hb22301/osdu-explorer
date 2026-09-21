@@ -3,6 +3,7 @@ import {
   buildGrid2dMesh,
   buildGrid2dGridLines,
   buildGrid2dAxisAnnotations,
+  buildGrid2dLocalAnnotations,
   finiteZRange,
   type Grid2dSurface,
 } from "./grid2d-mesh";
@@ -123,8 +124,6 @@ test("mapScalarsToColors: min->first stop, null->NULL_COLOR", () => {
   assert.ok(Math.abs(colors[10] - NULL_COLOR[1]) < 1e-6);
 });
 
-console.log(`\n${passed} checks passed.`);
-
 test("grid lines: full grid has all row+column segments", () => {
   const mesh = buildGrid2dMesh(makeSurface());
   const lines = buildGrid2dGridLines(makeSurface(), mesh.positions);
@@ -208,3 +207,33 @@ test("axis annotations: origin and axis ends span the bounds", () => {
   assert.deepEqual(annotations.yAxisEnd, [min[0], max[1], min[2]]);
   assert.deepEqual(annotations.zAxisEnd, [min[0], min[1], max[2]]);
 });
+
+test("local annotations: labels are 0-based indices ending at ni-1/nj-1", () => {
+  const mesh = buildGrid2dMesh(makeSurface());
+  const local = buildGrid2dLocalAnnotations(makeSurface(), mesh.positions);
+  assert.equal(local.i[0].index, 0);
+  assert.equal(local.i[0].label, "0");
+  assert.equal(local.i[local.i.length - 1].index, NI - 1);
+  assert.equal(local.j[local.j.length - 1].index, NJ - 1);
+  assert.ok(local.i.length <= 7 && local.j.length <= 7);
+});
+
+test("local annotations: ticks sit on the lattice edges from the origin", () => {
+  const mesh = buildGrid2dMesh(makeSurface());
+  const local = buildGrid2dLocalAnnotations(makeSurface(), mesh.positions);
+  // origin node (0,0): x=100, y=200, z=0
+  assert.deepEqual(local.origin, [100, 200, 0]);
+  // I edge end (ni-1=4, 0): x=100+4*10, y=200
+  assert.deepEqual(local.iAxisEnd, [140, 200, 4]);
+  // J edge end (0, nj-1=3): x=100, y=200+3*20
+  assert.deepEqual(local.jAxisEnd, [100, 260, 15]);
+  // I ticks vary X only along the j=0 edge; J ticks vary Y only along i=0.
+  for (const tick of local.i) assert.equal(tick.position[1], 200);
+  for (const tick of local.j) assert.equal(tick.position[0], 100);
+});
+
+test("local annotations: reject positions of the wrong length", () => {
+  assert.throws(() => buildGrid2dLocalAnnotations(makeSurface(), new Float32Array(3)));
+});
+
+console.log(`\n${passed} checks passed.`);
