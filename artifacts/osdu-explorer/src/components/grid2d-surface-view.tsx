@@ -10,7 +10,12 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Button } from "@/components/ui/button";
-import { buildGrid2dMesh, type Grid2dSurface } from "@/lib/grid2d-mesh";
+import {
+  buildGrid2dMesh,
+  buildGrid2dGridLines,
+  type Grid2dSurface,
+  type Grid2dGridLines,
+} from "@/lib/grid2d-mesh";
 import {
   robustDomain,
   mapScalarsToColors,
@@ -127,14 +132,72 @@ function SurfaceMesh({
         roughness={0.85}
         metalness={0.05}
         flatShading={false}
+        // Push the surface slightly back in depth so the grid overlay drawn on
+        // the same nodes doesn't z-fight with it.
+        polygonOffset
+        polygonOffsetFactor={1}
+        polygonOffsetUnits={1}
       />
     </mesh>
+  );
+}
+
+/**
+ * Row/column (I/J) grid lines drawn on the surface, with a highlighted origin:
+ * a marker sphere at node (0,0) and coloured I (red) and J (green) edge lines.
+ */
+function GridOverlay({
+  lines,
+  markerRadius,
+}: {
+  lines: Grid2dGridLines;
+  markerRadius: number;
+}) {
+  const geometries = useMemo(() => {
+    const make = (arr: Float32Array) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+      return g;
+    };
+    return {
+      grid: make(lines.positions),
+      iAxis: make(Float32Array.from([...lines.origin, ...lines.iAxisEnd])),
+      jAxis: make(Float32Array.from([...lines.origin, ...lines.jAxisEnd])),
+    };
+  }, [lines]);
+
+  useEffect(
+    () => () => {
+      geometries.grid.dispose();
+      geometries.iAxis.dispose();
+      geometries.jAxis.dispose();
+    },
+    [geometries],
+  );
+
+  return (
+    <group>
+      <lineSegments geometry={geometries.grid}>
+        <lineBasicMaterial color="#9fb2c9" transparent opacity={0.55} depthWrite={false} />
+      </lineSegments>
+      <lineSegments geometry={geometries.iAxis}>
+        <lineBasicMaterial color="#ff5b5b" depthTest={false} depthWrite={false} />
+      </lineSegments>
+      <lineSegments geometry={geometries.jAxis}>
+        <lineBasicMaterial color="#4ade80" depthTest={false} depthWrite={false} />
+      </lineSegments>
+      <mesh position={lines.origin}>
+        <sphereGeometry args={[markerRadius, 20, 20]} />
+        <meshBasicMaterial color="#ffcc00" depthTest={false} />
+      </mesh>
+    </group>
   );
 }
 
 export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface }) {
   const [colormap, setColormap] = useState<ColormapName>("viridis");
   const [wireframe, setWireframe] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
   const [zScale, setZScale] = useState(1);
   const [resetKey, setResetKey] = useState(0);
   const [view, setView] = useState<ViewPreset>("default");
@@ -153,6 +216,16 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
     () => mapScalarsToColors(surface.z, domain, colormap),
     [surface, domain, colormap],
   );
+  const gridLines = useMemo(
+    () => buildGrid2dGridLines(surface, mesh.positions),
+    [surface, mesh],
+  );
+  // Origin marker sized relative to the surface so it reads clearly at any scale.
+  const markerRadius = useMemo(() => {
+    const { min, max } = mesh.bounds;
+    const diagonal = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+    return Math.max(diagonal * 0.012, 1e-6);
+  }, [mesh]);
 
   if (!hasWebgl) {
     return (
@@ -201,6 +274,15 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           onClick={() => setWireframe((w) => !w)}
         >
           {wireframe ? "Solid" : "Wireframe"}
+        </Button>
+        <Button
+          variant={showGrid ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => setShowGrid((g) => !g)}
+          title="Overlay the I/J row/column lattice; the origin (i=0, j=0) is marked with a sphere and coloured I (red) / J (green) axes"
+        >
+          {showGrid ? "Hide grid" : "Grid"}
         </Button>
         <Button
           variant={view === "top" ? "secondary" : "ghost"}
@@ -253,6 +335,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           colors={colors}
           wireframe={wireframe}
         />
+        {showGrid && <GridOverlay lines={gridLines} markerRadius={markerRadius} />}
         <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} />
       </Canvas>
     </div>

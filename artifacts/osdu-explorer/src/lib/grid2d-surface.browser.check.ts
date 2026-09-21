@@ -297,7 +297,7 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
   const renderedUi = await evaluate<{ controls: boolean; legend: boolean; fallback: boolean }>(browser, `(() => {
     const text = document.body.innerText;
     return {
-      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Reset view"),
+      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Reset view"),
       legend: text.includes("Browser Grid2d surface") && document.querySelector('[style*="linear-gradient"]') !== null,
       fallback: text.includes("3D rendering is unavailable — this browser/session has no WebGL context.")
     };
@@ -307,6 +307,22 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
   } else {
     assert.equal(renderedUi.controls, true, "the loaded surface should render its controls");
     assert.equal(renderedUi.legend, true, "the loaded surface should render its legend");
+
+    // The grid overlay toggle flips between "Grid" and "Hide grid".
+    const toggledLabel = await evaluate<string>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Grid");
+      if (!button) throw new Error("Grid toggle button was not found");
+      (button as HTMLElement).click();
+      return button.textContent?.trim() ?? "";
+    }));
+    assert.equal(toggledLabel, "Hide grid", "the grid toggle should switch to Hide grid when enabled");
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Hide grid");
+      if (!button) throw new Error("Hide grid button was not found");
+      (button as HTMLElement).click();
+    }));
   }
 
   await evaluate<void>(browser, browserFunction(() => {

@@ -3,7 +3,12 @@
 // (or: npx tsx src/lib/grid2d-mesh.check.ts). Pure — no three, no DOM.
 
 import assert from "node:assert/strict";
-import { buildGrid2dMesh, finiteZRange, type Grid2dSurface } from "./grid2d-mesh";
+import {
+  buildGrid2dMesh,
+  buildGrid2dGridLines,
+  finiteZRange,
+  type Grid2dSurface,
+} from "./grid2d-mesh";
 import {
   robustDomain,
   mapScalarsToColors,
@@ -124,6 +129,37 @@ test("mapScalarsToColors: min->first stop, null->NULL_COLOR", () => {
   // Null node gets the neutral gray.
   assert.ok(Math.abs(colors[9] - NULL_COLOR[0]) < 1e-6);
   assert.ok(Math.abs(colors[10] - NULL_COLOR[1]) < 1e-6);
+});
+
+test("grid lines: full grid has all row+column segments", () => {
+  const mesh = buildGrid2dMesh(makeSurface());
+  const lines = buildGrid2dGridLines(makeSurface(), mesh.positions);
+  const segments = NJ * (NI - 1) + NI * (NJ - 1); // 16 + 15 = 31
+  assert.equal(lines.positions.length, segments * 2 * 3);
+});
+
+test("grid lines: origin/axis ends sit on the lattice", () => {
+  const mesh = buildGrid2dMesh(makeSurface());
+  const lines = buildGrid2dGridLines(makeSurface(), mesh.positions);
+  // origin node (0,0): x=100, y=200, z=0 (raw idx 0)
+  assert.deepEqual(lines.origin, [100, 200, 0]);
+  // I edge end node (ni-1=4, 0): x=100+4*10, y=200, z=4
+  assert.deepEqual(lines.iAxisEnd, [140, 200, 4]);
+  // J edge end node (0, nj-1=3): x=100, y=200+3*20, z=idx 15
+  assert.deepEqual(lines.jAxisEnd, [100, 260, 15]);
+});
+
+test("grid lines: segments touching a null node are skipped", () => {
+  const nullIdx = 1 * NI + 2; // interior node (i=2,j=1)
+  const mesh = buildGrid2dMesh(makeSurface(nullIdx));
+  const lines = buildGrid2dGridLines(makeSurface(nullIdx), mesh.positions);
+  // Interior node has 4 neighbours -> 4 segments dropped.
+  const full = NJ * (NI - 1) + NI * (NJ - 1); // 31
+  assert.equal(lines.positions.length, (full - 4) * 2 * 3);
+});
+
+test("grid lines: reject positions of the wrong length", () => {
+  assert.throws(() => buildGrid2dGridLines(makeSurface(), new Float32Array(3)));
 });
 
 console.log(`\n${passed} checks passed.`);

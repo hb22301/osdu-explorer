@@ -165,3 +165,68 @@ export function buildGrid2dMesh(surface: Grid2dSurface, zScale = 1): Grid2dMesh 
     bounds: { min, max },
   };
 }
+
+export interface Grid2dGridLines {
+  /** XYZ triples; each consecutive pair of vertices is one segment (LineSegments). */
+  positions: Float32Array;
+  /** Display position of the lattice origin node (i=0, j=0). */
+  origin: [number, number, number];
+  /** Display position of the far end of the I edge from the origin (node ni-1, j=0). */
+  iAxisEnd: [number, number, number];
+  /** Display position of the far end of the J edge from the origin (node i=0, nj-1). */
+  jAxisEnd: [number, number, number];
+}
+
+/**
+ * Build the I/J lattice as line segments plus the origin/axis reference points,
+ * reusing the vertex positions produced by {@link buildGrid2dMesh} so the grid
+ * sits exactly on the surface. Segments touching a null node are skipped, so the
+ * grid follows the same holes as the mesh.
+ *
+ * @param positions The `positions` array from `buildGrid2dMesh(surface, zScale)`.
+ */
+export function buildGrid2dGridLines(
+  surface: Grid2dSurface,
+  positions: Float32Array,
+): Grid2dGridLines {
+  const { ni, nj, z } = surface;
+  const expected = ni * nj;
+  if (positions.length !== expected * 3) {
+    throw new Error(`Grid2d positions length ${positions.length} != ni*nj*3 (${expected * 3})`);
+  }
+
+  const node = (i: number, j: number) => (j * ni + i) * 3;
+  const finite = (i: number, j: number) => Number.isFinite(z[j * ni + i]);
+  const at = (i: number, j: number): [number, number, number] => {
+    const o = node(i, j);
+    return [positions[o], positions[o + 1], positions[o + 2]];
+  };
+
+  const seg: number[] = [];
+  const pushSeg = (a: number, b: number) => {
+    seg.push(
+      positions[a], positions[a + 1], positions[a + 2],
+      positions[b], positions[b + 1], positions[b + 2],
+    );
+  };
+
+  // I-lines (rows): connect neighbours along +I for every j.
+  for (let j = 0; j < nj; j++) {
+    for (let i = 0; i < ni - 1; i++) {
+      if (finite(i, j) && finite(i + 1, j)) pushSeg(node(i, j), node(i + 1, j));
+    }
+  }
+  // J-lines (columns): connect neighbours along +J for every i.
+  for (let i = 0; i < ni; i++) {
+    for (let j = 0; j < nj - 1; j++) {
+      if (finite(i, j) && finite(i, j + 1)) pushSeg(node(i, j), node(i, j + 1));
+    }
+  }
+
+  return {
+    positions: Float32Array.from(seg),
+    origin: at(0, 0),
+    iAxisEnd: at(ni - 1, 0),
+    jAxisEnd: at(0, nj - 1),
+  };
+}
