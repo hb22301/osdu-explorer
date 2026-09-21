@@ -44,10 +44,12 @@ function SceneControls({
   bounds,
   resetKey,
   view,
+  autoRotate,
 }: {
   bounds: { min: [number, number, number]; max: [number, number, number] };
   resetKey: number;
   view: ViewPreset;
+  autoRotate: boolean;
 }) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
@@ -59,8 +61,13 @@ function SceneControls({
   useEffect(() => {
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    controls.autoRotateSpeed = 1.2;
     return () => controls.dispose();
   }, [controls]);
+
+  useEffect(() => {
+    controls.autoRotate = autoRotate;
+  }, [controls, autoRotate]);
 
   useEffect(() => {
     const { min, max } = bounds;
@@ -198,6 +205,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
   const [colormap, setColormap] = useState<ColormapName>("viridis");
   const [wireframe, setWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(false);
   const [zScale, setZScale] = useState(1);
   const [resetKey, setResetKey] = useState(0);
   const [view, setView] = useState<ViewPreset>("default");
@@ -285,6 +293,15 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           {showGrid ? "Hide grid" : "Grid"}
         </Button>
         <Button
+          variant={autoRotate ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => setAutoRotate((r) => !r)}
+          title="Slowly rotate the surface (turntable animation)"
+        >
+          {autoRotate ? "Stop" : "Animate"}
+        </Button>
+        <Button
           variant={view === "top" ? "secondary" : "ghost"}
           size="sm"
           className="h-6 px-2 text-[11px]"
@@ -336,7 +353,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           wireframe={wireframe}
         />
         {showGrid && <GridOverlay lines={gridLines} markerRadius={markerRadius} />}
-        <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} />
+        <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} autoRotate={autoRotate} />
       </Canvas>
     </div>
   );

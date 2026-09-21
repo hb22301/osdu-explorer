@@ -297,7 +297,7 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
   const renderedUi = await evaluate<{ controls: boolean; legend: boolean; fallback: boolean }>(browser, `(() => {
     const text = document.body.innerText;
     return {
-      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Reset view"),
+      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Animate") && text.includes("Reset view"),
       legend: text.includes("Browser Grid2d surface") && document.querySelector('[style*="linear-gradient"]') !== null,
       fallback: text.includes("3D rendering is unavailable — this browser/session has no WebGL context.")
     };
@@ -330,6 +330,30 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
     await waitFor(
       () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Grid')"),
       "the Grid toggle to reset",
+    );
+
+    // The turntable animation toggle flips between "Animate" and "Stop".
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Animate");
+      if (!button) throw new Error("Animate toggle button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Stop')"),
+      "the animation toggle to switch to Stop",
+    );
+    const animateLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Stop')?.textContent?.trim() ?? '')");
+    assert.equal(animateLabel, "Stop", "the animation toggle should switch to Stop when enabled");
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Stop");
+      if (!button) throw new Error("Stop button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Animate')"),
+      "the animation toggle to reset",
     );
   }
 
