@@ -413,9 +413,14 @@ function LocalAnnotations({
     [geometries],
   );
 
-  // XY unit normals perpendicular to each edge, flipped to point away from the
-  // opposite edge (i.e. away from the surface interior) so labels sit outside.
-  const { iOffset, jOffset } = useMemo(() => {
+  // Per-edge label geometry: an outward XY normal (perpendicular to the edge,
+  // pointing away from the surface interior so labels clear the footprint) and a
+  // text orientation taken from the edge's screen direction. A mostly-horizontal
+  // edge gets bottom-to-top (vertical) text and a mostly-vertical edge gets
+  // horizontal text — the same convention as the world X/Y axes — so world and
+  // local labels sharing a screen edge read the same way even when the lattice
+  // is rotated.
+  const { iOffset, jOffset, iOrientation, jOrientation } = useMemo(() => {
     const [ox, oy] = annotations.origin;
     const di: [number, number] = [annotations.iAxisEnd[0] - ox, annotations.iAxisEnd[1] - oy];
     const dj: [number, number] = [annotations.jAxisEnd[0] - ox, annotations.jAxisEnd[1] - oy];
@@ -427,7 +432,14 @@ function LocalAnnotations({
       }
       return normal;
     };
-    return { iOffset: outwardNormal(di, dj), jOffset: outwardNormal(dj, di) };
+    const orient = (edge: [number, number]): LabelOrientation =>
+      Math.abs(edge[0]) >= Math.abs(edge[1]) ? "vertical" : "horizontal";
+    return {
+      iOffset: outwardNormal(di, dj),
+      jOffset: outwardNormal(dj, di),
+      iOrientation: orient(di),
+      jOrientation: orient(dj),
+    };
   }, [annotations]);
 
   return (
@@ -447,7 +459,7 @@ function LocalAnnotations({
             tick.position[1] + iOffset[1] * labelGap,
             tick.position[2],
           ]}
-          orientation="vertical"
+          orientation={iOrientation}
           scale={labelScale}
           center={[0.5, 0.5]}
         />
@@ -461,7 +473,7 @@ function LocalAnnotations({
             tick.position[1] + jOffset[1] * labelGap,
             tick.position[2],
           ]}
-          orientation="horizontal"
+          orientation={jOrientation}
           scale={labelScale}
           center={[0.5, 0.5]}
         />
@@ -515,7 +527,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
       markerRadius: Math.max(diagonal * 0.012, 1e-6),
       labelScale: Math.max(diagonal * 0.022, 1e-6),
       worldLabelGap: Math.max(diagonal * 0.02, 1e-6),
-      localLabelGap: Math.max(diagonal * 0.05, 1e-6),
+      localLabelGap: Math.max(diagonal * 0.03, 1e-6),
     };
   }, [mesh]);
 
