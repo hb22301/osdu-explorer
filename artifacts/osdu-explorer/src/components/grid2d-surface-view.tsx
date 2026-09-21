@@ -12,6 +12,7 @@ import {
   type Grid2dGridLines,
   type Grid2dAxisAnnotations,
   type Grid2dEdgeAnnotations,
+  type Grid2dEdgeTick,
 } from "@/lib/grid2d-mesh";
 import {
   robustDomain,
@@ -210,7 +211,10 @@ function drawLabelPill(context: CanvasRenderingContext2D, width: number, height:
 }
 
 /**
- * Render a short label onto a canvas and wrap it as a sprite texture. Vertical
+ * Render a short label onto a canvas and wrap it as a sprite texture. `text` may
+ * carry several lines separated by "\n", stacked as parallel runs (one above the
+ * next for horizontal labels, side by side for vertical ones) so a world
+ * coordinate and its local index read as an adjacent two-line pair. Vertical
  * labels bake a bottom-to-top rotation into the canvas so the sprite stays
  * upright (no distortion) while the text reads upward.
  */
@@ -220,14 +224,16 @@ function makeLabelTexture(text: string, orientation: LabelOrientation): THREE.Ca
   const fontSize = 22;
   const font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
   context.font = font;
-  const along = Math.ceil(context.measureText(text).width) + 12; // length of the text run
-  const across = fontSize + 8; // thickness of the text run
+  const lines = text.split("\n");
+  const lineLength = Math.ceil(Math.max(...lines.map((line) => context.measureText(line).width))) + 12;
+  const lineThickness = fontSize + 8; // thickness of one text run
+  const totalThickness = lineThickness * lines.length;
   if (orientation === "vertical") {
-    canvas.width = across;
-    canvas.height = along;
+    canvas.width = totalThickness;
+    canvas.height = lineLength;
   } else {
-    canvas.width = along;
-    canvas.height = across;
+    canvas.width = lineLength;
+    canvas.height = totalThickness;
   }
   // Resizing the canvas resets its context, so re-apply the font/alignment.
   context.font = font;
@@ -235,13 +241,18 @@ function makeLabelTexture(text: string, orientation: LabelOrientation): THREE.Ca
   context.textBaseline = "middle";
   drawLabelPill(context, canvas.width, canvas.height);
   context.fillStyle = "#e6edf5";
-  if (orientation === "vertical") {
-    context.translate(canvas.width / 2, canvas.height / 2);
-    context.rotate(-Math.PI / 2); // reads bottom-to-top
-    context.fillText(text, 0, 1);
-  } else {
-    context.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
-  }
+  lines.forEach((line, k) => {
+    const shift = (k - (lines.length - 1) / 2) * lineThickness; // centre the stack
+    if (orientation === "vertical") {
+      context.save();
+      context.translate(canvas.width / 2, canvas.height / 2);
+      context.rotate(-Math.PI / 2); // reads bottom-to-top
+      context.fillText(line, 0, shift + 1);
+      context.restore();
+    } else {
+      context.fillText(line, canvas.width / 2, canvas.height / 2 + shift + 1);
+    }
+  });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -275,9 +286,14 @@ function TickLabel({
     spriteRef.current?.center.set(center[0], center[1]);
   }, [center]);
 
+  // `scale` sizes one text line; multiplying by the line count keeps each line
+  // the same height whether the label is one line or a stacked pair.
+  const lineCount = text.split("\n").length;
   const aspect = texture.image.width / texture.image.height;
   const spriteScale: [number, number, number] =
-    orientation === "vertical" ? [scale, scale / aspect, 1] : [scale * aspect, scale, 1];
+    orientation === "vertical"
+      ? [scale * lineCount, (scale * lineCount) / aspect, 1]
+      : [scale * lineCount * aspect, scale * lineCount, 1];
   return (
     <sprite ref={spriteRef} position={position} scale={spriteScale}>
       <spriteMaterial map={texture} transparent depthTest={false} depthWrite={false} />
@@ -352,15 +368,13 @@ function EdgeAnnotations({
   showWorld,
   showLocal,
   labelScale,
-  worldGap,
-  localGap,
+  labelGap,
 }: {
   annotations: Grid2dEdgeAnnotations;
   showWorld: boolean;
   showLocal: boolean;
   labelScale: number;
-  worldGap: number;
-  localGap: number;
+  labelGap: number;
 }) {
   const geometries = useMemo(() => {
     const line = (a: [number, number, number], b: [number, number, number]) => {
@@ -410,15 +424,21 @@ function EdgeAnnotations({
     };
   }, [annotations]);
 
-  // A tick point carries the world label near the edge and the local index just
-  // beyond it, both along the edge's outward normal, so the two read as a pair.
+  // Each tick renders one label block offset along the edge's outward normal.
+  // The world coordinate and the local index are stacked as two adjacent lines
+  // within that block (world first), so they always read together as a pair.
+  const pairText = (tick: Grid2dEdgeTick): string => {
+    const parts: string[] = [];
+    if (showWorld) parts.push(tick.worldLabel);
+    if (showLocal) parts.push(tick.indexLabel);
+    return parts.join("\n");
+  };
   const offsetPosition = (
-    tick: Grid2dEdgeAnnotations["i"][number],
+    tick: Grid2dEdgeTick,
     offset: [number, number],
-    gap: number,
   ): [number, number, number] => [
-    tick.position[0] + offset[0] * gap,
-    tick.position[1] + offset[1] * gap,
+    tick.position[0] + offset[0] * labelGap,
+    tick.position[1] + offset[1] * labelGap,
     tick.position[2],
   ];
 
@@ -431,48 +451,24 @@ function EdgeAnnotations({
         <lineBasicMaterial color="#4ade80" depthTest={false} depthWrite={false} />
       </lineSegments>
       {annotations.i.map((tick) => (
-        <group key={`i-${tick.index}`}>
-          {showWorld && (
-            <TickLabel
-              text={tick.worldLabel}
-              position={offsetPosition(tick, iOffset, worldGap)}
-              orientation={iOrientation}
-              scale={labelScale}
-              center={[0.5, 0.5]}
-            />
-          )}
-          {showLocal && (
-            <TickLabel
-              text={tick.indexLabel}
-              position={offsetPosition(tick, iOffset, localGap)}
-              orientation={iOrientation}
-              scale={labelScale}
-              center={[0.5, 0.5]}
-            />
-          )}
-        </group>
+        <TickLabel
+          key={`i-${tick.index}`}
+          text={pairText(tick)}
+          position={offsetPosition(tick, iOffset)}
+          orientation={iOrientation}
+          scale={labelScale}
+          center={[0.5, 0.5]}
+        />
       ))}
       {annotations.j.map((tick) => (
-        <group key={`j-${tick.index}`}>
-          {showWorld && (
-            <TickLabel
-              text={tick.worldLabel}
-              position={offsetPosition(tick, jOffset, worldGap)}
-              orientation={jOrientation}
-              scale={labelScale}
-              center={[0.5, 0.5]}
-            />
-          )}
-          {showLocal && (
-            <TickLabel
-              text={tick.indexLabel}
-              position={offsetPosition(tick, jOffset, localGap)}
-              orientation={jOrientation}
-              scale={labelScale}
-              center={[0.5, 0.5]}
-            />
-          )}
-        </group>
+        <TickLabel
+          key={`j-${tick.index}`}
+          text={pairText(tick)}
+          position={offsetPosition(tick, jOffset)}
+          orientation={jOrientation}
+          scale={labelScale}
+          center={[0.5, 0.5]}
+        />
       ))}
     </group>
   );
@@ -514,17 +510,16 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
     [surface, mesh],
   );
   // Origin marker + axis-label sizes derived from the surface extent so they read
-  // clearly at any scale. Along each edge the world coordinate sits at worldGap
-  // and the local index just beyond it at localGap, both on the outward normal,
-  // so the two labels read as an adjacent pair.
-  const { markerRadius, labelScale, worldLabelGap, localLabelGap } = useMemo(() => {
+  // clearly at any scale. Each edge tick draws a single two-line block (world
+  // coordinate + local index) offset off the edge along its outward normal.
+  const { markerRadius, labelScale, worldLabelGap, edgeLabelGap } = useMemo(() => {
     const { min, max } = mesh.bounds;
     const diagonal = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
     return {
       markerRadius: Math.max(diagonal * 0.012, 1e-6),
       labelScale: Math.max(diagonal * 0.022, 1e-6),
       worldLabelGap: Math.max(diagonal * 0.02, 1e-6),
-      localLabelGap: Math.max(diagonal * 0.055, 1e-6),
+      edgeLabelGap: Math.max(diagonal * 0.035, 1e-6),
     };
   }, [mesh]);
 
@@ -667,8 +662,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
             showWorld={showWorldAxes}
             showLocal={showLocalAxes}
             labelScale={labelScale}
-            worldGap={worldLabelGap}
-            localGap={localLabelGap}
+            labelGap={edgeLabelGap}
           />
         )}
         {showWorldAxes && (
