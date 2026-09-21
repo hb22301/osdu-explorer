@@ -309,13 +309,17 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
     assert.equal(renderedUi.legend, true, "the loaded surface should render its legend");
 
     // The grid overlay toggle flips between "Grid" and "Hide grid".
-    const toggledLabel = await evaluate<string>(browser, browserFunction(() => {
+    await evaluate<void>(browser, browserFunction(() => {
       const button = [...document.querySelectorAll("button")]
         .find((candidate) => candidate.textContent?.trim() === "Grid");
       if (!button) throw new Error("Grid toggle button was not found");
       (button as HTMLElement).click();
-      return button.textContent?.trim() ?? "";
     }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Hide grid')"),
+      "the Grid toggle to finish rendering",
+    );
+    const toggledLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Hide grid')?.textContent?.trim() ?? '')");
     assert.equal(toggledLabel, "Hide grid", "the grid toggle should switch to Hide grid when enabled");
     await evaluate<void>(browser, browserFunction(() => {
       const button = [...document.querySelectorAll("button")]
@@ -323,6 +327,10 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
       if (!button) throw new Error("Hide grid button was not found");
       (button as HTMLElement).click();
     }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Grid')"),
+      "the Grid toggle to reset",
+    );
   }
 
   await evaluate<void>(browser, browserFunction(() => {
