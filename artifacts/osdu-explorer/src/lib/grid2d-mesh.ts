@@ -89,8 +89,6 @@ export function buildGrid2dMesh(surface: Grid2dSurface, zScale = 1): Grid2dMesh 
   const flip = surface.zIncreasingDownward ? -1 : 1;
 
   const [zMin, zMax] = finiteZRange(z);
-  // Fallback z (display space) for null nodes — kept inside the finite range so
-  // they don't distort the camera-framing bounds. They are never rendered.
   const fillZ = zMin * flip * zScale;
 
   const positions = new Float32Array(expected * 3);
@@ -109,7 +107,6 @@ export function buildGrid2dMesh(surface: Grid2dSurface, zScale = 1): Grid2dMesh 
 
       let x: number;
       let y: number;
-      let zz: number;
       if (useLattice) {
         x = origin[0] + i * iStep[0] + j * jStep[0];
         y = origin[1] + i * iStep[1] + j * jStep[1];
@@ -117,7 +114,7 @@ export function buildGrid2dMesh(surface: Grid2dSurface, zScale = 1): Grid2dMesh 
         x = i;
         y = j;
       }
-      zz = isNull ? fillZ : raw * flip * zScale;
+      const zz = isNull ? fillZ : raw * flip * zScale;
 
       const o = idx * 3;
       positions[o] = x;
@@ -133,7 +130,6 @@ export function buildGrid2dMesh(surface: Grid2dSurface, zScale = 1): Grid2dMesh 
     }
   }
 
-  // Two triangles per cell, skipping any cell touching a null corner.
   const idxArr: number[] = [];
   for (let j = 0; j < nj - 1; j++) {
     for (let i = 0; i < ni - 1; i++) {
@@ -149,7 +145,6 @@ export function buildGrid2dMesh(surface: Grid2dSurface, zScale = 1): Grid2dMesh 
       ) {
         continue;
       }
-      // CCW winding when viewed from +Z.
       idxArr.push(a, b, d, b, c, d);
     }
   }

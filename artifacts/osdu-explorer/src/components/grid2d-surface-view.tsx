@@ -1,11 +1,4 @@
-// 3D surface view for a RESQML Grid2dRepresentation.
-//
-// This is the ONLY module that imports three / @react-three/fiber. It is loaded
-// lazily (React.lazy) from the JSON viewer toolbar, so the rest of the app
-// compiles and runs even before these deps are installed. Default export is
-// required for React.lazy.
-
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -42,7 +35,6 @@ function webglAvailable(): boolean {
 
 type ViewPreset = "default" | "top";
 
-/** Creates OrbitControls, frames the camera to `bounds`, re-fits on resetKey. */
 function SceneControls({
   bounds,
   resetKey,
@@ -86,15 +78,12 @@ function SceneControls({
     );
     const radius = Math.max(size.length() * 0.5, 1e-3);
     if (view === "top") {
-      // Plan / map view: look straight down the +Z axis. Screen-up is +Y so
-      // north/south of the grid stays vertical on screen.
-      const dist = Math.max(size.x, size.y) * 0.5 || radius;
-      camera.position.set(center.x, center.y, center.z + dist * 2.4);
+      const distance = Math.max(size.x, size.y) * 0.5 || radius;
+      camera.position.set(center.x, center.y, center.z + distance * 2.4);
       camera.up.set(0, 1, 0);
     } else {
-      // Default oblique perspective.
-      const dir = new THREE.Vector3(1, -1, 0.8).normalize();
-      camera.position.copy(center).addScaledVector(dir, radius * 2.4);
+      const direction = new THREE.Vector3(1, -1, 0.8).normalize();
+      camera.position.copy(center).addScaledVector(direction, radius * 2.4);
       camera.up.set(0, 0, 1);
     }
     if (camera instanceof THREE.PerspectiveCamera) {
@@ -122,13 +111,13 @@ function SurfaceMesh({
   wireframe: boolean;
 }) {
   const geometry = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    g.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-    g.setIndex(new THREE.BufferAttribute(indices, 1));
-    g.computeVertexNormals();
-    g.computeBoundingSphere();
-    return g;
+    const result = new THREE.BufferGeometry();
+    result.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    result.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    result.setIndex(new THREE.BufferAttribute(indices, 1));
+    result.computeVertexNormals();
+    result.computeBoundingSphere();
+    return result;
   }, [positions, indices, colors]);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -338,11 +327,9 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
   const [view, setView] = useState<ViewPreset>("default");
   const hasWebgl = useMemo(webglAvailable, []);
 
-  // Bumping resetKey re-runs the camera-framing effect even when re-selecting
-  // the current preset.
-  const applyView = (next: ViewPreset) => {
-    setView(next);
-    setResetKey((k) => k + 1);
+  const applyView = (nextView: ViewPreset) => {
+    setView(nextView);
+    setResetKey((value) => value + 1);
   };
 
   const domain = useMemo(() => robustDomain(surface.z), [surface]);
@@ -382,18 +369,17 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-md border border-border/40 bg-[#0b0f14]">
-      {/* Controls */}
       <div className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-border/40 bg-background/85 px-2 py-1.5 backdrop-blur-sm">
         <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
           Colormap
           <select
             value={colormap}
-            onChange={(e) => setColormap(e.target.value as ColormapName)}
+            onChange={(event) => setColormap(event.target.value as ColormapName)}
             className="h-6 rounded border border-border/50 bg-background px-1 text-[11px] text-foreground"
           >
-            {COLORMAP_NAMES.map((n) => (
-              <option key={n} value={n}>
-                {n}
+            {COLORMAP_NAMES.map((name) => (
+              <option key={name} value={name}>
+                {name}
               </option>
             ))}
           </select>
@@ -406,7 +392,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
             max={10}
             step={0.1}
             value={zScale}
-            onChange={(e) => setZScale(Number(e.target.value))}
+            onChange={(event) => setZScale(Number(event.target.value))}
             className="h-1 w-24 cursor-pointer"
             aria-label="Vertical exaggeration"
           />
@@ -415,7 +401,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           variant="ghost"
           size="sm"
           className="h-6 px-2 text-[11px]"
-          onClick={() => setWireframe((w) => !w)}
+          onClick={() => setWireframe((value) => !value)}
         >
           {wireframe ? "Solid" : "Wireframe"}
         </Button>
@@ -466,7 +452,6 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
         </Button>
       </div>
 
-      {/* Legend */}
       <div className="absolute right-2 top-2 z-10">
         <Grid2dColormapLegend
           name={colormap}
@@ -476,7 +461,6 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
         />
       </div>
 
-      {/* Summary */}
       <div className="absolute bottom-2 left-2 z-10 rounded bg-background/70 px-2 py-1 text-[10px] font-mono text-muted-foreground backdrop-blur-sm">
         {surface.ni}×{surface.nj} · z [{mesh.zMin.toLocaleString()}, {mesh.zMax.toLocaleString()}]
         {surface.units ? ` ${surface.units}` : ""} · nulls {mesh.nullCount} · XY {mesh.xySource}

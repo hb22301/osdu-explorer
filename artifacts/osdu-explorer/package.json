@@ -8,6 +8,7 @@
     "build": "vite build --config vite.config.ts",
     "check:dashboard-kind-filter": "tsx src/lib/dashboard-kind-filter.check.ts",
     "check:dashboard-kind-filter-browser": "tsx src/lib/dashboard-kind-filter.browser.check.ts",
+    "check:grid2d-surface-browser": "tsx src/lib/grid2d-surface.browser.check.ts",
     "check:grid2d-mesh": "tsx src/lib/grid2d-mesh.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
