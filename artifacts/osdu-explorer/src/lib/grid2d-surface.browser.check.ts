@@ -297,7 +297,7 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
   const renderedUi = await evaluate<{ controls: boolean; legend: boolean; fallback: boolean }>(browser, `(() => {
     const text = document.body.innerText;
     return {
-      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Animate") && text.includes("Reset view"),
+      controls: text.includes("Colormap") && text.includes("Wireframe") && text.includes("Grid") && text.includes("Hide axes") && text.includes("Animate") && text.includes("Reset view"),
       legend: text.includes("Browser Grid2d surface") && document.querySelector('[style*="linear-gradient"]') !== null,
       fallback: text.includes("3D rendering is unavailable — this browser/session has no WebGL context.")
     };
@@ -354,6 +354,30 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
     await waitFor(
       () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Animate')"),
       "the animation toggle to reset",
+    );
+
+    // The axis-annotation toggle starts on ("Hide axes") and flips to "Axes".
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Hide axes");
+      if (!button) throw new Error("Hide axes toggle button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Axes')"),
+      "the axes toggle to switch to Axes",
+    );
+    const axesLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Axes')?.textContent?.trim() ?? '')");
+    assert.equal(axesLabel, "Axes", "the axes toggle should switch to Axes when hidden");
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Axes");
+      if (!button) throw new Error("Axes button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Hide axes')"),
+      "the axes toggle to reset",
     );
   }
 

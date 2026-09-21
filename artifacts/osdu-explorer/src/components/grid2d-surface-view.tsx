@@ -13,8 +13,11 @@ import { Button } from "@/components/ui/button";
 import {
   buildGrid2dMesh,
   buildGrid2dGridLines,
+  buildGrid2dAxisAnnotations,
   type Grid2dSurface,
   type Grid2dGridLines,
+  type Grid2dAxisAnnotations,
+  type Grid2dAxisTick,
 } from "@/lib/grid2d-mesh";
 import {
   robustDomain,
@@ -201,10 +204,134 @@ function GridOverlay({
   );
 }
 
+/** Render a short text string onto a canvas and wrap it as a sprite texture. */
+function makeLabelTexture(text: string): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d")!;
+  const fontSize = 44;
+  const font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
+  context.font = font;
+  const paddingX = 16;
+  const paddingY = 10;
+  canvas.width = Math.ceil(context.measureText(text).width) + paddingX * 2;
+  canvas.height = fontSize + paddingY * 2;
+  // Resizing the canvas resets its context, so re-apply the font.
+  context.font = font;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  const radius = 10;
+  context.fillStyle = "rgba(11, 15, 20, 0.72)";
+  context.beginPath();
+  context.moveTo(radius, 0);
+  context.arcTo(canvas.width, 0, canvas.width, canvas.height, radius);
+  context.arcTo(canvas.width, canvas.height, 0, canvas.height, radius);
+  context.arcTo(0, canvas.height, 0, 0, radius);
+  context.arcTo(0, 0, canvas.width, 0, radius);
+  context.closePath();
+  context.fill();
+  context.fillStyle = "#e6edf5";
+  context.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** A single camera-facing tick label, offset off its axis so it clears the box. */
+function TickLabel({
+  tick,
+  offset,
+  scale,
+}: {
+  tick: Grid2dAxisTick;
+  offset: [number, number, number];
+  scale: number;
+}) {
+  const texture = useMemo(() => makeLabelTexture(tick.label), [tick.label]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  const aspect = texture.image.width / texture.image.height;
+  return (
+    <sprite
+      position={[
+        tick.position[0] + offset[0],
+        tick.position[1] + offset[1],
+        tick.position[2] + offset[2],
+      ]}
+      scale={[scale * aspect, scale, 1]}
+    >
+      <spriteMaterial map={texture} transparent depthTest={false} depthWrite={false} />
+    </sprite>
+  );
+}
+
+/**
+ * X/Y/Z coordinate axes drawn along three edges of the bounding box, each with
+ * numeric tick labels. X world coords (red), Y world coords (green), Z elevation
+ * (blue). Labels are camera-facing sprites nudged outward so they stay legible.
+ */
+function AxisAnnotations({
+  annotations,
+  labelScale,
+  labelOffset,
+}: {
+  annotations: Grid2dAxisAnnotations;
+  labelScale: number;
+  labelOffset: number;
+}) {
+  const geometries = useMemo(() => {
+    const line = (a: [number, number, number], b: [number, number, number]) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(Float32Array.from([...a, ...b]), 3));
+      return g;
+    };
+    return {
+      x: line(annotations.origin, annotations.xAxisEnd),
+      y: line(annotations.origin, annotations.yAxisEnd),
+      z: line(annotations.origin, annotations.zAxisEnd),
+    };
+  }, [annotations]);
+
+  useEffect(
+    () => () => {
+      geometries.x.dispose();
+      geometries.y.dispose();
+      geometries.z.dispose();
+    },
+    [geometries],
+  );
+
+  const off = labelOffset;
+  return (
+    <group>
+      <lineSegments geometry={geometries.x}>
+        <lineBasicMaterial color="#e06666" depthTest={false} depthWrite={false} />
+      </lineSegments>
+      <lineSegments geometry={geometries.y}>
+        <lineBasicMaterial color="#7bd88f" depthTest={false} depthWrite={false} />
+      </lineSegments>
+      <lineSegments geometry={geometries.z}>
+        <lineBasicMaterial color="#6ea8fe" depthTest={false} depthWrite={false} />
+      </lineSegments>
+      {annotations.x.map((tick) => (
+        <TickLabel key={`x-${tick.value}`} tick={tick} offset={[0, -off, -off]} scale={labelScale} />
+      ))}
+      {annotations.y.map((tick) => (
+        <TickLabel key={`y-${tick.value}`} tick={tick} offset={[-off, 0, -off]} scale={labelScale} />
+      ))}
+      {annotations.z.map((tick) => (
+        <TickLabel key={`z-${tick.value}`} tick={tick} offset={[-off, -off, 0]} scale={labelScale} />
+      ))}
+    </group>
+  );
+}
+
 export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface }) {
   const [colormap, setColormap] = useState<ColormapName>("viridis");
   const [wireframe, setWireframe] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
+  const [showAxes, setShowAxes] = useState(true);
   const [autoRotate, setAutoRotate] = useState(false);
   const [zScale, setZScale] = useState(1);
   const [resetKey, setResetKey] = useState(0);
@@ -228,11 +355,20 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
     () => buildGrid2dGridLines(surface, mesh.positions),
     [surface, mesh],
   );
-  // Origin marker sized relative to the surface so it reads clearly at any scale.
-  const markerRadius = useMemo(() => {
+  const axisAnnotations = useMemo(
+    () => buildGrid2dAxisAnnotations(mesh, surface, zScale),
+    [mesh, surface, zScale],
+  );
+  // Origin marker + axis-label sizes derived from the surface extent so they
+  // read clearly at any scale.
+  const { markerRadius, labelScale, labelOffset } = useMemo(() => {
     const { min, max } = mesh.bounds;
     const diagonal = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
-    return Math.max(diagonal * 0.012, 1e-6);
+    return {
+      markerRadius: Math.max(diagonal * 0.012, 1e-6),
+      labelScale: Math.max(diagonal * 0.05, 1e-6),
+      labelOffset: Math.max(diagonal * 0.03, 1e-6),
+    };
   }, [mesh]);
 
   if (!hasWebgl) {
@@ -291,6 +427,15 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           title="Overlay the I/J row/column lattice; the origin (i=0, j=0) is marked with a sphere and coloured I (red) / J (green) axes"
         >
           {showGrid ? "Hide grid" : "Grid"}
+        </Button>
+        <Button
+          variant={showAxes ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => setShowAxes((a) => !a)}
+          title="Show numeric tick labels on the X (red), Y (green) and Z (blue) coordinate axes"
+        >
+          {showAxes ? "Hide axes" : "Axes"}
         </Button>
         <Button
           variant={autoRotate ? "secondary" : "ghost"}
@@ -353,6 +498,13 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           wireframe={wireframe}
         />
         {showGrid && <GridOverlay lines={gridLines} markerRadius={markerRadius} />}
+        {showAxes && (
+          <AxisAnnotations
+            annotations={axisAnnotations}
+            labelScale={labelScale}
+            labelOffset={labelOffset}
+          />
+        )}
         <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} autoRotate={autoRotate} />
       </Canvas>
     </div>

@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   buildGrid2dMesh,
   buildGrid2dGridLines,
+  buildGrid2dAxisAnnotations,
   finiteZRange,
   type Grid2dSurface,
 } from "./grid2d-mesh";
@@ -160,6 +161,59 @@ test("grid lines: segments touching a null node are skipped", () => {
 
 test("grid lines: reject positions of the wrong length", () => {
   assert.throws(() => buildGrid2dGridLines(makeSurface(), new Float32Array(3)));
+});
+
+test("axis annotations: caps tick count per axis and skips values", () => {
+  // A wide surface so the raw ranges span many integers; ticks must stay sparse.
+  const s = makeSurface();
+  s.iStep = [1000, 0, 0]; // X spans 0..4000
+  s.jStep = [0, 1000, 0]; // Y spans 0..3000
+  const mesh = buildGrid2dMesh(s);
+  const annotations = buildGrid2dAxisAnnotations(mesh, s, 1, 6);
+  assert.ok(annotations.x.length <= 7, `x ticks=${annotations.x.length}`);
+  assert.ok(annotations.y.length <= 7, `y ticks=${annotations.y.length}`);
+  assert.ok(annotations.z.length <= 7, `z ticks=${annotations.z.length}`);
+  // "Nice" spacing means more than one X tick but far fewer than the 5 columns.
+  assert.ok(annotations.x.length >= 2);
+});
+
+test("axis annotations: ticks sit on their bounding-box edges", () => {
+  const mesh = buildGrid2dMesh(makeSurface());
+  const { min } = mesh.bounds;
+  const annotations = buildGrid2dAxisAnnotations(mesh, makeSurface(), 1, 6);
+  // X ticks vary X only; Y and Z pinned to the min corner.
+  for (const tick of annotations.x) {
+    assert.equal(tick.position[0], tick.value);
+    assert.equal(tick.position[1], min[1]);
+    assert.equal(tick.position[2], min[2]);
+  }
+  // Z ticks vary Z only; X and Y pinned to the min corner.
+  for (const tick of annotations.z) {
+    assert.equal(tick.position[0], min[0]);
+    assert.equal(tick.position[1], min[1]);
+    assert.equal(tick.position[2], tick.value); // zScale 1, no downward flip
+  }
+});
+
+test("axis annotations: Z labels track exaggeration and downward flip", () => {
+  const s = makeSurface();
+  s.zIncreasingDownward = true;
+  const mesh = buildGrid2dMesh(s, 3);
+  const annotations = buildGrid2dAxisAnnotations(mesh, s, 3, 6);
+  for (const tick of annotations.z) {
+    // Label reports the raw elevation; position uses -1 * zScale.
+    assert.equal(tick.position[2], tick.value * -1 * 3);
+  }
+});
+
+test("axis annotations: origin and axis ends span the bounds", () => {
+  const mesh = buildGrid2dMesh(makeSurface());
+  const { min, max } = mesh.bounds;
+  const annotations = buildGrid2dAxisAnnotations(mesh, makeSurface(), 1, 6);
+  assert.deepEqual(annotations.origin, [min[0], min[1], min[2]]);
+  assert.deepEqual(annotations.xAxisEnd, [max[0], min[1], min[2]]);
+  assert.deepEqual(annotations.yAxisEnd, [min[0], max[1], min[2]]);
+  assert.deepEqual(annotations.zAxisEnd, [min[0], min[1], max[2]]);
 });
 
 console.log(`\n${passed} checks passed.`);

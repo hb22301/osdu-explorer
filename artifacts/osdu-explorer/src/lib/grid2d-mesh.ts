@@ -230,3 +230,103 @@ export function buildGrid2dGridLines(
     jAxisEnd: at(0, nj - 1),
   };
 }
+
+export interface Grid2dAxisTick {
+  /** The underlying axis value the label reports (world X/Y, or raw elevation). */
+  value: number;
+  /** Display-space anchor of the tick on the bounding-box edge. */
+  position: [number, number, number];
+  /** Formatted, human-readable label text. */
+  label: string;
+}
+
+export interface Grid2dAxisAnnotations {
+  x: Grid2dAxisTick[];
+  y: Grid2dAxisTick[];
+  z: Grid2dAxisTick[];
+  /** Shared min corner of the bounding box; the three axis lines start here. */
+  origin: [number, number, number];
+  xAxisEnd: [number, number, number];
+  yAxisEnd: [number, number, number];
+  zAxisEnd: [number, number, number];
+}
+
+/** A "nice" tick step (1/2/5 * 10^n) that yields at most ~maxCount intervals. */
+function niceStep(range: number, maxCount: number): number {
+  if (!(range > 0) || !Number.isFinite(range)) return 1;
+  const rough = range / Math.max(maxCount, 1);
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+  const normalized = rough / magnitude;
+  const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return niceNormalized * magnitude;
+}
+
+/** Evenly-spaced "nice" tick values covering [min, max]; skips values between them. */
+function niceTicksInRange(min: number, max: number, maxCount: number): { values: number[]; step: number } {
+  const step = niceStep(max - min, maxCount);
+  if (!(max > min)) return { values: [min], step };
+  const start = Math.ceil(min / step - 1e-9) * step;
+  const values: number[] = [];
+  for (let value = start; value <= max + step * 1e-6; value += step) {
+    // Snap away tiny floating-point drift so labels read cleanly (e.g. 0.30000004).
+    values.push(Number(value.toFixed(10)));
+  }
+  return { values, step };
+}
+
+/** Format a tick value with a decimal count implied by the step and thousands grouping. */
+function formatAxisValue(value: number, step: number): string {
+  const decimals = step >= 1 ? 0 : Math.min(6, Math.ceil(-Math.log10(step)));
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+/**
+ * Build numeric tick annotations for the X, Y and Z coordinate axes, laid along
+ * three edges of the mesh bounding box. X/Y report world coordinates; Z reports
+ * the raw elevation (positioned at its display height, so it tracks the vertical
+ * exaggeration and any ZIncreasingDownward flip). Tick spacing is chosen to keep
+ * at most ~maxTicksPerAxis labels per axis, skipping intermediate values so the
+ * axes stay readable.
+ */
+export function buildGrid2dAxisAnnotations(
+  mesh: Grid2dMesh,
+  surface: Grid2dSurface,
+  zScale = 1,
+  maxTicksPerAxis = 6,
+): Grid2dAxisAnnotations {
+  const { min, max } = mesh.bounds;
+  const flip = surface.zIncreasingDownward ? -1 : 1;
+
+  const xTicks = niceTicksInRange(min[0], max[0], maxTicksPerAxis);
+  const yTicks = niceTicksInRange(min[1], max[1], maxTicksPerAxis);
+  const zTicks = niceTicksInRange(mesh.zMin, mesh.zMax, maxTicksPerAxis);
+
+  const x = xTicks.values.map<Grid2dAxisTick>((value) => ({
+    value,
+    position: [value, min[1], min[2]],
+    label: formatAxisValue(value, xTicks.step),
+  }));
+  const y = yTicks.values.map<Grid2dAxisTick>((value) => ({
+    value,
+    position: [min[0], value, min[2]],
+    label: formatAxisValue(value, yTicks.step),
+  }));
+  const z = zTicks.values.map<Grid2dAxisTick>((value) => ({
+    value,
+    position: [min[0], min[1], value * flip * zScale],
+    label: formatAxisValue(value, zTicks.step),
+  }));
+
+  return {
+    x,
+    y,
+    z,
+    origin: [min[0], min[1], min[2]],
+    xAxisEnd: [max[0], min[1], min[2]],
+    yAxisEnd: [min[0], max[1], min[2]],
+    zAxisEnd: [min[0], min[1], max[2]],
+  };
+}
