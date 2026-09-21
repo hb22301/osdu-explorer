@@ -3,7 +3,7 @@ import {
   buildGrid2dMesh,
   buildGrid2dGridLines,
   buildGrid2dAxisAnnotations,
-  buildGrid2dLocalAnnotations,
+  buildGrid2dEdgeAnnotations,
   finiteZRange,
   type Grid2dSurface,
 } from "./grid2d-mesh";
@@ -209,32 +209,40 @@ test("axis annotations: origin and axis ends span the bounds", () => {
   assert.deepEqual(annotations.zAxisEnd, [min[0], min[1], max[2]]);
 });
 
-test("local annotations: labels are 0-based indices ending at ni-1/nj-1", () => {
+test("edge annotations: index labels are 0-based ending at ni-1/nj-1", () => {
   const mesh = buildGrid2dMesh(makeSurface());
-  const local = buildGrid2dLocalAnnotations(makeSurface(), mesh.positions);
-  assert.equal(local.i[0].index, 0);
-  assert.equal(local.i[0].label, "0");
-  assert.equal(local.i[local.i.length - 1].index, NI - 1);
-  assert.equal(local.j[local.j.length - 1].index, NJ - 1);
-  assert.ok(local.i.length <= 7 && local.j.length <= 7);
+  const edge = buildGrid2dEdgeAnnotations(makeSurface(), mesh.positions);
+  assert.equal(edge.i[0].index, 0);
+  assert.equal(edge.i[0].indexLabel, "0");
+  assert.equal(edge.i[edge.i.length - 1].index, NI - 1);
+  assert.equal(edge.j[edge.j.length - 1].index, NJ - 1);
+  assert.ok(edge.i.length <= 7 && edge.j.length <= 7);
 });
 
-test("local annotations: ticks sit on the lattice edges from the origin", () => {
+test("edge annotations: world + local labels share the same node points", () => {
   const mesh = buildGrid2dMesh(makeSurface());
-  const local = buildGrid2dLocalAnnotations(makeSurface(), mesh.positions);
+  const edge = buildGrid2dEdgeAnnotations(makeSurface(), mesh.positions);
   // origin node (0,0): x=100, y=200, z=0
-  assert.deepEqual(local.origin, [100, 200, 0]);
+  assert.deepEqual(edge.origin, [100, 200, 0]);
   // I edge end (ni-1=4, 0): x=100+4*10, y=200
-  assert.deepEqual(local.iAxisEnd, [140, 200, 4]);
+  assert.deepEqual(edge.iAxisEnd, [140, 200, 4]);
   // J edge end (0, nj-1=3): x=100, y=200+3*20
-  assert.deepEqual(local.jAxisEnd, [100, 260, 15]);
+  assert.deepEqual(edge.jAxisEnd, [100, 260, 15]);
   // I ticks vary X only along the j=0 edge; J ticks vary Y only along i=0.
-  for (const tick of local.i) assert.equal(tick.position[1], 200);
-  for (const tick of local.j) assert.equal(tick.position[0], 100);
+  for (const tick of edge.i) assert.equal(tick.position[1], 200);
+  for (const tick of edge.j) assert.equal(tick.position[0], 100);
+  // The I edge runs along world X, the J edge along world Y, so the world label
+  // reports easting on I and northing on J — read from the same node the index is.
+  assert.equal(edge.iWorldAxis, "x");
+  assert.equal(edge.jWorldAxis, "y");
+  assert.equal(edge.i[0].worldValue, 100);
+  assert.equal(edge.i[NI - 1].worldValue, 140);
+  assert.equal(edge.i[0].worldLabel, "100");
+  assert.equal(edge.j[NJ - 1].worldValue, 260);
 });
 
-test("local annotations: reject positions of the wrong length", () => {
-  assert.throws(() => buildGrid2dLocalAnnotations(makeSurface(), new Float32Array(3)));
+test("edge annotations: reject positions of the wrong length", () => {
+  assert.throws(() => buildGrid2dEdgeAnnotations(makeSurface(), new Float32Array(3)));
 });
 
 console.log(`\n${passed} checks passed.`);

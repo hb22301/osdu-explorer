@@ -326,24 +326,32 @@ export function buildGrid2dAxisAnnotations(
   };
 }
 
-export interface Grid2dLocalTick {
-  /** Grid index the label reports (I column 0..ni-1, or J row 0..nj-1). */
+export interface Grid2dEdgeTick {
+  /** Grid index the local label reports (I column 0..ni-1, or J row 0..nj-1). */
   index: number;
   /** Display position of the labelled node (on the i=0 or j=0 edge). */
   position: [number, number, number];
-  /** The index rendered as text. */
-  label: string;
+  /** The grid index rendered as text (local CRS label). */
+  indexLabel: string;
+  /** World coordinate at this node along the edge's dominant axis (world CRS). */
+  worldValue: number;
+  /** The world coordinate rendered as text. */
+  worldLabel: string;
 }
 
-export interface Grid2dLocalAnnotations {
-  /** Ticks along the I edge (row j=0), labelled with the column index. */
-  i: Grid2dLocalTick[];
-  /** Ticks along the J edge (column i=0), labelled with the row index. */
-  j: Grid2dLocalTick[];
+export interface Grid2dEdgeAnnotations {
+  /** Ticks along the I edge (row j=0): each carries both index and world labels. */
+  i: Grid2dEdgeTick[];
+  /** Ticks along the J edge (column i=0): each carries both index and world labels. */
+  j: Grid2dEdgeTick[];
   /** Display position of the lattice origin node (i=0, j=0). */
   origin: [number, number, number];
   iAxisEnd: [number, number, number];
   jAxisEnd: [number, number, number];
+  /** World coordinate the I labels report ("x" easting / "y" northing). */
+  iWorldAxis: "x" | "y";
+  /** World coordinate the J labels report ("x" easting / "y" northing). */
+  jWorldAxis: "x" | "y";
 }
 
 /** Indices 0..n-1 thinned to at most ~maxCount labels, always keeping the ends. */
@@ -356,18 +364,23 @@ function pickIndices(n: number, maxCount: number): number[] {
 }
 
 /**
- * Build local grid-index (I/J) tick annotations along the two lattice edges that
- * meet at the origin node (i=0, j=0), reusing the vertex positions from
- * {@link buildGrid2dMesh} so labels sit on the surface. Indices are thinned to at
- * most ~maxTicksPerAxis per edge so the labels stay readable.
+ * Build tick annotations along the two lattice edges that meet at the origin node
+ * (i=0, j=0), reusing the vertex positions from {@link buildGrid2dMesh} so labels
+ * sit on the surface. Both coordinate systems are sampled at the SAME node points
+ * so world and local labels can be drawn adjacent to one another: each tick
+ * carries its local grid index and the world coordinate of that node. The world
+ * label reports the axis the edge runs most along (easting for a mostly-east/west
+ * edge, northing for a mostly-north/south edge), keeping it a single monotonic
+ * number even when the lattice is rotated. Indices are thinned to at most
+ * ~maxTicksPerAxis per edge so the labels stay readable.
  *
  * @param positions The `positions` array from `buildGrid2dMesh(surface, zScale)`.
  */
-export function buildGrid2dLocalAnnotations(
+export function buildGrid2dEdgeAnnotations(
   surface: Grid2dSurface,
   positions: Float32Array,
   maxTicksPerAxis = 6,
-): Grid2dLocalAnnotations {
+): Grid2dEdgeAnnotations {
   const { ni, nj } = surface;
   const expected = ni * nj;
   if (positions.length !== expected * 3) {
@@ -379,22 +392,45 @@ export function buildGrid2dLocalAnnotations(
     return [positions[o], positions[o + 1], positions[o + 2]];
   };
 
-  const i = pickIndices(ni, maxTicksPerAxis).map<Grid2dLocalTick>((index) => ({
-    index,
-    position: at(index, 0),
-    label: String(index),
-  }));
-  const j = pickIndices(nj, maxTicksPerAxis).map<Grid2dLocalTick>((index) => ({
-    index,
-    position: at(0, index),
-    label: String(index),
-  }));
+  const origin = at(0, 0);
+  const iAxisEnd = at(ni - 1, 0);
+  const jAxisEnd = at(0, nj - 1);
+
+  const dominantAxis = (end: [number, number, number]): "x" | "y" =>
+    Math.abs(end[0] - origin[0]) >= Math.abs(end[1] - origin[1]) ? "x" : "y";
+
+  const edgeTicks = (
+    count: number,
+    node: (index: number) => [number, number, number],
+    worldAxis: "x" | "y",
+  ): Grid2dEdgeTick[] => {
+    const indices = pickIndices(count, maxTicksPerAxis);
+    const component = worldAxis === "x" ? 0 : 1;
+    const values = indices.map((index) => node(index)[component]);
+    const step = niceStep(Math.max(...values) - Math.min(...values), maxTicksPerAxis);
+    return indices.map((index) => {
+      const position = node(index);
+      const worldValue = position[component];
+      return {
+        index,
+        position,
+        indexLabel: String(index),
+        worldValue,
+        worldLabel: formatAxisValue(worldValue, step),
+      };
+    });
+  };
+
+  const iWorldAxis = dominantAxis(iAxisEnd);
+  const jWorldAxis = dominantAxis(jAxisEnd);
 
   return {
-    i,
-    j,
-    origin: at(0, 0),
-    iAxisEnd: at(ni - 1, 0),
-    jAxisEnd: at(0, nj - 1),
+    i: edgeTicks(ni, (index) => at(index, 0), iWorldAxis),
+    j: edgeTicks(nj, (index) => at(0, index), jWorldAxis),
+    origin,
+    iAxisEnd,
+    jAxisEnd,
+    iWorldAxis,
+    jWorldAxis,
   };
 }

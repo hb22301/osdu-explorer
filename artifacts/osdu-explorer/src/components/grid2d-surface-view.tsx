@@ -7,11 +7,11 @@ import {
   buildGrid2dMesh,
   buildGrid2dGridLines,
   buildGrid2dAxisAnnotations,
-  buildGrid2dLocalAnnotations,
+  buildGrid2dEdgeAnnotations,
   type Grid2dSurface,
   type Grid2dGridLines,
   type Grid2dAxisAnnotations,
-  type Grid2dLocalAnnotations,
+  type Grid2dEdgeAnnotations,
 } from "@/lib/grid2d-mesh";
 import {
   robustDomain,
@@ -286,12 +286,12 @@ function TickLabel({
 }
 
 /**
- * X/Y/Z world-coordinate axes drawn along three edges of the bounding box, each
- * with numeric tick labels: X (red), Y (green), Z elevation (blue). Y labels are
- * pinned left of the surface (−X), X labels below it (−Y) and written
- * bottom-to-top, so no label overlaps the footprint.
+ * Z elevation ruler drawn as a single vertical line at the far (maxX, maxY)
+ * corner of the bounding box — away from the origin corner where the X/Y edge
+ * labels meet — with world-elevation tick labels (blue). Part of the world CRS
+ * annotations, so it is shown together with the world edge labels.
  */
-function AxisAnnotations({
+function ElevationRuler({
   annotations,
   labelScale,
   labelGap,
@@ -300,74 +300,35 @@ function AxisAnnotations({
   labelScale: number;
   labelGap: number;
 }) {
-  const geometries = useMemo(() => {
-    const line = (a: [number, number, number], b: [number, number, number]) => {
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(Float32Array.from([...a, ...b]), 3));
-      return g;
-    };
-    // Z rides the far (maxX, maxY) corner rather than the shared origin corner,
-    // so its ruler never clumps with the X/Y labels that meet at the origin.
-    const zCorner = annotations.xAxisEnd[0];
-    const zCornerY = annotations.yAxisEnd[1];
-    return {
-      x: line(annotations.origin, annotations.xAxisEnd),
-      y: line(annotations.origin, annotations.yAxisEnd),
-      z: line(
-        [zCorner, zCornerY, annotations.origin[2]],
-        [zCorner, zCornerY, annotations.zAxisEnd[2]],
+  const zCorner = annotations.xAxisEnd[0];
+  const zCornerY = annotations.yAxisEnd[1];
+  const geometry = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute(
+      "position",
+      new THREE.BufferAttribute(
+        Float32Array.from([
+          zCorner, zCornerY, annotations.origin[2],
+          zCorner, zCornerY, annotations.zAxisEnd[2],
+        ]),
+        3,
       ),
-    };
-  }, [annotations]);
+    );
+    return g;
+  }, [annotations, zCorner, zCornerY]);
 
-  useEffect(
-    () => () => {
-      geometries.x.dispose();
-      geometries.y.dispose();
-      geometries.z.dispose();
-    },
-    [geometries],
-  );
+  useEffect(() => () => geometry.dispose(), [geometry]);
 
-  const [minX, minY] = annotations.origin;
-  const maxX = annotations.xAxisEnd[0];
-  const maxY = annotations.yAxisEnd[1];
   return (
     <group>
-      <lineSegments geometry={geometries.x}>
-        <lineBasicMaterial color="#e06666" depthTest={false} depthWrite={false} />
-      </lineSegments>
-      <lineSegments geometry={geometries.y}>
-        <lineBasicMaterial color="#7bd88f" depthTest={false} depthWrite={false} />
-      </lineSegments>
-      <lineSegments geometry={geometries.z}>
+      <lineSegments geometry={geometry}>
         <lineBasicMaterial color="#6ea8fe" depthTest={false} depthWrite={false} />
       </lineSegments>
-      {annotations.x.map((tick) => (
-        <TickLabel
-          key={`x-${tick.value}`}
-          text={tick.label}
-          position={[tick.position[0], minY - labelGap, tick.position[2]]}
-          orientation="vertical"
-          scale={labelScale}
-          center={[0.5, 1]}
-        />
-      ))}
-      {annotations.y.map((tick) => (
-        <TickLabel
-          key={`y-${tick.value}`}
-          text={tick.label}
-          position={[minX - labelGap, tick.position[1], tick.position[2]]}
-          orientation="horizontal"
-          scale={labelScale}
-          center={[1, 0.5]}
-        />
-      ))}
       {annotations.z.map((tick) => (
         <TickLabel
           key={`z-${tick.value}`}
           text={tick.label}
-          position={[maxX + labelGap, maxY + labelGap, tick.position[2]]}
+          position={[zCorner + labelGap, zCornerY + labelGap, tick.position[2]]}
           orientation="horizontal"
           scale={labelScale}
           center={[0, 0.5]}
@@ -378,20 +339,28 @@ function AxisAnnotations({
 }
 
 /**
- * Local grid-index (I/J) axes drawn along the two lattice edges meeting at the
- * origin node, with index labels. Because the lattice can be rotated, labels are
- * offset perpendicular to each edge, away from the surface interior, so they
- * always clear the footprint. I labels read bottom-to-top and J horizontally, to
- * match the world axes.
+ * The two lattice edges meeting at the origin node, drawn as the surface's X/Y
+ * axes (I red, J green). Both coordinate systems are labelled at the SAME node
+ * points: at each tick the world coordinate and, adjacent to it (further out
+ * along the same outward normal), the local grid index. Because the lattice can
+ * be rotated the labels are offset perpendicular to each edge, away from the
+ * surface interior, so they clear the footprint; text orientation follows the
+ * edge's screen direction so both tracks read the same way.
  */
-function LocalAnnotations({
+function EdgeAnnotations({
   annotations,
+  showWorld,
+  showLocal,
   labelScale,
-  labelGap,
+  worldGap,
+  localGap,
 }: {
-  annotations: Grid2dLocalAnnotations;
+  annotations: Grid2dEdgeAnnotations;
+  showWorld: boolean;
+  showLocal: boolean;
   labelScale: number;
-  labelGap: number;
+  worldGap: number;
+  localGap: number;
 }) {
   const geometries = useMemo(() => {
     const line = (a: [number, number, number], b: [number, number, number]) => {
@@ -417,9 +386,8 @@ function LocalAnnotations({
   // pointing away from the surface interior so labels clear the footprint) and a
   // text orientation taken from the edge's screen direction. A mostly-horizontal
   // edge gets bottom-to-top (vertical) text and a mostly-vertical edge gets
-  // horizontal text — the same convention as the world X/Y axes — so world and
-  // local labels sharing a screen edge read the same way even when the lattice
-  // is rotated.
+  // horizontal text, so labels sharing a screen edge read the same way even when
+  // the lattice is rotated.
   const { iOffset, jOffset, iOrientation, jOrientation } = useMemo(() => {
     const [ox, oy] = annotations.origin;
     const di: [number, number] = [annotations.iAxisEnd[0] - ox, annotations.iAxisEnd[1] - oy];
@@ -442,41 +410,69 @@ function LocalAnnotations({
     };
   }, [annotations]);
 
+  // A tick point carries the world label near the edge and the local index just
+  // beyond it, both along the edge's outward normal, so the two read as a pair.
+  const offsetPosition = (
+    tick: Grid2dEdgeAnnotations["i"][number],
+    offset: [number, number],
+    gap: number,
+  ): [number, number, number] => [
+    tick.position[0] + offset[0] * gap,
+    tick.position[1] + offset[1] * gap,
+    tick.position[2],
+  ];
+
   return (
     <group>
       <lineSegments geometry={geometries.i}>
-        <lineBasicMaterial color="#ffb454" depthTest={false} depthWrite={false} />
+        <lineBasicMaterial color="#ff5b5b" depthTest={false} depthWrite={false} />
       </lineSegments>
       <lineSegments geometry={geometries.j}>
-        <lineBasicMaterial color="#c792ea" depthTest={false} depthWrite={false} />
+        <lineBasicMaterial color="#4ade80" depthTest={false} depthWrite={false} />
       </lineSegments>
       {annotations.i.map((tick) => (
-        <TickLabel
-          key={`i-${tick.index}`}
-          text={tick.label}
-          position={[
-            tick.position[0] + iOffset[0] * labelGap,
-            tick.position[1] + iOffset[1] * labelGap,
-            tick.position[2],
-          ]}
-          orientation={iOrientation}
-          scale={labelScale}
-          center={[0.5, 0.5]}
-        />
+        <group key={`i-${tick.index}`}>
+          {showWorld && (
+            <TickLabel
+              text={tick.worldLabel}
+              position={offsetPosition(tick, iOffset, worldGap)}
+              orientation={iOrientation}
+              scale={labelScale}
+              center={[0.5, 0.5]}
+            />
+          )}
+          {showLocal && (
+            <TickLabel
+              text={tick.indexLabel}
+              position={offsetPosition(tick, iOffset, localGap)}
+              orientation={iOrientation}
+              scale={labelScale}
+              center={[0.5, 0.5]}
+            />
+          )}
+        </group>
       ))}
       {annotations.j.map((tick) => (
-        <TickLabel
-          key={`j-${tick.index}`}
-          text={tick.label}
-          position={[
-            tick.position[0] + jOffset[0] * labelGap,
-            tick.position[1] + jOffset[1] * labelGap,
-            tick.position[2],
-          ]}
-          orientation={jOrientation}
-          scale={labelScale}
-          center={[0.5, 0.5]}
-        />
+        <group key={`j-${tick.index}`}>
+          {showWorld && (
+            <TickLabel
+              text={tick.worldLabel}
+              position={offsetPosition(tick, jOffset, worldGap)}
+              orientation={jOrientation}
+              scale={labelScale}
+              center={[0.5, 0.5]}
+            />
+          )}
+          {showLocal && (
+            <TickLabel
+              text={tick.indexLabel}
+              position={offsetPosition(tick, jOffset, localGap)}
+              orientation={jOrientation}
+              scale={labelScale}
+              center={[0.5, 0.5]}
+            />
+          )}
+        </group>
       ))}
     </group>
   );
@@ -513,13 +509,14 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
     () => buildGrid2dAxisAnnotations(mesh, surface, zScale),
     [mesh, surface, zScale],
   );
-  const localAnnotations = useMemo(
-    () => buildGrid2dLocalAnnotations(surface, mesh.positions),
+  const edgeAnnotations = useMemo(
+    () => buildGrid2dEdgeAnnotations(surface, mesh.positions),
     [surface, mesh],
   );
-  // Origin marker + axis-label sizes derived from the surface extent so they
-  // read clearly at any scale. Local (I/J) labels are offset perpendicular to
-  // each rotated edge, so their gap is a small clearance off the edge itself.
+  // Origin marker + axis-label sizes derived from the surface extent so they read
+  // clearly at any scale. Along each edge the world coordinate sits at worldGap
+  // and the local index just beyond it at localGap, both on the outward normal,
+  // so the two labels read as an adjacent pair.
   const { markerRadius, labelScale, worldLabelGap, localLabelGap } = useMemo(() => {
     const { min, max } = mesh.bounds;
     const diagonal = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
@@ -527,7 +524,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
       markerRadius: Math.max(diagonal * 0.012, 1e-6),
       labelScale: Math.max(diagonal * 0.022, 1e-6),
       worldLabelGap: Math.max(diagonal * 0.02, 1e-6),
-      localLabelGap: Math.max(diagonal * 0.03, 1e-6),
+      localLabelGap: Math.max(diagonal * 0.055, 1e-6),
     };
   }, [mesh]);
 
@@ -592,7 +589,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           size="sm"
           className="h-6 px-2 text-[11px]"
           onClick={() => setShowWorldAxes((value) => !value)}
-          title="Show world-coordinate tick labels on the X (red), Y (green) and Z (blue) axes"
+          title="Show world-coordinate tick labels along the I/J edges (paired with local indices) plus the Z elevation ruler"
         >
           {showWorldAxes ? "Hide world" : "World"}
         </Button>
@@ -664,18 +661,21 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
           wireframe={wireframe}
         />
         {showGrid && <GridOverlay lines={gridLines} markerRadius={markerRadius} />}
+        {(showWorldAxes || showLocalAxes) && (
+          <EdgeAnnotations
+            annotations={edgeAnnotations}
+            showWorld={showWorldAxes}
+            showLocal={showLocalAxes}
+            labelScale={labelScale}
+            worldGap={worldLabelGap}
+            localGap={localLabelGap}
+          />
+        )}
         {showWorldAxes && (
-          <AxisAnnotations
+          <ElevationRuler
             annotations={axisAnnotations}
             labelScale={labelScale}
             labelGap={worldLabelGap}
-          />
-        )}
-        {showLocalAxes && (
-          <LocalAnnotations
-            annotations={localAnnotations}
-            labelScale={labelScale}
-            labelGap={localLabelGap}
           />
         )}
         <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} autoRotate={autoRotate} />
