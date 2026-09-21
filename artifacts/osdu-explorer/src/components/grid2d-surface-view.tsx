@@ -306,10 +306,17 @@ function AxisAnnotations({
       g.setAttribute("position", new THREE.BufferAttribute(Float32Array.from([...a, ...b]), 3));
       return g;
     };
+    // Z rides the far (maxX, maxY) corner rather than the shared origin corner,
+    // so its ruler never clumps with the X/Y labels that meet at the origin.
+    const zCorner = annotations.xAxisEnd[0];
+    const zCornerY = annotations.yAxisEnd[1];
     return {
       x: line(annotations.origin, annotations.xAxisEnd),
       y: line(annotations.origin, annotations.yAxisEnd),
-      z: line(annotations.origin, annotations.zAxisEnd),
+      z: line(
+        [zCorner, zCornerY, annotations.origin[2]],
+        [zCorner, zCornerY, annotations.zAxisEnd[2]],
+      ),
     };
   }, [annotations]);
 
@@ -323,6 +330,8 @@ function AxisAnnotations({
   );
 
   const [minX, minY] = annotations.origin;
+  const maxX = annotations.xAxisEnd[0];
+  const maxY = annotations.yAxisEnd[1];
   return (
     <group>
       <lineSegments geometry={geometries.x}>
@@ -358,10 +367,10 @@ function AxisAnnotations({
         <TickLabel
           key={`z-${tick.value}`}
           text={tick.label}
-          position={[minX - labelGap, minY - labelGap, tick.position[2]]}
+          position={[maxX + labelGap, maxY + labelGap, tick.position[2]]}
           orientation="horizontal"
           scale={labelScale}
-          center={[1, 0.5]}
+          center={[0, 0.5]}
         />
       ))}
     </group>
@@ -370,9 +379,10 @@ function AxisAnnotations({
 
 /**
  * Local grid-index (I/J) axes drawn along the two lattice edges meeting at the
- * origin node, with index labels following the same rules as the world axes: I
- * labels below the surface (−Y) written bottom-to-top, J labels left of it (−X).
- * Pushed further out than the world labels so the two sets can be shown together.
+ * origin node, with index labels. Because the lattice can be rotated, labels are
+ * offset perpendicular to each edge, away from the surface interior, so they
+ * always clear the footprint. I labels read bottom-to-top and J horizontally, to
+ * match the world axes.
  */
 function LocalAnnotations({
   annotations,
@@ -403,7 +413,23 @@ function LocalAnnotations({
     [geometries],
   );
 
-  const [minX, minY] = annotations.origin;
+  // XY unit normals perpendicular to each edge, flipped to point away from the
+  // opposite edge (i.e. away from the surface interior) so labels sit outside.
+  const { iOffset, jOffset } = useMemo(() => {
+    const [ox, oy] = annotations.origin;
+    const di: [number, number] = [annotations.iAxisEnd[0] - ox, annotations.iAxisEnd[1] - oy];
+    const dj: [number, number] = [annotations.jAxisEnd[0] - ox, annotations.jAxisEnd[1] - oy];
+    const outwardNormal = (edge: [number, number], interior: [number, number]): [number, number] => {
+      const length = Math.hypot(edge[0], edge[1]) || 1;
+      let normal: [number, number] = [-edge[1] / length, edge[0] / length];
+      if (normal[0] * interior[0] + normal[1] * interior[1] > 0) {
+        normal = [-normal[0], -normal[1]];
+      }
+      return normal;
+    };
+    return { iOffset: outwardNormal(di, dj), jOffset: outwardNormal(dj, di) };
+  }, [annotations]);
+
   return (
     <group>
       <lineSegments geometry={geometries.i}>
@@ -416,20 +442,28 @@ function LocalAnnotations({
         <TickLabel
           key={`i-${tick.index}`}
           text={tick.label}
-          position={[tick.position[0], minY - labelGap, tick.position[2]]}
+          position={[
+            tick.position[0] + iOffset[0] * labelGap,
+            tick.position[1] + iOffset[1] * labelGap,
+            tick.position[2],
+          ]}
           orientation="vertical"
           scale={labelScale}
-          center={[0.5, 1]}
+          center={[0.5, 0.5]}
         />
       ))}
       {annotations.j.map((tick) => (
         <TickLabel
           key={`j-${tick.index}`}
           text={tick.label}
-          position={[minX - labelGap, tick.position[1], tick.position[2]]}
+          position={[
+            tick.position[0] + jOffset[0] * labelGap,
+            tick.position[1] + jOffset[1] * labelGap,
+            tick.position[2],
+          ]}
           orientation="horizontal"
           scale={labelScale}
-          center={[1, 0.5]}
+          center={[0.5, 0.5]}
         />
       ))}
     </group>
@@ -472,8 +506,8 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
     [surface, mesh],
   );
   // Origin marker + axis-label sizes derived from the surface extent so they
-  // read clearly at any scale. Local (I/J) labels sit further out than the world
-  // labels so both sets can be shown at once without overlapping.
+  // read clearly at any scale. Local (I/J) labels are offset perpendicular to
+  // each rotated edge, so their gap is a small clearance off the edge itself.
   const { markerRadius, labelScale, worldLabelGap, localLabelGap } = useMemo(() => {
     const { min, max } = mesh.bounds;
     const diagonal = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
@@ -481,7 +515,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
       markerRadius: Math.max(diagonal * 0.012, 1e-6),
       labelScale: Math.max(diagonal * 0.022, 1e-6),
       worldLabelGap: Math.max(diagonal * 0.02, 1e-6),
-      localLabelGap: Math.max(diagonal * 0.12, 1e-6),
+      localLabelGap: Math.max(diagonal * 0.05, 1e-6),
     };
   }, [mesh]);
 

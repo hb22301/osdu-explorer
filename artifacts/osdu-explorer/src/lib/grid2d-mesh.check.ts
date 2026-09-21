@@ -142,13 +142,14 @@ test("grid lines: origin/axis ends sit on the lattice", () => {
   assert.deepEqual(lines.jAxisEnd, [100, 260, 15]);
 });
 
-test("grid lines: segments touching a null node are skipped", () => {
+test("grid lines: full lattice is drawn even across null nodes", () => {
   const nullIdx = 1 * NI + 2; // interior node (i=2,j=1)
   const mesh = buildGrid2dMesh(makeSurface(nullIdx));
   const lines = buildGrid2dGridLines(makeSurface(nullIdx), mesh.positions);
-  // Interior node has 4 neighbours -> 4 segments dropped.
+  // Nulls no longer drop segments: the grid spans the complete extent so null
+  // cells stay visible as empty framed cells.
   const full = NJ * (NI - 1) + NI * (NJ - 1); // 31
-  assert.equal(lines.positions.length, (full - 4) * 2 * 3);
+  assert.equal(lines.positions.length, full * 2 * 3);
 });
 
 test("grid lines: reject positions of the wrong length", () => {

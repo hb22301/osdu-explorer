@@ -173,10 +173,11 @@ export interface Grid2dGridLines {
 }
 
 /**
- * Build the I/J lattice as line segments plus the origin/axis reference points,
- * reusing the vertex positions produced by {@link buildGrid2dMesh} so the grid
- * sits exactly on the surface. Segments touching a null node are skipped, so the
- * grid follows the same holes as the mesh.
+ * Build the full I/J lattice as line segments plus the origin/axis reference
+ * points, reusing the vertex positions produced by {@link buildGrid2dMesh} so
+ * the grid sits on the surface. Every row/column segment is drawn, including
+ * those over null nodes, so the grid spans the complete extent out to the axes
+ * and null cells stand out as empty framed cells with no surface behind them.
  *
  * @param positions The `positions` array from `buildGrid2dMesh(surface, zScale)`.
  */
@@ -184,14 +185,13 @@ export function buildGrid2dGridLines(
   surface: Grid2dSurface,
   positions: Float32Array,
 ): Grid2dGridLines {
-  const { ni, nj, z } = surface;
+  const { ni, nj } = surface;
   const expected = ni * nj;
   if (positions.length !== expected * 3) {
     throw new Error(`Grid2d positions length ${positions.length} != ni*nj*3 (${expected * 3})`);
   }
 
   const node = (i: number, j: number) => (j * ni + i) * 3;
-  const finite = (i: number, j: number) => Number.isFinite(z[j * ni + i]);
   const at = (i: number, j: number): [number, number, number] => {
     const o = node(i, j);
     return [positions[o], positions[o + 1], positions[o + 2]];
@@ -208,13 +208,13 @@ export function buildGrid2dGridLines(
   // I-lines (rows): connect neighbours along +I for every j.
   for (let j = 0; j < nj; j++) {
     for (let i = 0; i < ni - 1; i++) {
-      if (finite(i, j) && finite(i + 1, j)) pushSeg(node(i, j), node(i + 1, j));
+      pushSeg(node(i, j), node(i + 1, j));
     }
   }
   // J-lines (columns): connect neighbours along +J for every i.
   for (let i = 0; i < ni; i++) {
     for (let j = 0; j < nj - 1; j++) {
-      if (finite(i, j) && finite(i, j + 1)) pushSeg(node(i, j), node(i, j + 1));
+      pushSeg(node(i, j), node(i, j + 1));
     }
   }
 
