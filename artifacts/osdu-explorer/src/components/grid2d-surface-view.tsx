@@ -164,12 +164,15 @@ function SceneControls({
           camera instanceof THREE.PerspectiveCamera
             ? 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
             : distance;
+        // Moving the camera itself in a direction makes the content appear to
+        // slide the opposite way, so move the camera/target against the
+        // requested direction to make the surface move with the arrow.
         const right = new THREE.Vector3()
           .setFromMatrixColumn(camera.matrix, 0)
-          .multiplyScalar(rightFraction * extent);
+          .multiplyScalar(-rightFraction * extent);
         const up = new THREE.Vector3()
           .setFromMatrixColumn(camera.matrix, 1)
-          .multiplyScalar(upFraction * extent);
+          .multiplyScalar(-upFraction * extent);
         const offset = right.add(up);
         camera.position.add(offset);
         controls.target.add(offset);
