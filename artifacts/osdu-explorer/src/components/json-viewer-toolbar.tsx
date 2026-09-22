@@ -3043,6 +3043,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               lookupResult={lookupResult}
               onLookupResult={handleLookupResult}
               onResponseTypeChange={handleResponseTypeChange}
+              onRecordDeleted={onRecordDeleted}
             />
           </div>
           {fsConsoleOpen && (
