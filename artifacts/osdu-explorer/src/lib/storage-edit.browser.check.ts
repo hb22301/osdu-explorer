@@ -220,13 +220,13 @@ async function runScenario(browser: CdpClient): Promise<void> {
     input.form?.requestSubmit();
   }));
   await waitFor(
-    () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage editable record') ?? false"),
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('uuid-store') ?? false"),
     "the mocked search result",
   );
 
   await evaluate<void>(browser, browserFunction(() => {
     const row = [...document.querySelectorAll("tbody tr")].find((candidate) =>
-      candidate.textContent?.includes("Storage editable record"));
+      candidate.textContent?.includes("uuid-store"));
     if (!row) throw new Error("The search result row was not found");
     (row as HTMLElement).click();
   }));
