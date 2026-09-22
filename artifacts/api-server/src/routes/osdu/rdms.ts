@@ -134,4 +134,80 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype", async (req, r
   }
 });
 
+router.post("/osdu/rdms/dataspaces/:dataspace/transactions", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const { dataspace } = req.params;
+  if (!dataspace) {
+    res.status(400).json({ error: "Dataspace parameter is required." });
+    return;
+  }
+  const client = getOsduClient(cfg);
+  try {
+    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/transactions`;
+    const { status, data } = await client.fetch(path, {
+      method: "POST",
+      body: req.body,
+      headers: { Accept: "application/json" },
+    });
+    res.status(status).json(data ?? null);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to create transaction" });
+  }
+});
+
+router.put("/osdu/rdms/dataspaces/:dataspace/resources", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const { dataspace } = req.params;
+  const transactionId = typeof req.query.transactionId === "string" ? req.query.transactionId : null;
+  if (!dataspace || !transactionId) {
+    res.status(400).json({ error: "Dataspace and transactionId query param are required." });
+    return;
+  }
+  const client = getOsduClient(cfg);
+  try {
+    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources`;
+    const { status, data } = await client.fetch(path, {
+      method: "PUT",
+      body: req.body,
+      params: { transactionId },
+      headers: { Accept: "application/json" },
+    });
+    res.status(status).json(data ?? null);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to update resource" });
+  }
+});
+
+router.put("/osdu/rdms/dataspaces/:dataspace/transactions/:transactionId", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const { dataspace, transactionId } = req.params;
+  if (!dataspace || !transactionId) {
+    res.status(400).json({ error: "Dataspace and transactionId parameters are required." });
+    return;
+  }
+  const client = getOsduClient(cfg);
+  try {
+    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/transactions/${encodeURIComponent(transactionId)}`;
+    const { status, data } = await client.fetch(path, {
+      method: "PUT",
+      headers: { Accept: "application/json" },
+    });
+    res.status(status).json(data ?? null);
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to commit transaction" });
+  }
+});
+
 export default router;

@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "1.9.8",
+  "version": "1.9.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "check:dashboard-kind-filter-browser": "tsx src/lib/dashboard-kind-filter.browser.check.ts",
     "check:grid2d-surface-browser": "tsx src/lib/grid2d-surface.browser.check.ts",
     "check:grid2d-mesh": "tsx src/lib/grid2d-mesh.check.ts",
+    "check:reservoir-edit-browser": "tsx src/lib/reservoir-edit.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
