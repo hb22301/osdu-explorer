@@ -484,6 +484,10 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
   const [zScale, setZScale] = useState(1);
   const [resetKey, setResetKey] = useState(0);
   const [view, setView] = useState<ViewPreset>("default");
+  // RESQML depth grids store Z as positive-down depths, so larger values sit
+  // deeper. Orient depth-down by default (honouring the record's
+  // ZIncreasingDownward flag when present) and let the user flip it.
+  const [depthDown, setDepthDown] = useState(surface.zIncreasingDownward ?? true);
   const hasWebgl = useMemo(webglAvailable, []);
 
   const applyView = (nextView: ViewPreset) => {
@@ -491,23 +495,28 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
     setResetKey((value) => value + 1);
   };
 
+  const orientedSurface = useMemo(
+    () => ({ ...surface, zIncreasingDownward: depthDown }),
+    [surface, depthDown],
+  );
+
   const domain = useMemo(() => robustDomain(surface.z), [surface]);
-  const mesh = useMemo(() => buildGrid2dMesh(surface, zScale), [surface, zScale]);
+  const mesh = useMemo(() => buildGrid2dMesh(orientedSurface, zScale), [orientedSurface, zScale]);
   const colors = useMemo(
     () => mapScalarsToColors(surface.z, domain, colormap),
     [surface, domain, colormap],
   );
   const gridLines = useMemo(
-    () => buildGrid2dGridLines(surface, mesh.positions),
-    [surface, mesh],
+    () => buildGrid2dGridLines(orientedSurface, mesh.positions),
+    [orientedSurface, mesh],
   );
   const axisAnnotations = useMemo(
-    () => buildGrid2dAxisAnnotations(mesh, surface, zScale),
-    [mesh, surface, zScale],
+    () => buildGrid2dAxisAnnotations(mesh, orientedSurface, zScale),
+    [mesh, orientedSurface, zScale],
   );
   const edgeAnnotations = useMemo(
-    () => buildGrid2dEdgeAnnotations(surface, mesh.positions),
-    [surface, mesh],
+    () => buildGrid2dEdgeAnnotations(orientedSurface, mesh.positions),
+    [orientedSurface, mesh],
   );
   // Origin marker + axis-label sizes derived from the surface extent so they read
   // clearly at any scale. Each edge tick draws a single two-line block (world
@@ -562,6 +571,16 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
             aria-label="Vertical exaggeration"
           />
         </label>
+        <Button
+          variant={depthDown ? "secondary" : "ghost"}
+          size="sm"
+          className="h-6 px-2 text-[11px]"
+          onClick={() => setDepthDown((value) => !value)}
+          aria-label="Toggle Z orientation between depth and elevation"
+          title="Depth: larger values render deeper (positive-down, RESQML depth grids). Elevation: larger values render higher."
+        >
+          {depthDown ? "Z: depth" : "Z: elevation"}
+        </Button>
         <Button
           variant="ghost"
           size="sm"

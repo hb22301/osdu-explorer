@@ -374,6 +374,68 @@ interface Grid2dMeta {
   origin?: [number, number, number];
   iStep?: [number, number, number];
   jStep?: [number, number, number];
+  zIncreasingDownward?: boolean;
+}
+
+/** True when a node looks like an embedded LocalDepth3dCrs / LocalTime3dCrs. */
+function isLocal3dCrsNode(node: Record<string, JsonValue>): boolean {
+  for (const key of ["$type", "Kind", "ContentType", "QualifiedType"]) {
+    const value = node[key];
+    if (typeof value === "string" && /Local(Depth|Time)3dCrs/i.test(value)) return true;
+  }
+  return false;
+}
+
+/** Read the first `ZIncreasingDownward` boolean anywhere within a node. */
+function readZIncreasingDownward(node: JsonValue | undefined, depth = 0): boolean | undefined {
+  if (!node || typeof node !== "object" || depth > 12) return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = readZIncreasingDownward(child, depth + 1);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  for (const [key, value] of Object.entries(node)) {
+    if (key.toLowerCase() === "zincreasingdownward" && typeof value === "boolean") return value;
+    const found = readZIncreasingDownward(value, depth + 1);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/** Find `ZIncreasingDownward` on an embedded LocalDepth3dCrs / LocalTime3dCrs. */
+function findCrsZIncreasingDownward(node: JsonValue | undefined, depth = 0): boolean | undefined {
+  if (!node || typeof node !== "object" || depth > 12) return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findCrsZIncreasingDownward(child, depth + 1);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+  const record = node as Record<string, JsonValue>;
+  if (isLocal3dCrsNode(record)) {
+    const flag = readZIncreasingDownward(record);
+    if (flag !== undefined) return flag;
+  }
+  for (const value of Object.values(record)) {
+    const found = findCrsZIncreasingDownward(value, depth + 1);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the surface's vertical sense from its CRS. RESQML carries
+ * `ZIncreasingDownward` on the referenced LocalDepth3dCrs / LocalTime3dCrs:
+ * when true the Z array holds depths (larger = deeper), when false it holds
+ * elevations (larger = shallower). Prefer the flag read from an embedded CRS
+ * node, falling back to any `ZIncreasingDownward` boolean in the record.
+ * Returns undefined when the CRS is only referenced (not embedded).
+ */
+function findZIncreasingDownward(root: JsonValue | undefined): boolean | undefined {
+  return findCrsZIncreasingDownward(root) ?? readZIncreasingDownward(root);
 }
 
 /** Resolve grid shape + XY lattice from a Grid2dRepresentation record (no Z). */
@@ -382,7 +444,7 @@ function resolveGrid2dMeta(root: JsonValue): Grid2dMeta {
   const ni = gridReadNumber(root, ["Grid2dPatch", "FastestAxisCount"]);
   const nj = gridReadNumber(root, ["Grid2dPatch", "SlowestAxisCount"]);
 
-  const meta: Grid2dMeta = { title, ni, nj };
+  const meta: Grid2dMeta = { title, ni, nj, zIncreasingDownward: findZIncreasingDownward(root) };
 
   const sg = gridReadNode(root, ["Grid2dPatch", "Geometry", "Points", "SupportingGeometry"]);
   if (sg) {
@@ -466,6 +528,7 @@ function buildGrid2dSurface(
       iStep: meta.iStep,
       jStep: meta.jStep,
       title: meta.title,
+      zIncreasingDownward: meta.zIncreasingDownward,
     },
   };
 }

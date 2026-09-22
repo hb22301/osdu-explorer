@@ -403,6 +403,31 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
       () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Local')"),
       "the local-axes toggle to reset",
     );
+
+    // The Z-orientation toggle defaults to depth-down ("Z: depth") for RESQML
+    // depth grids and flips to elevation ("Z: elevation").
+    const initialZLabel = await evaluate<string>(browser, "([...document.querySelectorAll('button')].find((button) => ['Z: depth', 'Z: elevation'].includes(button.textContent?.trim() ?? ''))?.textContent?.trim() ?? '')");
+    assert.equal(initialZLabel, "Z: depth", "the Z-orientation toggle should default to depth for a record with no ZIncreasingDownward flag");
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Z: depth");
+      if (!button) throw new Error("Z: depth toggle button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Z: elevation')"),
+      "the Z-orientation toggle to switch to elevation",
+    );
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Z: elevation");
+      if (!button) throw new Error("Z: elevation button was not found");
+      (button as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Z: depth')"),
+      "the Z-orientation toggle to reset to depth",
+    );
   }
 
   await evaluate<void>(browser, browserFunction(() => {
