@@ -24,6 +24,8 @@ import {
   Mountain,
   Pencil,
   Download,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   Table,
@@ -44,6 +46,14 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { trackEvent } from "@/lib/analytics";
 import { useActivityProgress } from "@/components/activity-progress";
@@ -59,6 +69,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { Grid2dSurface } from "@/lib/grid2d-mesh";
 import { saveRdmsRecord } from "@/lib/rdms-record-save";
+import { deleteRdmsRecord } from "@/lib/rdms-record-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
@@ -95,6 +106,8 @@ interface JsonViewerToolbarProps {
   lookupResult?: JsonViewerLookupResult | null;
   /** Called when a controlled lookup result is opened or closed */
   onLookupResult?: (result: JsonViewerLookupResult | null) => void;
+  /** Called after the displayed Reservoir DDMS record is deleted */
+  onRecordDeleted?: () => void;
 }
 
 interface RawMatch {
@@ -982,6 +995,7 @@ export function JsonViewerContent({
   lookupResult,
   onLookupResult,
   onResponseTypeChange,
+  onRecordDeleted,
 }: JsonViewerToolbarProps & {
   onMaximize?: () => void;
   onPopOut?: () => void;
@@ -1051,6 +1065,9 @@ export function JsonViewerContent({
   const [editSaving, setEditSaving] = useState(false);
   const [editSaveStep, setEditSaveStep] = useState<string | null>(null);
   const [editSaveError, setEditSaveError] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
   const wdmsAbortControllerRef = useRef<AbortController | null>(null);
   const arrayAbortControllerRef = useRef<AbortController | null>(null);
@@ -1778,6 +1795,37 @@ export function JsonViewerContent({
     }
   }, [activeRdmsContext, canEditStorage, editDraft]);
 
+  const openDeleteConfirm = useCallback(() => {
+    setDeleteError(null);
+    setDeleteConfirmOpen(true);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    if (!activeRdmsContext?.dataspace || !activeRdmsContext?.datatype || !activeRdmsContext?.uuid) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const result = await deleteRdmsRecord(
+      activeRdmsContext.dataspace,
+      activeRdmsContext.datatype,
+      activeRdmsContext.uuid,
+    );
+    setDeleting(false);
+    if (!result.ok) {
+      setDeleteError(result.error);
+      return;
+    }
+    setDeleteConfirmOpen(false);
+    setEditOpen(false);
+    if (lookupResult) {
+      onLookupResult?.(null);
+    } else if (overlayJson) {
+      setOverlayJson(null);
+      setOverlayLabel(null);
+      setResolvedRdmsContext(null);
+    }
+    onRecordDeleted?.();
+  }, [activeRdmsContext, lookupResult, overlayJson, onLookupResult, onRecordDeleted]);
+
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
   const lineWrapDisabled = viewMode !== "raw";
@@ -2184,6 +2232,25 @@ export function JsonViewerContent({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Edit &amp; save record in Reservoir DDMS</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!deleting), "text-destructive hover:text-destructive")}
+                      onClick={openDeleteConfirm}
+                      aria-label="Delete record in Reservoir DDMS"
+                      disabled={deleting}
+                    >
+                      {deleting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete record from Reservoir DDMS</TooltipContent>
                 </Tooltip>
               </>
             )}
@@ -2664,6 +2731,49 @@ export function JsonViewerContent({
         </div>
       )}
 
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { if (!deleting) setDeleteConfirmOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              Delete this Reservoir DDMS record?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the record from Reservoir DDMS and cannot be undone.
+              {activeRdmsContext?.uuid && (
+                <span className="mt-2 block font-mono text-xs text-foreground break-all">{activeRdmsContext.uuid}</span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <span className="min-w-0 flex-1 break-words">{deleteError}</span>
+              <CopyErrorButton error={deleteError} />
+            </div>
+          )}
+          <AlertDialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirmOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => { void confirmDelete(); }}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Deleting…
+                </span>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {grid2dOpen && (
         <div className="absolute inset-0 z-[60] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
@@ -2731,7 +2841,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, onRecordDeleted }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -2898,6 +3008,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           lookupResult={lookupResult}
           onLookupResult={handleLookupResult}
           onResponseTypeChange={handleResponseTypeChange}
+          onRecordDeleted={onRecordDeleted}
         />
       )}
 

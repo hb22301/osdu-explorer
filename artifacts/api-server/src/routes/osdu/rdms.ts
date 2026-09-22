@@ -107,6 +107,40 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", async (
   }
 });
 
+router.delete("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const { dataspace, datatype, uuid } = req.params;
+  if (!dataspace || !datatype || !uuid) {
+    res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
+    return;
+  }
+  const client = getOsduClient(cfg);
+  try {
+    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}`;
+    const { status, data } = await client.fetch(path, {
+      method: "DELETE",
+      headers: { Accept: "application/json" },
+    });
+    if (status >= 200 && status < 300) {
+      res.status(status).json(data ?? null);
+    } else {
+      const detail =
+        typeof data === "string"
+          ? data
+          : data && typeof data === "object" && "message" in data
+            ? String((data as { message?: unknown }).message)
+            : null;
+      res.status(status).json({ error: detail ? `Reservoir DDMS: ${detail}` : `HTTP ${status} from Reservoir DDMS` });
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to delete record" });
+  }
+});
+
 router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {

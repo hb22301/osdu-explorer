@@ -1198,6 +1198,10 @@ export default function ReservoirDmsPage() {
           hideWdmsLookup
           rdmsContext={{ dataspace: selectedDataspace, datatype: detailRecord.datatype, uuid: detailRecord.uuid }}
           onFullscreenClose={() => setDetailRecord(null)}
+          onRecordDeleted={() => {
+            setDetailRecord(null);
+            if (selectedResource) void fetchRecords(selectedResource);
+          }}
         />
       )}
     </div>
