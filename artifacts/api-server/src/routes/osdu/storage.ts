@@ -117,6 +117,80 @@ router.put("/osdu/records", async (req, res): Promise<void> => {
   }
 });
 
+function storageErrorMessage(data: unknown, status: number, fallback: string): string {
+  const detail =
+    typeof data === "string" && data
+      ? data
+      : data && typeof data === "object" && "message" in data
+        ? String((data as { message?: unknown }).message)
+        : null;
+  return detail ? `Storage Service: ${detail}` : `${fallback} (HTTP ${status})`;
+}
+
+// Logical (soft) delete: recoverable, retains versions.
+router.post("/osdu/records/:id/delete", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+
+  const params = GetOsduRecordParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const recordId = params.data.id;
+  const client = getOsduClient(cfg);
+  try {
+    const { status, data } = await client.fetch(
+      `/api/storage/v2/records/${encodeURIComponent(recordId)}:delete`,
+      { method: "POST" },
+    );
+    if (status >= 200 && status < 300) {
+      res.status(200).json({ ok: true });
+    } else {
+      req.log.warn({ status, data }, "OSDU soft delete record error");
+      res.status(status >= 400 && status < 600 ? status : 502).json({ error: storageErrorMessage(data, status, "Failed to delete record") });
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to delete record" });
+  }
+});
+
+// Purge (hard) delete: permanent, removes the record and all versions.
+router.delete("/osdu/records/:id", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+
+  const params = GetOsduRecordParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const recordId = params.data.id;
+  const client = getOsduClient(cfg);
+  try {
+    const { status, data } = await client.fetch(
+      `/api/storage/v2/records/${encodeURIComponent(recordId)}`,
+      { method: "DELETE" },
+    );
+    if (status >= 200 && status < 300) {
+      res.status(200).json({ ok: true });
+    } else {
+      req.log.warn({ status, data }, "OSDU purge record error");
+      res.status(status >= 400 && status < 600 ? status : 502).json({ error: storageErrorMessage(data, status, "Failed to purge record") });
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to purge record" });
+  }
+});
+
 router.get("/osdu/kinds", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {

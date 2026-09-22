@@ -71,6 +71,7 @@ import type { Grid2dSurface } from "@/lib/grid2d-mesh";
 import { saveRdmsRecord } from "@/lib/rdms-record-save";
 import { deleteRdmsRecord } from "@/lib/rdms-record-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
+import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
 // out of the load path unless a Grid2d surface is actually visualized.
@@ -1068,6 +1069,9 @@ export function JsonViewerContent({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [storageDeleteConfirmOpen, setStorageDeleteConfirmOpen] = useState(false);
+  const [storageDeleting, setStorageDeleting] = useState<"soft" | "purge" | null>(null);
+  const [storageDeleteError, setStorageDeleteError] = useState<string | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
   const wdmsAbortControllerRef = useRef<AbortController | null>(null);
   const arrayAbortControllerRef = useRef<AbortController | null>(null);
@@ -1826,6 +1830,31 @@ export function JsonViewerContent({
     onRecordDeleted?.();
   }, [activeRdmsContext, lookupResult, overlayJson, onLookupResult, onRecordDeleted]);
 
+  const openStorageDeleteConfirm = useCallback(() => {
+    setStorageDeleteError(null);
+    setStorageDeleteConfirmOpen(true);
+  }, []);
+
+  const runStorageDelete = useCallback(
+    async (mode: "soft" | "purge") => {
+      if (!displayedRecordId || storageDeleting) return;
+      setStorageDeleting(mode);
+      setStorageDeleteError(null);
+      const result = mode === "soft"
+        ? await softDeleteStorageRecord(displayedRecordId)
+        : await purgeStorageRecord(displayedRecordId);
+      setStorageDeleting(null);
+      if (!result.ok) {
+        setStorageDeleteError(result.error);
+        return;
+      }
+      setStorageDeleteConfirmOpen(false);
+      setEditOpen(false);
+      onRecordDeleted?.();
+    },
+    [displayedRecordId, storageDeleting, onRecordDeleted],
+  );
+
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
   const lineWrapDisabled = viewMode !== "raw";
@@ -2277,6 +2306,27 @@ export function JsonViewerContent({
                   </TooltipTrigger>
                   <TooltipContent>Edit &amp; save record in Storage Service</TooltipContent>
                 </Tooltip>
+                {displayedRecordId && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn("h-7 w-7", iconStateClass(!storageDeleting), "text-destructive hover:text-destructive")}
+                        onClick={openStorageDeleteConfirm}
+                        aria-label="Delete record in Storage Service"
+                        disabled={Boolean(storageDeleting)}
+                      >
+                        {storageDeleting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Delete record from Storage Service</TooltipContent>
+                  </Tooltip>
+                )}
               </>
             )}
 
@@ -2768,6 +2818,65 @@ export function JsonViewerContent({
                 </span>
               ) : (
                 "Delete"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={storageDeleteConfirmOpen} onOpenChange={(open) => { if (!storageDeleting) setStorageDeleteConfirmOpen(open); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              Delete this Storage Service record?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose how to delete this record. Soft delete is recoverable and keeps every version;
+              purge is permanent and removes the record and all of its versions.
+              {displayedRecordId && (
+                <span className="mt-2 block font-mono text-xs text-foreground break-all">{displayedRecordId}</span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {storageDeleteError && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <span className="min-w-0 flex-1 break-words">{storageDeleteError}</span>
+              <CopyErrorButton error={storageDeleteError} />
+            </div>
+          )}
+          <AlertDialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setStorageDeleteConfirmOpen(false)} disabled={Boolean(storageDeleting)}>
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => { void runStorageDelete("soft"); }}
+              disabled={Boolean(storageDeleting)}
+            >
+              {storageDeleting === "soft" ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Soft deleting…
+                </span>
+              ) : (
+                "Soft delete"
+              )}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => { void runStorageDelete("purge"); }}
+              disabled={Boolean(storageDeleting)}
+            >
+              {storageDeleting === "purge" ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Purging…
+                </span>
+              ) : (
+                "Purge"
               )}
             </Button>
           </AlertDialogFooter>

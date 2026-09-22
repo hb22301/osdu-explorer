@@ -171,6 +171,7 @@ export function RecordLookupDialog({
                  lookupResult={lookupResult}
                  onLookupResult={handleLookupResult}
                  onResponseTypeChange={handleResponseTypeChange}
+                 onRecordDeleted={() => handleOpenChange(false)}
               />
             )}
             {!isError && !data && !isFetching && recordId === "" && (
