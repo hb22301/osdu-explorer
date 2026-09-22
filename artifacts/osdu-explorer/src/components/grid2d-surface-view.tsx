@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Minus,
+  LocateFixed,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   buildGrid2dMesh,
@@ -37,16 +46,96 @@ function webglAvailable(): boolean {
 
 type ViewPreset = "default" | "top";
 
+// Imperative channel so the HTML navigation gizmo (outside the Canvas) can drive
+// the OrbitControls that live inside it. Angles are in degrees, zoom is a
+// multiplier applied to the camera↔target distance (<1 zooms in, >1 zooms out).
+type Grid2dNavHandle = {
+  orbit: (azimuthDegrees: number, polarDegrees: number) => void;
+  zoom: (factor: number) => void;
+};
+
+const NAV_ORBIT_STEP = 15;
+const NAV_ZOOM_STEP = 1.25;
+
+function GizmoButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 w-6 p-0 text-foreground/80"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  );
+}
+
+function Grid2dNavGizmo({
+  onOrbit,
+  onZoom,
+  onRecenter,
+}: {
+  onOrbit: (azimuthDegrees: number, polarDegrees: number) => void;
+  onZoom: (factor: number) => void;
+  onRecenter: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-md border border-border/40 bg-background/85 p-1 backdrop-blur-sm">
+      <div className="grid grid-cols-3 grid-rows-3 gap-0.5">
+        <span />
+        <GizmoButton label="Orbit up" onClick={() => onOrbit(0, -NAV_ORBIT_STEP)}>
+          <ChevronUp className="h-4 w-4" />
+        </GizmoButton>
+        <span />
+        <GizmoButton label="Orbit left" onClick={() => onOrbit(-NAV_ORBIT_STEP, 0)}>
+          <ChevronLeft className="h-4 w-4" />
+        </GizmoButton>
+        <GizmoButton label="Recenter view" onClick={onRecenter}>
+          <LocateFixed className="h-4 w-4" />
+        </GizmoButton>
+        <GizmoButton label="Orbit right" onClick={() => onOrbit(NAV_ORBIT_STEP, 0)}>
+          <ChevronRight className="h-4 w-4" />
+        </GizmoButton>
+        <span />
+        <GizmoButton label="Orbit down" onClick={() => onOrbit(0, NAV_ORBIT_STEP)}>
+          <ChevronDown className="h-4 w-4" />
+        </GizmoButton>
+        <span />
+      </div>
+      <div className="flex items-center gap-0.5">
+        <GizmoButton label="Zoom out" onClick={() => onZoom(NAV_ZOOM_STEP)}>
+          <Minus className="h-4 w-4" />
+        </GizmoButton>
+        <GizmoButton label="Zoom in" onClick={() => onZoom(1 / NAV_ZOOM_STEP)}>
+          <Plus className="h-4 w-4" />
+        </GizmoButton>
+      </div>
+    </div>
+  );
+}
+
 function SceneControls({
   bounds,
   resetKey,
   view,
   autoRotate,
+  navRef,
 }: {
   bounds: { min: [number, number, number]; max: [number, number, number] };
   resetKey: number;
   view: ViewPreset;
   autoRotate: boolean;
+  navRef: MutableRefObject<Grid2dNavHandle | null>;
 }) {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
@@ -61,6 +150,42 @@ function SceneControls({
     controls.autoRotateSpeed = 1.2;
     return () => controls.dispose();
   }, [controls]);
+
+  useEffect(() => {
+    // Orbit around the target using the same up-aware spherical frame that
+    // OrbitControls uses internally, so the gizmo respects the current up axis.
+    const handle: Grid2dNavHandle = {
+      orbit(azimuthDegrees, polarDegrees) {
+        const quat = new THREE.Quaternion().setFromUnitVectors(
+          camera.up.clone().normalize(),
+          new THREE.Vector3(0, 1, 0),
+        );
+        const quatInverse = quat.clone().invert();
+        const offset = camera.position.clone().sub(controls.target).applyQuaternion(quat);
+        const spherical = new THREE.Spherical().setFromVector3(offset);
+        spherical.theta += THREE.MathUtils.degToRad(azimuthDegrees);
+        spherical.phi = THREE.MathUtils.clamp(
+          spherical.phi + THREE.MathUtils.degToRad(polarDegrees),
+          0.15,
+          Math.PI - 0.15,
+        );
+        spherical.makeSafe();
+        offset.setFromSpherical(spherical).applyQuaternion(quatInverse);
+        camera.position.copy(controls.target).add(offset);
+        camera.lookAt(controls.target);
+        controls.update();
+      },
+      zoom(factor) {
+        const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
+        camera.position.copy(controls.target).add(offset);
+        controls.update();
+      },
+    };
+    navRef.current = handle;
+    return () => {
+      if (navRef.current === handle) navRef.current = null;
+    };
+  }, [camera, controls, navRef]);
 
   useEffect(() => {
     controls.autoRotate = autoRotate;
@@ -488,6 +613,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
   // deeper. Orient depth-down by default (honouring the record's
   // ZIncreasingDownward flag when present) and let the user flip it.
   const [depthDown, setDepthDown] = useState(surface.zIncreasingDownward ?? true);
+  const navRef = useRef<Grid2dNavHandle | null>(null);
   const hasWebgl = useMemo(webglAvailable, []);
 
   const applyView = (nextView: ViewPreset) => {
@@ -645,7 +771,12 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
         </Button>
       </div>
 
-      <div className="absolute right-2 top-2 z-10">
+      <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-2">
+        <Grid2dNavGizmo
+          onOrbit={(azimuth, polar) => navRef.current?.orbit(azimuth, polar)}
+          onZoom={(factor) => navRef.current?.zoom(factor)}
+          onRecenter={() => applyView(view)}
+        />
         <Grid2dColormapLegend
           name={colormap}
           domain={domain}
@@ -691,7 +822,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
             labelGap={worldLabelGap}
           />
         )}
-        <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} autoRotate={autoRotate} />
+        <SceneControls bounds={mesh.bounds} resetKey={resetKey} view={view} autoRotate={autoRotate} navRef={navRef} />
       </Canvas>
     </div>
   );

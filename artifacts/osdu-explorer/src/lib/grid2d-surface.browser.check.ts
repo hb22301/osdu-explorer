@@ -428,6 +428,25 @@ async function runScenario(browser: CdpClient, forceNoWebgl: boolean): Promise<v
       () => evaluate<boolean>(browser, "[...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Z: depth')"),
       "the Z-orientation toggle to reset to depth",
     );
+
+    // The navigation gizmo exposes orbit, zoom, and recenter controls that drive
+    // the camera. Confirm the buttons exist and that orbiting moves the camera.
+    const gizmoLabels = ["Orbit up", "Orbit down", "Orbit left", "Orbit right", "Zoom in", "Zoom out", "Recenter view"];
+    const presentLabels = await evaluate<string[]>(browser, browserFunction((labels: string[]) => {
+      return labels.filter((label) => document.querySelector('button[aria-label="' + label + '"]') !== null);
+    }, gizmoLabels));
+    assert.deepEqual(presentLabels.sort(), [...gizmoLabels].sort(), "all navigation gizmo controls should render");
+
+    const cameraBefore = await evaluate<string>(browser, "document.querySelector('canvas')?.toDataURL?.() ?? ''");
+    await evaluate<void>(browser, browserFunction(() => {
+      const button = document.querySelector('button[aria-label="Orbit left"]');
+      if (!button) throw new Error("Orbit left button was not found");
+      (button as HTMLButtonElement).click();
+    }));
+    // Let the damped OrbitControls settle so the rendered frame changes.
+    await delay(400);
+    const cameraAfter = await evaluate<string>(browser, "document.querySelector('canvas')?.toDataURL?.() ?? ''");
+    assert.notEqual(cameraAfter, cameraBefore, "orbiting via the gizmo should change the rendered view");
   }
 
   await evaluate<void>(browser, browserFunction(() => {
