@@ -85,6 +85,9 @@ const RECORD_COL_WIDTHS_KEY = "osdu-reservoir-records:col-widths";
 const RECORD_COL_ORDER_KEY = "osdu-reservoir-records:col-order";
 const RECORD_COL_VISIBLE_KEY = "osdu-reservoir-records:col-visible";
 const RECORD_PAGE_SIZE_KEY = "osdu-reservoir-records:page-size";
+const RESERVOIR_ERROR_TEXT_CLASS = "text-red-700 dark:text-red-200";
+const RESERVOIR_ERROR_PANEL_CLASS =
+  "rounded-md border border-red-500/40 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-400/40 dark:bg-red-950/60 dark:text-red-100";
 
 function clampRecordColWidth(col: RecordCol, value: number): number {
   return Math.min(RECORD_MAX_COL_WIDTH, Math.max(col.minWidth, value));
@@ -797,7 +800,7 @@ export default function ReservoirDmsPage() {
         <span className="text-sm font-semibold text-foreground mr-2">Reservoir DDMS Data</span>
         <div className="h-4 border-l border-border mx-1" />
         {dataspaceError ? (
-          <span className="text-xs text-destructive">{dataspaceError}</span>
+          <span className={cn("text-xs", RESERVOIR_ERROR_TEXT_CLASS)} role="alert">{dataspaceError}</span>
         ) : (
           <Select value={selectedDataspace} onValueChange={setSelectedDataspace}>
             <SelectTrigger className="h-8 text-xs w-64">
@@ -828,7 +831,7 @@ export default function ReservoirDmsPage() {
         {/* Resources panel */}
         <div className={`flex flex-col overflow-auto ${showRecords ? "w-80 shrink-0 border-r border-border" : "w-full"} p-4`}>
           {resourcesError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive mb-4">
+            <div className={`${RESERVOIR_ERROR_PANEL_CLASS} mb-4`} role="alert">
               {resourcesError}
             </div>
           )}
@@ -963,7 +966,7 @@ export default function ReservoirDmsPage() {
             </div>
 
             {recordsError && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <div className={RESERVOIR_ERROR_PANEL_CLASS} role="alert">
                 {recordsError}
               </div>
             )}

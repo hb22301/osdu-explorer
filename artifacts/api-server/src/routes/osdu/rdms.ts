@@ -87,9 +87,8 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", async (
     return;
   }
   const { dataspace, datatype, uuid } = req.params;
-  const transactionId = typeof req.query.transactionId === "string" ? req.query.transactionId : null;
-  if (!dataspace || !datatype || !uuid || !transactionId) {
-    res.status(400).json({ error: "Dataspace, datatype, uuid and transactionId query param are required." });
+  if (!dataspace || !datatype || !uuid) {
+    res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
     return;
   }
   const client = getOsduClient(cfg);
