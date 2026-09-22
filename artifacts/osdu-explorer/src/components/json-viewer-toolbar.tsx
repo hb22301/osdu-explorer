@@ -22,6 +22,7 @@ import {
   Terminal,
   Grid3x3,
   Mountain,
+  Pencil,
   Download,
 } from "lucide-react";
 import {
@@ -55,7 +56,9 @@ import {
   type TreeMatch,
   type TreeCollapsedState,
 } from "@/components/json-tree-view";
+import { Textarea } from "@/components/ui/textarea";
 import type { Grid2dSurface } from "@/lib/grid2d-mesh";
+import { saveRdmsRecord } from "@/lib/rdms-record-save";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
 // out of the load path unless a Grid2d surface is actually visualized.
@@ -978,6 +981,12 @@ export function JsonViewerContent({
   const [grid2dLoading, setGrid2dLoading] = useState(false);
   const [grid2dError, setGrid2dError] = useState<string | null>(null);
   const [grid2dSurface, setGrid2dSurface] = useState<Grid2dSurface | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
+  const [editParseError, setEditParseError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editSaveStep, setEditSaveStep] = useState<string | null>(null);
+  const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
   const wdmsAbortControllerRef = useRef<AbortController | null>(null);
   const arrayAbortControllerRef = useRef<AbortController | null>(null);
@@ -1651,6 +1660,54 @@ export function JsonViewerContent({
 
   const isGrid2dRepresentation = rdmsArrayType === "resqml20.obj_Grid2dRepresentation";
 
+  const canEditRdms = Boolean(
+    activeRdmsContext?.dataspace && activeRdmsContext?.datatype && activeRdmsContext?.uuid,
+  );
+
+  const openEdit = useCallback(() => {
+    setEditDraft(displayJson);
+    setEditParseError(null);
+    setEditSaveError(null);
+    setEditSaveStep(null);
+    setEditOpen(true);
+  }, [displayJson]);
+
+  const handleEditChange = useCallback((value: string) => {
+    setEditDraft(value);
+    if (value.trim() === "") {
+      setEditParseError("JSON is empty");
+      return;
+    }
+    try {
+      JSON.parse(value);
+      setEditParseError(null);
+    } catch (err) {
+      setEditParseError(err instanceof Error ? err.message : "Invalid JSON");
+    }
+  }, []);
+
+  const saveEdit = useCallback(async () => {
+    if (!activeRdmsContext?.dataspace) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(editDraft);
+    } catch (err) {
+      setEditParseError(err instanceof Error ? err.message : "Invalid JSON");
+      return;
+    }
+    const records = Array.isArray(parsed) ? parsed : [parsed];
+    setEditSaving(true);
+    setEditSaveError(null);
+    const result = await saveRdmsRecord(activeRdmsContext.dataspace, records, setEditSaveStep);
+    setEditSaving(false);
+    setEditSaveStep(null);
+    if (result.ok) {
+      setEditOpen(false);
+    } else {
+      setEditSaveError(result.error);
+    }
+  }, [activeRdmsContext, editDraft]);
+
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
   const lineWrapDisabled = viewMode !== "raw";
@@ -2036,6 +2093,31 @@ export function JsonViewerContent({
               </Tooltip>
             )}
 
+            {canEditRdms && (
+              <>
+                <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!editSaving))}
+                      onClick={openEdit}
+                      aria-label="Edit record in Reservoir DDMS"
+                      disabled={editSaving}
+                    >
+                      {editSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Pencil className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit &amp; save record in Reservoir DDMS</TooltipContent>
+                </Tooltip>
+              </>
+            )}
+
             {activeRdmsContext && rdmsArrayType && (
               <>
                 <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
@@ -2415,6 +2497,78 @@ export function JsonViewerContent({
       )}
 
       {/* Grid2d surface visualization overlay — constrained to the JSON viewer area */}
+      {editOpen && (
+        <div className="absolute inset-0 z-[70] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
+          <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Pencil className="h-4 w-4 text-sky-500" />
+              Edit Record — Reservoir DDMS
+              {activeRdmsContext?.uuid && (
+                <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">
+                  {activeRdmsContext.uuid}
+                </Badge>
+              )}
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setEditOpen(false)}
+                  aria-label="Close"
+                  disabled={editSaving}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Close</TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="flex flex-1 min-h-0 flex-col gap-2 p-4">
+            <Textarea
+              value={editDraft}
+              onChange={(e) => handleEditChange(e.target.value)}
+              spellCheck={false}
+              className="flex-1 min-h-0 resize-none font-mono text-xs"
+              aria-label="Record JSON editor"
+            />
+            {editParseError ? (
+              <div className="shrink-0 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                Invalid JSON: {editParseError}
+              </div>
+            ) : (
+              <div className="shrink-0 text-xs text-emerald-500">Valid JSON</div>
+            )}
+            {editSaveError && (
+              <div className="shrink-0 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <span className="min-w-0 flex-1 break-words">{editSaveError}</span>
+                <CopyErrorButton error={editSaveError} />
+              </div>
+            )}
+            <div className="shrink-0 flex items-center justify-end gap-2">
+              {editSaving && editSaveStep && (
+                <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {editSaveStep}
+                </span>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => setEditOpen(false)} disabled={editSaving}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => { void saveEdit(); }}
+                disabled={editSaving || editParseError !== null}
+              >
+                {editSaving ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {grid2dOpen && (
         <div className="absolute inset-0 z-[60] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">

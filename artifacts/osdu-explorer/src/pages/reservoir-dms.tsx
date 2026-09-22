@@ -13,13 +13,11 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
-  Pencil,
   X,
 } from "lucide-react";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -299,24 +297,6 @@ function parseRecords(data: unknown): ResourceRecord[] {
   });
 }
 
-function parseTransactionId(data: unknown): string | null {
-  if (typeof data === "string") return data.trim() || null;
-  if (typeof data === "number") return String(data);
-  if (data && typeof data === "object") {
-    const record = data as Record<string, unknown>;
-    const candidate =
-      record.transactionId ?? record.TransactionId ?? record.transaction_id ?? record.id ?? record.Id;
-    if (typeof candidate === "string") return candidate.trim() || null;
-    if (typeof candidate === "number") return String(candidate);
-  }
-  return null;
-}
-
-async function readErrorMessage(response: Response, fallback: string): Promise<string> {
-  const body = (await response.json().catch(() => null)) as { error?: string } | null;
-  return body?.error ?? `${fallback} (HTTP ${response.status})`;
-}
-
 function formatDate(iso: string): string {
   if (!iso) return "—";
   try {
@@ -346,13 +326,6 @@ export default function ReservoirDmsPage() {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [detailRecord, setDetailRecord] = useState<{ json: string; title: string; uuid: string; datatype: string } | null>(null);
-  const [editRecord, setEditRecord] = useState<{ title: string; uuid: string; datatype: string } | null>(null);
-  const [editDraft, setEditDraft] = useState("");
-  const [editParseError, setEditParseError] = useState<string | null>(null);
-  const [editLoading, setEditLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveStep, setSaveStep] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [recordFilter, setRecordFilter] = useState("");
   const [recordOffset, setRecordOffset] = useState(0);
   const [recordLimit, setRecordLimit] = useState(loadRecordPageSize);
@@ -706,110 +679,6 @@ export default function ReservoirDmsPage() {
     void fetchRecordDetail(selectedRecord.uuid, selectedResource ?? "");
   }, [selectedRecord, selectedResource, fetchRecordDetail]);
 
-  const openEditRecord = useCallback(async () => {
-    if (!selectedRecord || !selectedResource || !selectedDataspace) return;
-    const datatype = selectedResource;
-    const uuid = selectedRecord.uuid;
-    setEditLoading(true);
-    setSaveError(null);
-    setSaveStep(null);
-    try {
-      const res = await fetch(
-        `/api/osdu/rdms/dataspaces/${encodeURIComponent(selectedDataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}`
-      );
-      if (!res.ok) {
-        setRecordsError(await readErrorMessage(res, "Failed to load record for editing"));
-        return;
-      }
-      const data: unknown = await res.json();
-      setEditDraft(JSON.stringify(data, null, 2));
-      setEditParseError(null);
-      setEditRecord({ title: `${datatype} / ${uuid}`, uuid, datatype });
-    } catch {
-      setRecordsError("Failed to load record for editing");
-    } finally {
-      setEditLoading(false);
-    }
-  }, [selectedRecord, selectedResource, selectedDataspace]);
-
-  const handleEditChange = useCallback((value: string) => {
-    setEditDraft(value);
-    if (value.trim() === "") {
-      setEditParseError("JSON is empty");
-      return;
-    }
-    try {
-      JSON.parse(value);
-      setEditParseError(null);
-    } catch (err) {
-      setEditParseError(err instanceof Error ? err.message : "Invalid JSON");
-    }
-  }, []);
-
-  const saveEditRecord = useCallback(async () => {
-    if (!editRecord || !selectedDataspace) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(editDraft);
-    } catch (err) {
-      setEditParseError(err instanceof Error ? err.message : "Invalid JSON");
-      return;
-    }
-    const body = Array.isArray(parsed) ? parsed : [parsed];
-    const dataspace = encodeURIComponent(selectedDataspace);
-    setSaving(true);
-    setSaveError(null);
-    try {
-      setSaveStep("Creating transaction…");
-      const txRes = await fetch(`/api/osdu/rdms/dataspaces/${dataspace}/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ TimeoutPeriod: 300, Retries: 2 }),
-      });
-      if (!txRes.ok) {
-        setSaveError(await readErrorMessage(txRes, "Failed to create transaction"));
-        return;
-      }
-      const transactionId = parseTransactionId(await txRes.json());
-      if (!transactionId) {
-        setSaveError("Transaction created but no transaction id was returned.");
-        return;
-      }
-
-      setSaveStep("Updating record…");
-      const putRes = await fetch(
-        `/api/osdu/rdms/dataspaces/${dataspace}/resources?transactionId=${encodeURIComponent(transactionId)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
-      if (!putRes.ok) {
-        setSaveError(await readErrorMessage(putRes, "Failed to update record"));
-        return;
-      }
-
-      setSaveStep("Committing transaction…");
-      const commitRes = await fetch(
-        `/api/osdu/rdms/dataspaces/${dataspace}/transactions/${encodeURIComponent(transactionId)}`,
-        { method: "PUT" }
-      );
-      if (!commitRes.ok) {
-        setSaveError(await readErrorMessage(commitRes, "Failed to commit transaction"));
-        return;
-      }
-
-      setEditRecord(null);
-      if (selectedResource) void fetchRecords(selectedResource);
-    } catch {
-      setSaveError("Save failed due to a network error");
-    } finally {
-      setSaving(false);
-      setSaveStep(null);
-    }
-  }, [editRecord, editDraft, selectedDataspace, selectedResource, fetchRecords]);
-
   const showRecords = records !== null || recordsLoading || recordsError !== null;
 
   const renderRecordTable = (fullscreen = false) => (
@@ -1082,22 +951,6 @@ export default function ReservoirDmsPage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className={cn(
-                      "h-8 w-8",
-                      selectedRecord
-                        ? "text-sky-500 hover:text-sky-500"
-                        : "disabled:opacity-100 disabled:text-muted-foreground",
-                    )}
-                    disabled={!selectedRecord || editLoading}
-                    onClick={() => void openEditRecord()}
-                    aria-label="Edit selected record JSON"
-                    title={selectedRecord ? "Edit record JSON (Reservoir DDMS)" : "Select a record first"}
-                  >
-                    {editLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
                     className="h-8 w-8"
                     onClick={() => setRecordTableFullscreen(true)}
                     aria-label="Full screen records table"
@@ -1329,60 +1182,6 @@ export default function ReservoirDmsPage() {
             </div>
             <div className="flex-1 min-h-0 p-4">
               {renderRecordTable(true)}
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {editRecord && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open && !saving) setEditRecord(null);
-          }}
-        >
-          <DialogContent
-            className="max-w-3xl w-[90vw] flex flex-col gap-3"
-            aria-describedby={undefined}
-          >
-            <DialogTitle className="text-sm font-medium truncate">
-              Edit record — <span className="font-mono">{editRecord.title}</span>
-            </DialogTitle>
-            <Textarea
-              value={editDraft}
-              onChange={(e) => handleEditChange(e.target.value)}
-              spellCheck={false}
-              className="font-mono text-xs h-[60vh] resize-none"
-              aria-label="Record JSON editor"
-            />
-            {editParseError ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                Invalid JSON: {editParseError}
-              </div>
-            ) : (
-              <div className="text-xs text-emerald-500">Valid JSON</div>
-            )}
-            {saveError && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                {saveError}
-              </div>
-            )}
-            <div className="flex items-center justify-end gap-2">
-              {saving && saveStep && (
-                <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {saveStep}
-                </span>
-              )}
-              <Button variant="ghost" onClick={() => setEditRecord(null)} disabled={saving}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void saveEditRecord()}
-                disabled={saving || editParseError !== null}
-              >
-                {saving ? "Saving…" : "Save"}
-              </Button>
             </div>
           </DialogContent>
         </Dialog>

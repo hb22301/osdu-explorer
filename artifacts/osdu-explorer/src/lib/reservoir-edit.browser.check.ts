@@ -250,25 +250,26 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.body?.innerText.includes('uuid/edit') ?? false"),
     "the mocked record row to load",
   );
-  // Select the record row (single click toggles selection), then open the editor.
+  // Double-click the record row to open the record detail viewer.
   await evaluate<void>(browser, browserFunction(() => {
     const row = [...document.querySelectorAll("table tbody tr")]
       .find((candidate) => candidate.textContent?.includes("uuid/edit"));
     if (!row) throw new Error("Record row was not found");
-    row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
   }));
+  // The viewer exposes an Edit button once its rdmsContext (dataspace/datatype/uuid) resolves.
   await waitFor(
-    () => evaluate<boolean>(browser, "!document.querySelector('button[aria-label=\"Edit selected record JSON\"]')?.disabled"),
-    "the Edit button to enable once a record is selected",
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Edit record in Reservoir DDMS\"]') !== null"),
+    "the viewer Edit button to appear",
   );
   await evaluate<void>(browser, browserFunction(() => {
-    const button = document.querySelector('button[aria-label="Edit selected record JSON"]');
+    const button = document.querySelector('button[aria-label="Edit record in Reservoir DDMS"]');
     if (!button) throw new Error("Edit button was not found");
     (button as HTMLButtonElement).click();
   }));
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('textarea[aria-label=\"Record JSON editor\"]') !== null"),
-    "the JSON editor dialog to open",
+    "the JSON editor to open",
   );
 
   const seeded = await evaluate<string>(browser, "document.querySelector('textarea[aria-label=\"Record JSON editor\"]')?.value ?? ''");
