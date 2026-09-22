@@ -85,9 +85,9 @@ const RECORD_COL_WIDTHS_KEY = "osdu-reservoir-records:col-widths";
 const RECORD_COL_ORDER_KEY = "osdu-reservoir-records:col-order";
 const RECORD_COL_VISIBLE_KEY = "osdu-reservoir-records:col-visible";
 const RECORD_PAGE_SIZE_KEY = "osdu-reservoir-records:page-size";
-const RESERVOIR_ERROR_TEXT_CLASS = "text-red-700 dark:text-red-200";
+const RESERVOIR_ERROR_TEXT_CLASS = "text-error-text";
 const RESERVOIR_ERROR_PANEL_CLASS =
-  "rounded-md border border-red-500/40 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-400/40 dark:bg-red-950/60 dark:text-red-100";
+  "rounded-md border border-error-border/60 bg-error-surface px-4 py-3 text-sm text-error-text";
 
 function clampRecordColWidth(col: RecordCol, value: number): number {
   return Math.min(RECORD_MAX_COL_WIDTH, Math.max(col.minWidth, value));

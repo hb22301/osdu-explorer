@@ -689,7 +689,7 @@ function CopyErrorButton({ error }: { error: string }) {
           type="button"
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 text-destructive hover:bg-destructive/15 hover:text-destructive"
+           className="h-6 w-6 shrink-0 text-error-text hover:bg-error-border/15 hover:text-error-text"
           onClick={handleCopy}
           aria-label={copied ? "Error copied" : "Copy error"}
         >
@@ -725,7 +725,7 @@ function ArrayDataTable({ result }: { result: ArrayDataResult }) {
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-xs font-mono text-[10px] break-all">{result.label}</TooltipContent>
         </Tooltip>
-        <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <div className="flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
           <span className="min-w-0 flex-1 break-words">{result.error}</span>
           <CopyErrorButton error={result.error} />
         </div>
@@ -1875,7 +1875,7 @@ export function JsonViewerContent({
   return (
     <div ref={containerRef} className={cn("relative flex flex-col gap-1", _isFullscreen && "h-full", className)} onClick={handleContainerClick}>
       {_isFullscreen && lookupError && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive animate-in fade-in slide-in-from-top-1 duration-150">
+        <div className="flex items-center gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-1.5 text-xs text-error-text animate-in fade-in slide-in-from-top-1 duration-150">
           <span className="flex-1">{lookupError}</span>
           <button
             onClick={() => setLookupError(null)}
@@ -2572,7 +2572,7 @@ export function JsonViewerContent({
             )}
           </DialogTitle>
           {wdmsError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div className="rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
               {wdmsError}
             </div>
           )}
@@ -2590,7 +2590,7 @@ export function JsonViewerContent({
                       </div>
                     )}
                     {result.status === "error" ? (
-                      <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      <div className="rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
                         {result.error ?? "Error fetching data"}
                       </div>
                     ) : result.columns && result.dataRows ? (
@@ -2685,7 +2685,7 @@ export function JsonViewerContent({
             )}
 
             {!arrayLoading && arrayError && (
-              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <div className="flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
                 <span className="min-w-0 flex-1 break-words">{arrayError}</span>
                 <CopyErrorButton error={arrayError} />
               </div>
@@ -2747,14 +2747,14 @@ export function JsonViewerContent({
               aria-label="Record JSON editor"
             />
             {editParseError ? (
-              <div className="shrink-0 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+               <div role="alert" className="shrink-0 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
                 Invalid JSON: {editParseError}
               </div>
             ) : (
               <div className="shrink-0 text-xs text-emerald-500">Valid JSON</div>
             )}
             {editSaveError && (
-              <div className="shrink-0 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+               <div role="alert" className="shrink-0 flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
                 <span className="min-w-0 flex-1 break-words">{editSaveError}</span>
                 <CopyErrorButton error={editSaveError} />
               </div>
@@ -2808,7 +2808,7 @@ export function JsonViewerContent({
                   <p className="mt-1 leading-5">{getRdmsDeleteGuidance(deleteError)}</p>
                 </div>
               </div>
-              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+               <div className="flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
                 <span className="min-w-0 flex-1 break-words">
                   <span className="font-medium">Technical details: </span>
                   {deleteError}
@@ -2856,7 +2856,7 @@ export function JsonViewerContent({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {storageDeleteError && (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div role="alert" className="flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
               <span className="min-w-0 flex-1 break-words">{storageDeleteError}</span>
               <CopyErrorButton error={storageDeleteError} />
             </div>
@@ -2930,7 +2930,7 @@ export function JsonViewerContent({
             )}
 
             {!grid2dLoading && grid2dError && (
-              <div className="flex items-start gap-2 self-start rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+             <div className="flex items-start gap-2 self-start rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
                 <span className="min-w-0 flex-1 break-words">{grid2dError}</span>
                 <CopyErrorButton error={grid2dError} />
               </div>

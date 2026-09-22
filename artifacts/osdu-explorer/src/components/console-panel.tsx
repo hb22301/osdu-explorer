@@ -101,7 +101,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
     {
       info: "bg-slate-500/10 text-slate-400 border-slate-500/20",
       warn: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-      error: "bg-red-500/10 text-red-500 border-red-500/20",
+      error: "bg-error-surface text-error-text border-error-border/60",
     }[(entry.level as "info" | "warn" | "error")] ??
     "bg-slate-500/10 text-slate-400 border-slate-500/20";
 
@@ -109,7 +109,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
     {
       token_fetch: "bg-purple-500/10 text-purple-400 border-purple-500/20",
       api_request: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-      error: "bg-red-500/10 text-red-500 border-red-500/20",
+      error: "bg-error-surface text-error-text border-error-border/60",
     }[(entry.type as "token_fetch" | "api_request" | "error")] ??
     "bg-slate-500/10 text-slate-400 border-slate-500/20";
 
@@ -125,6 +125,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <div
+        data-testid="console-entry-row"
         className={`px-3 py-1.5 border-b border-border/50 transition-colors ${
           isOpen ? "bg-card" : "hover:bg-muted/40"
         }`}
@@ -220,7 +221,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
         <CollapsibleContent className="mt-2 pl-5">
           <div className="grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 pb-1">
             {/* Request column */}
-            <div className="min-w-0 space-y-2">
+            <div data-testid="console-request-column" className="min-w-0 space-y-2">
               {entry.requestHeaders != null && (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -246,7 +247,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
               )}
             </div>
             {/* Response column */}
-            <div className="min-w-0 space-y-2">
+            <div data-testid="console-response-column" className="min-w-0 space-y-2">
               {entry.responseHeaders != null && (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -305,7 +306,7 @@ export function ConsolePanel({ height = 280 }: ConsolePanelProps) {
   const entries = [...(data?.entries ?? [])].reverse();
 
   return (
-    <div className="flex flex-col bg-background border-border" style={{ height }}>
+    <div data-testid="console-panel" className="flex flex-col bg-background border-border" style={{ height }}>
       {/* Panel toolbar */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-card/60">
         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">

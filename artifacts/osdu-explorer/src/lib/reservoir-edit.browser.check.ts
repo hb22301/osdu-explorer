@@ -282,6 +282,14 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.body.innerText.includes('Invalid JSON:')"),
     "the invalid-JSON message to appear",
   );
+  assert.equal(
+    await evaluate<boolean>(
+      browser,
+      "document.querySelector('[role=\"alert\"]')?.classList.contains('bg-error-surface') === true",
+    ),
+    true,
+    "the invalid-JSON message should use the high-contrast error surface",
+  );
   assert.equal(await saveEnabled(browser), false, "Save should be disabled while the JSON is invalid");
 
   // A valid edit re-enables Save; saving runs the 3-step transaction sequence.

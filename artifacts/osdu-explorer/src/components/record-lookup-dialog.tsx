@@ -142,7 +142,7 @@ export function RecordLookupDialog({
           {/* Content */}
           <div className="flex-1 overflow-hidden min-h-0 p-4">
             {isError && (
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+              <div className="flex items-start gap-2 rounded-lg border border-error-border/60 bg-error-surface p-4 text-sm text-error-text">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span className="break-all">
                   {(error as Error | undefined)?.message ?? "Failed to fetch record."}

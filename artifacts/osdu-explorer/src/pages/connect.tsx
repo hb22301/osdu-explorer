@@ -148,7 +148,7 @@ export default function ConnectPage() {
           <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center mb-1.5">
             <OsduIcon className="w-6 h-6 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">OSDU Navigator</h1>
+          <h1 className="text-2xl font-bold tracking-tight">OSDU Data Manager</h1>
           <p className="text-sm text-muted-foreground">Connect to your data platform</p>
           <p className="text-[11px] font-mono text-muted-foreground/70">
             {APP_RELEASE_LABEL}
@@ -164,7 +164,7 @@ export default function ConnectPage() {
             {connectionError && (
               <div
                 role="alert"
-                className="mb-4 flex items-start gap-2 rounded-md border border-error-text/50 bg-destructive/10 px-3 py-2.5 text-sm text-error-text"
+                className="mb-4 flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2.5 text-sm text-error-text"
               >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="break-words">{connectionError}</span>

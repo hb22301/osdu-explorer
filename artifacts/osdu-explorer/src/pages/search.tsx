@@ -1309,10 +1309,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
       </div>}
 
       {searchMutation.isError && (
-        <Card className="border-destructive/50 bg-destructive/5">
+        <Card className="border-error-border/60 bg-error-surface">
           <CardContent className="px-4 py-3">
-            <p className="text-sm text-destructive font-medium">Search failed</p>
-            <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
+            <p className="text-sm text-error-text font-medium">Search failed</p>
+            <p className="text-xs text-error-text/85 mt-1 font-mono break-all">
               {searchMutation.error instanceof Error
                 ? searchMutation.error.message
                 : "An unexpected error occurred. Check the Console for details."}

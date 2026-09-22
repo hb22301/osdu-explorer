@@ -93,13 +93,13 @@ function ConsoleEntryRow({ entry }: { entry: any }) {
   const levelColor = {
     info: "bg-slate-500/10 text-slate-400 border-slate-500/20",
     warn: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-    error: "bg-red-500/10 text-red-500 border-red-500/20",
+    error: "bg-error-surface text-error-text border-error-border/60",
   }[entry.level as "info" | "warn" | "error"] || "bg-slate-500/10 text-slate-400";
 
   const typeColor = {
     token_fetch: "bg-purple-500/10 text-purple-400 border-purple-500/20",
     api_request: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-    error: "bg-red-500/10 text-red-500 border-red-500/20",
+    error: "bg-error-surface text-error-text border-error-border/60",
   }[entry.type as "token_fetch" | "api_request" | "error"] || "bg-slate-500/10 text-slate-400";
 
   const statusColor = 
