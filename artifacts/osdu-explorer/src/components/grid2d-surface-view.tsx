@@ -47,19 +47,15 @@ function webglAvailable(): boolean {
 type ViewPreset = "default" | "top";
 
 // Imperative channel so the HTML navigation gizmo (outside the Canvas) can drive
-// the OrbitControls that live inside it. Angles are in degrees, zoom is a
-// multiplier applied to the camera↔target distance (<1 zooms in, >1 zooms out).
+// the OrbitControls that live inside it. Pan translates the view laterally by a
+// fraction of the visible extent (screen-space right/up); zoom is a multiplier
+// applied to the camera↔target distance (<1 zooms in, >1 zooms out).
 type Grid2dNavHandle = {
-  orbit: (azimuthDegrees: number, polarDegrees: number) => void;
+  pan: (rightFraction: number, upFraction: number) => void;
   zoom: (factor: number) => void;
 };
 
-type OrbitControlsInternals = OrbitControls & {
-  _rotateLeft: (angle: number) => void;
-  _rotateUp: (angle: number) => void;
-};
-
-const NAV_ORBIT_STEP = 15;
+const NAV_PAN_STEP = 0.15;
 const NAV_ZOOM_STEP = 1.25;
 
 function GizmoButton({
@@ -86,11 +82,11 @@ function GizmoButton({
 }
 
 function Grid2dNavGizmo({
-  onOrbit,
+  onPan,
   onZoom,
   onRecenter,
 }: {
-  onOrbit: (azimuthDegrees: number, polarDegrees: number) => void;
+  onPan: (rightFraction: number, upFraction: number) => void;
   onZoom: (factor: number) => void;
   onRecenter: () => void;
 }) {
@@ -98,21 +94,21 @@ function Grid2dNavGizmo({
     <div className="flex flex-col items-center gap-1 rounded-md border border-border/40 bg-background/85 p-1 backdrop-blur-sm">
       <div className="grid grid-cols-3 grid-rows-3 gap-0.5">
         <span />
-        <GizmoButton label="Orbit up" onClick={() => onOrbit(0, -NAV_ORBIT_STEP)}>
+        <GizmoButton label="Pan up" onClick={() => onPan(0, NAV_PAN_STEP)}>
           <ChevronUp className="h-4 w-4" />
         </GizmoButton>
         <span />
-        <GizmoButton label="Orbit left" onClick={() => onOrbit(-NAV_ORBIT_STEP, 0)}>
+        <GizmoButton label="Pan left" onClick={() => onPan(-NAV_PAN_STEP, 0)}>
           <ChevronLeft className="h-4 w-4" />
         </GizmoButton>
         <GizmoButton label="Recenter view" onClick={onRecenter}>
           <LocateFixed className="h-4 w-4" />
         </GizmoButton>
-        <GizmoButton label="Orbit right" onClick={() => onOrbit(NAV_ORBIT_STEP, 0)}>
+        <GizmoButton label="Pan right" onClick={() => onPan(NAV_PAN_STEP, 0)}>
           <ChevronRight className="h-4 w-4" />
         </GizmoButton>
         <span />
-        <GizmoButton label="Orbit down" onClick={() => onOrbit(0, NAV_ORBIT_STEP)}>
+        <GizmoButton label="Pan down" onClick={() => onPan(0, -NAV_PAN_STEP)}>
           <ChevronDown className="h-4 w-4" />
         </GizmoButton>
         <span />
@@ -157,16 +153,26 @@ function SceneControls({
   }, [controls]);
 
   useEffect(() => {
-    // Orbit around the target using the same up-aware spherical frame that
-    // OrbitControls uses internally, so the gizmo respects the current up axis.
     const handle: Grid2dNavHandle = {
-      orbit(azimuthDegrees, polarDegrees) {
-        // Update OrbitControls' own spherical delta instead of moving the
-        // camera directly. A direct move is overwritten on the next update
-        // because OrbitControls retains its previous spherical coordinates.
-        const orbitControls = controls as OrbitControlsInternals;
-        orbitControls._rotateLeft(-THREE.MathUtils.degToRad(azimuthDegrees));
-        orbitControls._rotateUp(-THREE.MathUtils.degToRad(polarDegrees));
+      pan(rightFraction, upFraction) {
+        // Translate camera + target together along the screen-space right/up
+        // axes so the view slides laterally in the arrow's direction. The step
+        // scales with the visible extent (distance × fov) so it feels the same
+        // at any zoom level.
+        const distance = camera.position.clone().sub(controls.target).length();
+        const extent =
+          camera instanceof THREE.PerspectiveCamera
+            ? 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+            : distance;
+        const right = new THREE.Vector3()
+          .setFromMatrixColumn(camera.matrix, 0)
+          .multiplyScalar(rightFraction * extent);
+        const up = new THREE.Vector3()
+          .setFromMatrixColumn(camera.matrix, 1)
+          .multiplyScalar(upFraction * extent);
+        const offset = right.add(up);
+        camera.position.add(offset);
+        controls.target.add(offset);
         controls.update();
       },
       zoom(factor) {
@@ -767,7 +773,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
 
       <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-2">
         <Grid2dNavGizmo
-          onOrbit={(azimuth, polar) => navRef.current?.orbit(azimuth, polar)}
+          onPan={(right, up) => navRef.current?.pan(right, up)}
           onZoom={(factor) => navRef.current?.zoom(factor)}
           onRecenter={() => applyView(view)}
         />
