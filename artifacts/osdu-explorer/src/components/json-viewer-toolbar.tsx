@@ -59,6 +59,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { Grid2dSurface } from "@/lib/grid2d-mesh";
 import { saveRdmsRecord } from "@/lib/rdms-record-save";
+import { saveStorageRecord } from "@/lib/storage-record-save";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
 // out of the load path unless a Grid2d surface is actually visualized.
@@ -1727,6 +1728,10 @@ export function JsonViewerContent({
     activeRdmsContext?.dataspace && activeRdmsContext?.datatype && activeRdmsContext?.uuid,
   );
 
+  const canEditStorage = Boolean(
+    originalResponseType === "storage" && !activeRdmsContext && !overlayJson && !lookupResult,
+  );
+
   const openEdit = useCallback(() => {
     setEditDraft(displayJson);
     setEditParseError(null);
@@ -1750,7 +1755,7 @@ export function JsonViewerContent({
   }, []);
 
   const saveEdit = useCallback(async () => {
-    if (!activeRdmsContext?.dataspace) return;
+    if (!activeRdmsContext?.dataspace && !canEditStorage) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(editDraft);
@@ -1761,7 +1766,9 @@ export function JsonViewerContent({
     const records = Array.isArray(parsed) ? parsed : [parsed];
     setEditSaving(true);
     setEditSaveError(null);
-    const result = await saveRdmsRecord(activeRdmsContext.dataspace, records, setEditSaveStep);
+    const result = activeRdmsContext?.dataspace
+      ? await saveRdmsRecord(activeRdmsContext.dataspace, records, setEditSaveStep)
+      : await saveStorageRecord(records, setEditSaveStep);
     setEditSaving(false);
     setEditSaveStep(null);
     if (result.ok) {
@@ -1769,7 +1776,7 @@ export function JsonViewerContent({
     } else {
       setEditSaveError(result.error);
     }
-  }, [activeRdmsContext, editDraft]);
+  }, [activeRdmsContext, canEditStorage, editDraft]);
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -2181,6 +2188,31 @@ export function JsonViewerContent({
               </>
             )}
 
+            {canEditStorage && (
+              <>
+                <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!editSaving))}
+                      onClick={openEdit}
+                      aria-label="Edit record in Storage Service"
+                      disabled={editSaving}
+                    >
+                      {editSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Pencil className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit &amp; save record in Storage Service</TooltipContent>
+                </Tooltip>
+              </>
+            )}
+
             {activeRdmsContext && rdmsArrayType && (
               <>
                 <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
@@ -2565,10 +2597,10 @@ export function JsonViewerContent({
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Pencil className="h-4 w-4 text-sky-500" />
-              Edit Record — Reservoir DDMS
-              {activeRdmsContext?.uuid && (
+              {activeRdmsContext ? "Edit Record — Reservoir DDMS" : "Edit Record — Storage Service"}
+              {(activeRdmsContext?.uuid ?? (activeRdmsContext ? undefined : displayedRecordId)) && (
                 <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">
-                  {activeRdmsContext.uuid}
+                  {activeRdmsContext?.uuid ?? displayedRecordId}
                 </Badge>
               )}
             </div>

@@ -86,6 +86,37 @@ router.get("/osdu/records/:id/versions", async (req, res): Promise<void> => {
   res.json(result);
 });
 
+router.put("/osdu/records", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+
+  const records = req.body;
+  if (!Array.isArray(records) || records.length === 0) {
+    res.status(400).json({ error: "Request body must be a non-empty array of records." });
+    return;
+  }
+
+  const client = getOsduClient(cfg);
+  try {
+    const { status, data } = await client.fetch("/api/storage/v2/records", {
+      method: "PUT",
+      body: records,
+      headers: { Accept: "application/json" },
+    });
+    if (status >= 200 && status < 300) {
+      res.status(status).json(data ?? null);
+    } else {
+      req.log.warn({ status, data }, "OSDU put records error");
+      res.status(status >= 400 && status < 600 ? status : 502).json({ error: "Failed to save record", details: data });
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to save record" });
+  }
+});
+
 router.get("/osdu/kinds", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {
