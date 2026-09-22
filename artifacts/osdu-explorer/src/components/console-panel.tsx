@@ -218,9 +218,9 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
         )}
 
         <CollapsibleContent className="mt-2 pl-5">
-          <div className="grid grid-cols-2 gap-3 pb-1">
+          <div className="grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 pb-1">
             {/* Request column */}
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               {entry.requestHeaders != null && (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -246,7 +246,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
               )}
             </div>
             {/* Response column */}
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               {entry.responseHeaders != null && (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
