@@ -87,8 +87,9 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", async (
     return;
   }
   const { dataspace, datatype, uuid } = req.params;
-  if (!dataspace || !datatype || !uuid) {
-    res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
+  const transactionId = typeof req.query.transactionId === "string" ? req.query.transactionId : null;
+  if (!dataspace || !datatype || !uuid || !transactionId) {
+    res.status(400).json({ error: "Dataspace, datatype, uuid and transactionId query param are required." });
     return;
   }
   const client = getOsduClient(cfg);
@@ -114,8 +115,9 @@ router.delete("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", asyn
     return;
   }
   const { dataspace, datatype, uuid } = req.params;
-  if (!dataspace || !datatype || !uuid) {
-    res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
+  const transactionId = typeof req.query.transactionId === "string" ? req.query.transactionId : null;
+  if (!dataspace || !datatype || !uuid || !transactionId) {
+    res.status(400).json({ error: "Dataspace, datatype, uuid and transactionId query param are required." });
     return;
   }
   const client = getOsduClient(cfg);
@@ -123,6 +125,7 @@ router.delete("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", asyn
     const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}`;
     const { status, data } = await client.fetch(path, {
       method: "DELETE",
+      params: { transactionId },
       headers: { Accept: "application/json" },
     });
     if (status >= 200 && status < 300) {

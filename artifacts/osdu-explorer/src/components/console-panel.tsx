@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetOsduConsole,
@@ -6,7 +6,7 @@ import {
   getGetOsduConsoleQueryKey,
 } from "@workspace/api-client-react";
 import { format } from "date-fns";
-import { Trash2, ChevronRight, ChevronDown, Play, Pause, Loader2 } from "lucide-react";
+import { Trash2, ChevronRight, ChevronDown, Play, Pause, Loader2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -16,6 +16,60 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatConsoleValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatHeaders(headers: Record<string, string>): string {
+  return Object.entries(headers)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
+function CopyConsoleValueButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+  }, []);
+
+  const handleCopy = () => {
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) return;
+    void writeText.call(navigator.clipboard, value).then(() => {
+      setCopied(true);
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        resetTimerRef.current = null;
+      }, 1500);
+    }).catch(() => {
+      setCopied(false);
+    });
+  };
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+      onClick={handleCopy}
+      aria-label={copied ? `${label} copied` : `Copy ${label}`}
+      title={copied ? "Copied!" : `Copy ${label}`}
+    >
+      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+    </Button>
+  );
 }
 
 interface ConsoleEntryRowProps {
@@ -115,12 +169,15 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
           )}
 
           {entry.url && (
-            <span
-              className="text-[11px] font-mono text-muted-foreground truncate"
-              title={entry.url}
-            >
-              {entry.url}
-            </span>
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              <span
+                className="min-w-0 truncate text-[11px] font-mono text-muted-foreground"
+                title={entry.url}
+              >
+                {entry.url}
+              </span>
+              <CopyConsoleValueButton value={entry.url} label="URL" />
+            </div>
           )}
 
           <div className="ml-auto flex items-center gap-3 shrink-0">
@@ -166,13 +223,12 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
             <div className="space-y-2">
               {entry.requestHeaders != null && (
                 <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Request Headers
+                    <CopyConsoleValueButton value={formatHeaders(entry.requestHeaders)} label="request headers" />
                   </div>
                   <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-32 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
-                    {Object.entries(entry.requestHeaders)
-                      .map(([k, v]) => `${k}: ${v}`)
-                      .join("\n")}
+                    {formatHeaders(entry.requestHeaders)}
                   </pre>
                 </div>
               )}
@@ -193,25 +249,23 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
             <div className="space-y-2">
               {entry.responseHeaders != null && (
                 <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Response Headers
+                    <CopyConsoleValueButton value={formatHeaders(entry.responseHeaders)} label="response headers" />
                   </div>
                   <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-32 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
-                    {Object.entries(entry.responseHeaders)
-                      .map(([k, v]) => `${k}: ${v}`)
-                      .join("\n")}
+                    {formatHeaders(entry.responseHeaders)}
                   </pre>
                 </div>
               )}
               {entry.responseBody != null && (
                 <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Response Body
+                    <CopyConsoleValueButton value={formatConsoleValue(entry.responseBody)} label="response body" />
                   </div>
                   <pre className="text-[11px] font-mono bg-muted/50 rounded p-2 overflow-x-auto max-h-40 border border-border/40 text-foreground/80 whitespace-pre-wrap break-all">
-                    {typeof entry.responseBody === "object"
-                      ? JSON.stringify(entry.responseBody, null, 2)
-                      : String(entry.responseBody)}
+                    {formatConsoleValue(entry.responseBody)}
                   </pre>
                 </div>
               )}

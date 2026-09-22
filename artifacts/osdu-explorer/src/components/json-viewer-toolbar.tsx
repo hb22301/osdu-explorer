@@ -69,7 +69,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { Grid2dSurface } from "@/lib/grid2d-mesh";
 import { saveRdmsRecord } from "@/lib/rdms-record-save";
-import { deleteRdmsRecord } from "@/lib/rdms-record-delete";
+import { deleteRdmsRecord, getRdmsDeleteGuidance } from "@/lib/rdms-record-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
 import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
 
@@ -2796,10 +2796,26 @@ export function JsonViewerContent({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {deleteError && (
-            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              <span className="min-w-0 flex-1 break-words">{deleteError}</span>
-              <CopyErrorButton error={deleteError} />
-            </div>
+            <>
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="flex items-start gap-3 rounded-lg border-2 border-amber-500/60 bg-amber-500/15 px-4 py-3 text-sm text-amber-950 shadow-sm dark:text-amber-100"
+              >
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="font-semibold leading-5">Deletion blocked</p>
+                  <p className="mt-1 leading-5">{getRdmsDeleteGuidance(deleteError)}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <span className="min-w-0 flex-1 break-words">
+                  <span className="font-medium">Technical details: </span>
+                  {deleteError}
+                </span>
+                <CopyErrorButton error={deleteError} />
+              </div>
+            </>
           )}
           <AlertDialogFooter>
             <Button variant="outline" size="sm" onClick={() => setDeleteConfirmOpen(false)} disabled={deleting}>

@@ -127,7 +127,7 @@ function mockApiScript(): string {
         customData: { creator: "browser-check", created: "2026-01-01T00:00:00.000Z" },
         lastChanged: "2026-01-02T00:00:00.000Z"
       };
-      window.__reservoirDeleteTest = { requests: [] };
+      window.__reservoirDeleteTest = { requests: [], failDelete: false };
       let deleted = false;
 
       const realFetch = window.fetch.bind(window);
@@ -143,10 +143,28 @@ function mockApiScript(): string {
         if (url.endsWith("/api/osdu/rdms/dataspaces")) {
           return new Response(JSON.stringify({ dataspaces: [dataspace] }), { headers: { "Content-Type": "application/json" } });
         }
-        // Delete the record.
+        if (method === "POST" && url.endsWith("/api/osdu/rdms/dataspaces/" + encodeURIComponent(dataspace) + "/transactions")) {
+          window.__reservoirDeleteTest.requests.push({ method, url });
+          return new Response(JSON.stringify({ transactionId: "tx/delete" }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        // Delete the record inside the transaction.
         if (method === "DELETE" && url.includes("/resources/" + encodeURIComponent(datatype) + "/" + encodeURIComponent(uuid))) {
           window.__reservoirDeleteTest.requests.push({ method, url });
+          if (window.__reservoirDeleteTest.failDelete) {
+            return new Response(JSON.stringify({
+              error: "Reservoir DDMS: cannot delete resource because it is still referenced by another object",
+            }), {
+              status: 409,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           deleted = true;
+          return new Response("true", { headers: { "Content-Type": "application/json" } });
+        }
+        if (method === "PUT" && url.endsWith("/api/osdu/rdms/dataspaces/" + encodeURIComponent(dataspace) + "/transactions/tx%2Fdelete")) {
+          window.__reservoirDeleteTest.requests.push({ method, url });
           return new Response("true", { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.endsWith("/resources")) {
@@ -251,6 +269,46 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "opening the confirmation should not send a delete request",
   );
 
+  // A referential-integrity rejection keeps the dialog and record available,
+  // while explaining what must change before deletion can succeed.
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.failDelete = true");
+  await evaluate<void>(browser, browserFunction(() => {
+    const confirm = [...document.querySelectorAll('[role="alertdialog"] button')]
+      .find((candidate) => candidate.textContent?.trim() === "Delete");
+    if (!confirm) throw new Error("Delete confirm button was not found");
+    (confirm as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 2"),
+    "the rejected delete request to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alert\"]')?.textContent?.includes('Deletion blocked') && document.querySelector('[role=\"alert\"]')?.textContent?.includes('another object still references this record')"),
+    "the referential-integrity explanation to appear",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Reservoir DDMS\"]') !== null"),
+    true,
+    "the viewer should remain available after a rejected delete",
+  );
+  {
+    const requests = await evaluate<{ method: string; url: string }[]>(
+      browser,
+      "window.__reservoirDeleteTest.requests",
+    );
+    assert.deepEqual(
+      requests.map((request) => request.method),
+      ["POST", "DELETE"],
+      "a rejected delete should not commit its transaction",
+    );
+    assert.match(
+      requests[1].url,
+      /[?&]transactionId=tx%2Fdelete$/,
+      "the rejected delete should be bound to its transaction",
+    );
+  }
+
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.failDelete = false; window.__reservoirDeleteTest.requests = []");
   await evaluate<void>(browser, browserFunction(() => {
     const confirm = [...document.querySelectorAll('[role="alertdialog"] button')]
       .find((candidate) => candidate.textContent?.trim() === "Delete");
@@ -259,7 +317,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
   }));
 
   await waitFor(
-    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 1"),
+    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 3"),
     "the delete request to fire after confirmation",
   );
   // The detail viewer closes on a successful delete, returning to the record list.
@@ -272,12 +330,20 @@ async function runScenario(browser: CdpClient): Promise<void> {
     browser,
     "window.__reservoirDeleteTest.requests",
   );
-  assert.equal(requests.length, 1, "the delete should fire exactly one request");
-  assert.equal(requests[0].method, "DELETE", "the delete should use the DELETE method");
+  assert.deepEqual(
+    requests.map((request) => request.method),
+    ["POST", "DELETE", "PUT"],
+    "the delete should create, execute, and commit one transaction",
+  );
   assert.match(
-    requests[0].url,
-    /\/resources\/resqml20\.obj_WellboreMarkerFrameRepresentation\/uuid%2Fdelete$/,
-    "the delete should target the record's resource URI",
+    requests[1].url,
+    /\/resources\/resqml20\.obj_WellboreMarkerFrameRepresentation\/uuid%2Fdelete\?transactionId=tx%2Fdelete$/,
+    "the delete should target the record's resource URI inside its transaction",
+  );
+  assert.match(
+    requests[2].url,
+    /\/transactions\/tx%2Fdelete$/,
+    "the transaction should be committed after the delete",
   );
 }
 
