@@ -54,6 +54,11 @@ type Grid2dNavHandle = {
   zoom: (factor: number) => void;
 };
 
+type OrbitControlsInternals = OrbitControls & {
+  _rotateLeft: (angle: number) => void;
+  _rotateUp: (angle: number) => void;
+};
+
 const NAV_ORBIT_STEP = 15;
 const NAV_ZOOM_STEP = 1.25;
 
@@ -156,23 +161,12 @@ function SceneControls({
     // OrbitControls uses internally, so the gizmo respects the current up axis.
     const handle: Grid2dNavHandle = {
       orbit(azimuthDegrees, polarDegrees) {
-        const quat = new THREE.Quaternion().setFromUnitVectors(
-          camera.up.clone().normalize(),
-          new THREE.Vector3(0, 1, 0),
-        );
-        const quatInverse = quat.clone().invert();
-        const offset = camera.position.clone().sub(controls.target).applyQuaternion(quat);
-        const spherical = new THREE.Spherical().setFromVector3(offset);
-        spherical.theta += THREE.MathUtils.degToRad(azimuthDegrees);
-        spherical.phi = THREE.MathUtils.clamp(
-          spherical.phi + THREE.MathUtils.degToRad(polarDegrees),
-          0.15,
-          Math.PI - 0.15,
-        );
-        spherical.makeSafe();
-        offset.setFromSpherical(spherical).applyQuaternion(quatInverse);
-        camera.position.copy(controls.target).add(offset);
-        camera.lookAt(controls.target);
+        // Update OrbitControls' own spherical delta instead of moving the
+        // camera directly. A direct move is overwritten on the next update
+        // because OrbitControls retains its previous spherical coordinates.
+        const orbitControls = controls as OrbitControlsInternals;
+        orbitControls._rotateLeft(-THREE.MathUtils.degToRad(azimuthDegrees));
+        orbitControls._rotateUp(-THREE.MathUtils.degToRad(polarDegrees));
         controls.update();
       },
       zoom(factor) {
@@ -793,7 +787,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
       <Canvas
         camera={{ fov: 45, position: [1, -1, 1], up: [0, 0, 1] }}
         dpr={[1, 2]}
-        gl={{ antialias: true }}
+        gl={{ antialias: true, preserveDrawingBuffer: true }}
       >
         <color attach="background" args={["#0b0f14"]} />
         <ambientLight intensity={0.65} />
