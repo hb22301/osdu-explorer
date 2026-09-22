@@ -143,13 +143,8 @@ function mockApiScript(): string {
         if (url.endsWith("/api/osdu/rdms/dataspaces")) {
           return new Response(JSON.stringify({ dataspaces: [dataspace] }), { headers: { "Content-Type": "application/json" } });
         }
-        if (method === "POST" && url.endsWith("/api/osdu/rdms/dataspaces/" + encodeURIComponent(dataspace) + "/transactions")) {
-          window.__reservoirDeleteTest.requests.push({ method, url });
-          return new Response(JSON.stringify({ transactionId: "tx/delete" }), {
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        // Delete the record inside the transaction.
+        // Delete the record. The RDDMS REST API self-commits this delete, so a
+        // single request removes the record with no surrounding transaction.
         if (method === "DELETE" && url.includes("/resources/" + encodeURIComponent(datatype) + "/" + encodeURIComponent(uuid))) {
           window.__reservoirDeleteTest.requests.push({ method, url });
           if (window.__reservoirDeleteTest.failDelete) {
@@ -161,11 +156,7 @@ function mockApiScript(): string {
             });
           }
           deleted = true;
-          return new Response("true", { headers: { "Content-Type": "application/json" } });
-        }
-        if (method === "PUT" && url.endsWith("/api/osdu/rdms/dataspaces/" + encodeURIComponent(dataspace) + "/transactions/tx%2Fdelete")) {
-          window.__reservoirDeleteTest.requests.push({ method, url });
-          return new Response("true", { headers: { "Content-Type": "application/json" } });
+          return new Response(null, { status: 204 });
         }
         if (method === "GET" && url.endsWith("/resources")) {
           return new Response(JSON.stringify({ resources: [{ name: datatype, count: 1 }] }), {
@@ -279,7 +270,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     (confirm as HTMLButtonElement).click();
   }));
   await waitFor(
-    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 2"),
+    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 1"),
     "the rejected delete request to fire",
   );
   await waitFor(
@@ -298,13 +289,13 @@ async function runScenario(browser: CdpClient): Promise<void> {
     );
     assert.deepEqual(
       requests.map((request) => request.method),
-      ["POST", "DELETE"],
-      "a rejected delete should not commit its transaction",
+      ["DELETE"],
+      "a rejected delete should fire exactly one DELETE request",
     );
-    assert.match(
-      requests[1].url,
-      /[?&]transactionId=tx%2Fdelete$/,
-      "the rejected delete should be bound to its transaction",
+    assert.doesNotMatch(
+      requests[0].url,
+      /transactionId/,
+      "the delete should not create or reference a transaction",
     );
   }
 
@@ -317,7 +308,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
   }));
 
   await waitFor(
-    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 3"),
+    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 1"),
     "the delete request to fire after confirmation",
   );
   // The detail viewer closes on a successful delete, returning to the record list.
@@ -332,18 +323,13 @@ async function runScenario(browser: CdpClient): Promise<void> {
   );
   assert.deepEqual(
     requests.map((request) => request.method),
-    ["POST", "DELETE", "PUT"],
-    "the delete should create, execute, and commit one transaction",
+    ["DELETE"],
+    "a successful delete should fire exactly one self-committing DELETE request",
   );
   assert.match(
-    requests[1].url,
-    /\/resources\/resqml20\.obj_WellboreMarkerFrameRepresentation\/uuid%2Fdelete\?transactionId=tx%2Fdelete$/,
-    "the delete should target the record's resource URI inside its transaction",
-  );
-  assert.match(
-    requests[2].url,
-    /\/transactions\/tx%2Fdelete$/,
-    "the transaction should be committed after the delete",
+    requests[0].url,
+    /\/resources\/resqml20\.obj_WellboreMarkerFrameRepresentation\/uuid%2Fdelete$/,
+    "the delete should target the record's resource URI with no transaction",
   );
 }
 
