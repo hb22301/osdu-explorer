@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { getOsduClient } from "../../lib/osdu-client";
 import {
   getEtpClient,
+  isEtpClientAvailable,
   closeEtpClient,
   etpGetDataspaces,
   etpGetResourceSummary,
@@ -24,8 +25,15 @@ function etpErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-router.get("/osdu/rdms/mode", (req, res): void => {
-  res.json({ mode: rdmsMode(req) });
+router.get("/osdu/rdms/mode", async (req, res): Promise<void> => {
+  const etpAvailable = await isEtpClientAvailable();
+  res.json({
+    mode: etpAvailable ? rdmsMode(req) : "rest",
+    etpAvailable,
+    etpUnavailableReason: etpAvailable
+      ? null
+      : "ETP is unavailable on this server. Reservoir DDMS is using REST.",
+  });
 });
 
 router.post("/osdu/rdms/mode", async (req, res): Promise<void> => {
@@ -43,6 +51,13 @@ router.post("/osdu/rdms/mode", async (req, res): Promise<void> => {
     await closeEtpClient(req.sessionID);
     req.session.rdmsMode = "rest";
     res.json({ mode: "rest" });
+    return;
+  }
+  if (!(await isEtpClientAvailable())) {
+    req.session.rdmsMode = "rest";
+    res.status(503).json({
+      error: "ETP is unavailable on this server. Reservoir DDMS is using REST.",
+    });
     return;
   }
   if (!cfg.etpUrl) {

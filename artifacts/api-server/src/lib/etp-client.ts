@@ -34,6 +34,7 @@ interface SessionEntry {
 
 const sessions = new Map<string, SessionEntry>();
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+let etpAvailabilityPromise: Promise<boolean> | undefined;
 
 // Derives the ETP WebSocket URL from the REST base URL: swap the scheme to wss
 // and target the ETP path variant. e.g.
@@ -70,6 +71,13 @@ async function loadResqmlClient(): Promise<ResqmlClientLike> {
     | undefined;
   if (!ResqmlClient) throw new Error("ETP client module did not export ResqmlClient");
   return new ResqmlClient();
+}
+
+export function isEtpClientAvailable(): Promise<boolean> {
+  etpAvailabilityPromise ??= import(ETP_MODULE_SPECIFIER)
+    .then(() => true)
+    .catch(() => false);
+  return etpAvailabilityPromise;
 }
 
 // Returns a connected ResqmlClient for the session, opening (or reopening) the

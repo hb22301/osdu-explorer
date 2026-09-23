@@ -1,57 +1,46 @@
-# Reservoir DDMS: REST / ETP toggle
+# Why Reservoir ETP is not available
 
-The Reservoir DDMS (RDDMS) page can talk to the backend over **REST** (default) or
-**ETP** (Energistics Transfer Protocol, a WebSocket + Avro binary protocol). A
-per-session switch in the Reservoir page top bar flips between them; the frontend
-contract is identical, so only the api-server changes behaviour.
+**Real ETP access is not implemented as a usable, verified feature in this
+deployment.** Reservoir DDMS works over REST by default. The page includes a
+per-session REST/ETP control and the API contains ETP route adapters, but neither
+constitutes a working ETP integration without a loadable client and live
+end-to-end verification.
 
-## Pulling and running (REST works out of the box)
+## What blocks it
 
-```bash
-git pull
-pnpm install          # no new deps vs. the previous commit
-pnpm --filter @workspace/api-server run dev
-pnpm --filter @workspace/osdu-explorer run dev
-```
+1. The required `@osdu/open-etp-client` package is not installed in this
+   workspace and is not published on public npm. The [official Open ETP Client
+   project](https://community.opengroup.org/osdu/platform/domain-data-mgmt-services/reservoir/open-etp-client)
+   documents building it from source and packing a tarball; configuring an npm
+   registry alone will not install it.
+2. The upstream release examined for this project declares Node `>=12.16 <18`,
+   while this workspace uses Node 24. Attempting to install its locked
+   dependency tree also encountered packages blocked for critical
+   vulnerabilities. We did not bypass the security policy or add an
+   unbuildable dependency.
+3. The ETP response conversions in `src/lib/etp-client.ts` are best-effort
+   adapters to the existing REST response shapes. They have **not** been
+   confirmed against a live ETP endpoint for dataspaces, records, arrays, edits,
+   or deletes. Simply installing a client would not establish that these
+   operations work correctly.
 
-Everything works immediately in **REST** mode. You can also flip the switch to
-**ETP**: because the ETP client library is not installed by default (see below),
-the server returns a clear *"ETP client library is not installed"* error and the
-switch snaps back to REST. That is the expected graceful-degradation path and is
-enough to validate the toggle wiring end-to-end.
+## Current behavior
 
-Run the toggle browser check (mocked, no backend needed):
+- `GET /api/osdu/rdms/mode` reports `etpAvailable: false` when the client
+  cannot be loaded. The page displays **ETP unavailable**, disables the
+  switch, and continues to use REST.
+- The server also rejects a direct attempt to select ETP when the client is
+  unavailable. It does not silently pretend an ETP session was opened.
+- The mode-toggle browser check uses mocked API responses; it verifies control
+  behavior and unavailable-state handling, **not** connectivity to an ETP
+  server.
 
-```bash
-pnpm --filter @workspace/osdu-explorer run check:reservoir-mode-toggle-browser
-```
+## What is needed to enable it
 
-## Enabling real ETP (optional, manual)
-
-ETP mode only does real work once `@osdu/open-etp-client` is installed. It is
-**not on public npm** and pulls native builds, so this is a deliberate opt-in:
-
-1. Configure the OSDU GitLab package registry + an auth token in `.npmrc`, e.g.:
-   ```
-   @osdu:registry=https://community.opengroup.org/api/v4/projects/<id>/packages/npm/
-   //community.opengroup.org/api/v4/projects/<id>/packages/npm/:_authToken=${OSDU_NPM_TOKEN}
-   ```
-2. `pnpm add @osdu/open-etp-client` in `artifacts/api-server` and commit the
-   updated `pnpm-lock.yaml` in the same change.
-3. Make the native deps build (Node >= 22 — Replit `nodejs-24` is fine):
-   `libxmljs2` (node-gyp) and `h5wasm` (WASM). These are the main install risk
-   under Replit/Nix.
-4. `build.mjs` already externalizes `@osdu/open-etp-client`, `libxmljs2`, and
-   `h5wasm`, so the bundle picks them up at runtime once installed.
-
-No configuration secrets are stored in the repo. OSDU connection details
-(base URL, token endpoint, client id/secret, scope, partition) are entered in the
-app's config UI at runtime; the ETP WebSocket URL is derived automatically from
-the base URL (`https://host/...` -> `wss://host/api/reservoir-ddms-etp/v2/`).
-
-## Known caveat
-
-The ETP result shapers in `src/lib/etp-client.ts` normalise `ResqmlClient`
-responses to match the REST JSON shapes, but are **best effort** until validated
-against a live ETP session. Validate with a standalone `getDataspaces()` spike
-before trusting ETP mode for real data.
+Find or build a maintained client compatible with the project's Node runtime,
+review its dependencies and native build requirements without bypassing
+security protections, and install it reproducibly for development and
+deployment. Then test session opening and every route adapter against a real
+Reservoir ETP endpoint with representative data and permissions. Only after
+those checks should ETP be described as supported. Until then, REST is the
+supported way to access Reservoir DDMS.

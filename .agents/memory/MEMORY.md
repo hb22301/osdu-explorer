@@ -2,3 +2,5 @@
 - [GitHub sync constraints](github-sync-constraints.md) — Secret-scanned environment files must stay out of the repository; pace Git Data API blob uploads.
 - [Large-response UI stability](large-response-ui-stability.md) — Bound diagnostic payloads and avoid allocating hidden JSON children; polling and render loops magnify retained response costs.
 - [Array table scrolling](array-table-scrolling.md) — Synchronized scroll containers must measure the actual table, not a nested overflow wrapper.
+- [Grid2d browser checks](grid2d-browser-checks.md) — Wait for lazy renderer UI, and use SwiftShader plus a forced no-WebGL session for deterministic coverage.
+- [Open ETP client availability](open-etp-client-availability.md) — Upstream ships source only; gate ETP on runtime capability instead of assuming an installable npm package.

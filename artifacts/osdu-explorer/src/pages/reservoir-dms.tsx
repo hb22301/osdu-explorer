@@ -320,6 +320,8 @@ export default function ReservoirDmsPage() {
   const [rdmsMode, setRdmsMode] = useState<"rest" | "etp">("rest");
   const [modeSwitching, setModeSwitching] = useState(false);
   const [modeError, setModeError] = useState<string | null>(null);
+  const [etpAvailable, setEtpAvailable] = useState<boolean | null>(null);
+  const [etpUnavailableReason, setEtpUnavailableReason] = useState<string | null>(null);
 
   const [resources, setResources] = useState<Resource[] | null>(null);
   const [resourcesLoading, setResourcesLoading] = useState(false);
@@ -376,8 +378,12 @@ export default function ReservoirDmsPage() {
   useEffect(() => {
     fetch("/api/osdu/rdms/mode")
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { mode?: unknown } | null) => {
+      .then((data: { mode?: unknown; etpAvailable?: unknown; etpUnavailableReason?: unknown } | null) => {
         if (data?.mode === "etp") setRdmsMode("etp");
+        if (typeof data?.etpAvailable === "boolean") setEtpAvailable(data.etpAvailable);
+        if (typeof data?.etpUnavailableReason === "string") {
+          setEtpUnavailableReason(data.etpUnavailableReason);
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -865,11 +871,21 @@ export default function ReservoirDmsPage() {
           {modeError && (
             <span className={cn("text-xs", RESERVOIR_ERROR_TEXT_CLASS)} role="alert">{modeError}</span>
           )}
+          {etpAvailable === false && !modeError && (
+            <span
+              className="text-xs text-muted-foreground"
+              data-testid="etp-unavailable"
+              title={etpUnavailableReason ?? undefined}
+            >
+              ETP unavailable
+            </span>
+          )}
           <span className={cn("text-xs", rdmsMode === "rest" ? "font-semibold text-foreground" : "text-muted-foreground")}>REST</span>
           <Switch
             aria-label="Toggle Reservoir DDMS access between REST and ETP"
             checked={rdmsMode === "etp"}
-            disabled={modeSwitching}
+            disabled={modeSwitching || etpAvailable === false}
+            title={etpAvailable === false ? (etpUnavailableReason ?? "ETP unavailable") : undefined}
             onCheckedChange={(checked) => { void toggleRdmsMode(checked); }}
           />
           <span className={cn("text-xs", rdmsMode === "etp" ? "font-semibold text-foreground" : "text-muted-foreground")}>ETP</span>

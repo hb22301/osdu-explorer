@@ -108,7 +108,12 @@ async function getPageTarget(): Promise<CdpTarget> {
 function mockApiScript(): string {
   return `
     (() => {
-      window.__modeTest = { mode: "rest", postedModes: [], failEtp: false };
+      window.__modeTest = {
+        mode: "rest",
+        postedModes: [],
+        failEtp: false,
+        etpAvailable: sessionStorage.getItem("mode-test-etp-available") !== "false",
+      };
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input.url;
@@ -120,7 +125,13 @@ function mockApiScript(): string {
           return new Response(JSON.stringify({ entries: [], total: 0 }), { headers: { "Content-Type": "application/json" } });
         }
         if (url.endsWith("/api/osdu/rdms/mode") && method === "GET") {
-          return new Response(JSON.stringify({ mode: window.__modeTest.mode }), { headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({
+            mode: window.__modeTest.mode,
+            etpAvailable: window.__modeTest.etpAvailable,
+            etpUnavailableReason: window.__modeTest.etpAvailable
+              ? null
+              : "ETP is unavailable on this server. Reservoir DDMS is using REST.",
+          }), { headers: { "Content-Type": "application/json" } });
         }
         if (url.endsWith("/api/osdu/rdms/mode") && method === "POST") {
           const requested = JSON.parse((init && init.body) || "{}").mode;
@@ -203,6 +214,25 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the ETP failure message to appear",
   );
   assert.equal(await switchIsChecked(browser), false, "a refused ETP switch should stay in REST mode");
+
+  // A server without the ETP client disables the control instead of allowing a
+  // request that can only produce a long dependency error.
+  await evaluate<void>(
+    browser,
+    `sessionStorage.setItem("mode-test-etp-available", "false");
+     window.__modeTest.etpAvailable = false;
+     window.__modeTest.failEtp = false`,
+  );
+  await browser.call("Page.reload");
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelector('${SWITCH_SELECTOR}')?.hasAttribute("disabled") ?? false`),
+    "the unavailable ETP switch to become disabled",
+  );
+  assert.equal(
+    await evaluate<string | null>(browser, `document.querySelector('[data-testid="etp-unavailable"]')?.textContent ?? null`),
+    "ETP unavailable",
+    "the page should explain that ETP is unavailable",
+  );
 }
 
 async function runBrowserCheck(): Promise<void> {
