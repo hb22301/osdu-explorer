@@ -1,6 +1,11 @@
 import { Router, type IRouter } from "express";
 import { getOsduClient } from "../../lib/osdu-client";
 import {
+  buildDecodedArrayResponse,
+  isPlainArrayResponse,
+  metadataElementIsSupported,
+} from "../../lib/rdms-array-decode";
+import {
   getEtpClient,
   isEtpClientAvailable,
   closeEtpClient,
@@ -162,8 +167,48 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid/arrays", 
   const client = getOsduClient(cfg);
   try {
     const hdfPath = encodeURIComponent(rawPath.replace(/^\/+/, ""));
-    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}/arrays/${hdfPath}`;
-    const { status, data } = await client.fetch(path, {
+    const arrayPath = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}/arrays/${hdfPath}`;
+
+    // Read the element-type metadata first, and only request the compact base64
+    // payload when it names a type we can decode. This transfers far fewer bytes
+    // for large grids while keeping the { uid, data: { dimensions, data } } shape
+    // the frontend and browser checks expect. If the metadata is unavailable
+    // (e.g. an older server without this endpoint), we skip base64 entirely and
+    // fall back to the plain JSON array below — never a wasted large transfer.
+    // The base64 fast-path is best-effort: any failure (a missing metadata
+    // endpoint, a dropped connection, or a body that fails to parse) must fall
+    // through to the plain JSON array below, never fail the request — that is
+    // exactly what the original single-GET route always returned.
+    try {
+      const metaResult = await client.fetch(`${arrayPath}/metadata`, {
+        headers: { Accept: "application/json" },
+      });
+      if (metaResult.status === 200 && metadataElementIsSupported(metaResult.data)) {
+        const dataResult = await client.fetch(arrayPath, {
+          params: { format: "base64" },
+          headers: { Accept: "application/json" },
+        });
+        if (dataResult.status === 200 && dataResult.data) {
+          const decoded = buildDecodedArrayResponse(dataResult.data, metaResult.data);
+          if (decoded) {
+            res.json(decoded);
+            return;
+          }
+          // The server may have ignored ?format=base64 and already returned the
+          // plain JSON number array; if so, pass it straight through.
+          if (isPlainArrayResponse(dataResult.data)) {
+            res.json(dataResult.data);
+            return;
+          }
+        }
+      }
+    } catch {
+      // Fall through to the plain JSON array below.
+    }
+
+    // Fall back to the default JSON array for anything we cannot safely decode
+    // (missing metadata, unknown element type, size mismatch, or an upstream error).
+    const { status, data } = await client.fetch(arrayPath, {
       headers: { Accept: "application/json" },
     });
     if (status === 200 && data) {
