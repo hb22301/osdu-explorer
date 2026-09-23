@@ -187,3 +187,64 @@ The server satisfies the first gate: `GetDataSubarrays` is enabled and works. Th
 - no confirmed product requirement was supplied that needs partial slabs and cannot be served by REST.
 
 **NO-GO — do not add an ETP client now. Reconsider only when a confirmed large-grid workflow requires partial slab reads that REST cannot serve.**
+
+## base64 array schema
+
+- Dataspace: `PDS-Preview/CWP_Session_2`
+- Datatype: `resqml20.obj_Grid2dRepresentation`
+- UUID: `2f1aca7b-dfb8-4826-ad9a-7b6a3dfa3419`
+- Array path: `resqml20/2f1aca7b-dfb8-4826-ad9a-7b6a3dfa3419/points_patch0`
+
+### 1. Array metadata
+
+Full JSON:
+
+```json
+{
+  "uid": {
+    "uri": "eml:///dataspace('PDS-Preview/CWP_Session_2')/eml20.obj_EpcExternalPartReference(359d6a59-0db4-4115-8010-a3220438f943)",
+    "pathInResource": "resqml20/2f1aca7b-dfb8-4826-ad9a-7b6a3dfa3419/points_patch0"
+  },
+  "dimensions": [
+    2321,
+    896
+  ],
+  "preferredSubarrayDimensions": [],
+  "logicalArrayType": 0,
+  "transportArrayType": 3,
+  "storeLastWrite": "1970-01-01T00:00:00.000Z",
+  "storeCreated": "1970-01-01T00:00:00.000Z",
+  "customData": {}
+}
+```
+
+- Numeric type field: `transportArrayType`
+- Exact value: `3`
+- Logical array type: `0`
+
+### 2. Base64 response
+
+- Top-level JSON keys: `uid`, `data`
+- `data.data` is a base64 string: `true`
+- Base64 string length: **11,091,288** characters
+
+### 3. Decoded interpretations
+
+- Decoded buffer length: **8,318,464** bytes
+- Float32 little-endian element count: **2,079,616**
+- Float32 little-endian first 5: `["NaN", "NaN", "NaN", "NaN", "NaN"]`
+- Int32 little-endian element count: **2,079,616**
+- Int32 little-endian first 5: `[2143289344, -4194304, -4194304, -4194304, -4194304]`
+
+### 4. Default JSON response
+
+- Default JSON `data.data` first 5: `[null, null, null, null, null]`
+
+### 5. Result
+
+- Float32 little-endian matches the default first 5 after JSON NaN-to-null serialization: **true**
+- Int32 little-endian matches the default first 5: **false**
+- Dimensions: `[2321, 896]`
+- Product of dimensions: **2,079,616**
+- Decoded element count equals `product(dimensions)`: **true**
+- Matching interpretation: **Float32 little-endian**; the NaN values appear as `null` in the default JSON response.
