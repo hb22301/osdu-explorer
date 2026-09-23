@@ -8,6 +8,7 @@ export interface OsduConfig {
   clientId: string;
   clientSecret: string;
   scope?: string;
+  etpUrl?: string;
 }
 
 interface TokenCacheEntry {
@@ -333,6 +334,12 @@ export class OsduClient {
 
 export function getOsduClient(config: OsduConfig): OsduClient {
   return new OsduClient(config);
+}
+
+// Exposes the cached client-credentials token so the ETP client can reuse the
+// same token (and cache) that REST requests already use.
+export function getAccessToken(config: OsduConfig): Promise<string> {
+  return fetchAccessToken(config);
 }
 
 export async function validateOsduConfig(config: OsduConfig): Promise<void> {

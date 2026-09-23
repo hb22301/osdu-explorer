@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "check:grid2d-mesh": "tsx src/lib/grid2d-mesh.check.ts",
     "check:reservoir-edit-browser": "tsx src/lib/reservoir-edit.browser.check.ts",
     "check:reservoir-delete-browser": "tsx src/lib/reservoir-delete.browser.check.ts",
+    "check:reservoir-mode-toggle-browser": "tsx src/lib/reservoir-mode-toggle.browser.check.ts",
     "check:storage-edit-browser": "tsx src/lib/storage-edit.browser.check.ts",
     "check:storage-delete-browser": "tsx src/lib/storage-delete.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",

@@ -9,6 +9,8 @@ declare module "express-session" {
       clientId: string;
       clientSecret: string;
       scope?: string;
+      etpUrl?: string;
     };
+    rdmsMode?: "rest" | "etp";
   }
 }

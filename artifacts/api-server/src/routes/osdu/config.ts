@@ -6,6 +6,7 @@ import {
   ClearOsduConfigResponse,
 } from "@workspace/api-zod";
 import { clearTokenCache, validateOsduConfig } from "../../lib/osdu-client";
+import { deriveEtpUrl, closeEtpClient } from "../../lib/etp-client";
 
 const router: IRouter = Router();
 
@@ -36,6 +37,7 @@ router.post("/osdu/config", async (req, res): Promise<void> => {
     clientId,
     clientSecret,
     scope: scope ?? undefined,
+    etpUrl: deriveEtpUrl(baseUrl),
   };
 
   // Always validate the credentials currently in the form, even when this
@@ -53,6 +55,9 @@ router.post("/osdu/config", async (req, res): Promise<void> => {
     clearTokenCache(req.session.osduConfig);
   }
 
+  // A new connection invalidates any open ETP session and resets the mode to REST.
+  await closeEtpClient(req.sessionID);
+  req.session.rdmsMode = "rest";
   req.session.osduConfig = nextConfig;
 
   const result = SaveOsduConfigResponse.parse({
@@ -65,10 +70,12 @@ router.post("/osdu/config", async (req, res): Promise<void> => {
   res.json(result);
 });
 
-router.delete("/osdu/config", (req, res): void => {
+router.delete("/osdu/config", async (req, res): Promise<void> => {
   if (req.session.osduConfig) {
     clearTokenCache(req.session.osduConfig);
   }
+  await closeEtpClient(req.sessionID);
+  req.session.rdmsMode = undefined;
   req.session.osduConfig = undefined;
   const result = ClearOsduConfigResponse.parse({
     configured: false,

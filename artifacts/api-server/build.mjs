@@ -29,6 +29,12 @@ async function buildAll() {
     // - use path traversal to read files (e.g. @google-cloud/secret-manager loads sibling .proto files)
     external: [
       "*.node",
+      // Optional ETP client: not installed by default (OSDU GitLab registry +
+      // native builds). Externalized so the bundle succeeds whether or not it
+      // is present; etp-client.ts imports it lazily at runtime.
+      "@osdu/open-etp-client",
+      "libxmljs2",
+      "h5wasm",
       "sharp",
       "better-sqlite3",
       "sqlite3",

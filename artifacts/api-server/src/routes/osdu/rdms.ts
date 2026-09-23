@@ -1,12 +1,77 @@
 import { Router, type IRouter } from "express";
 import { getOsduClient } from "../../lib/osdu-client";
+import {
+  getEtpClient,
+  closeEtpClient,
+  etpGetDataspaces,
+  etpGetResourceSummary,
+  etpGetResourcesOfType,
+  etpGetRecord,
+  etpGetArray,
+  etpStartTransaction,
+  etpPutObjects,
+  etpCommitTransaction,
+  etpDeleteRecord,
+} from "../../lib/etp-client";
 
 const router: IRouter = Router();
+
+function rdmsMode(req: { session: { rdmsMode?: "rest" | "etp" } }): "rest" | "etp" {
+  return req.session.rdmsMode ?? "rest";
+}
+
+function etpErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+router.get("/osdu/rdms/mode", (req, res): void => {
+  res.json({ mode: rdmsMode(req) });
+});
+
+router.post("/osdu/rdms/mode", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const mode = (req.body as { mode?: unknown } | undefined)?.mode;
+  if (mode !== "rest" && mode !== "etp") {
+    res.status(400).json({ error: "mode must be 'rest' or 'etp'." });
+    return;
+  }
+  if (mode === "rest") {
+    await closeEtpClient(req.sessionID);
+    req.session.rdmsMode = "rest";
+    res.json({ mode: "rest" });
+    return;
+  }
+  if (!cfg.etpUrl) {
+    res.status(400).json({ error: "This connection has no ETP endpoint, so ETP mode is unavailable." });
+    return;
+  }
+  // Warm the session so the toggle only succeeds when ETP is actually reachable.
+  try {
+    await getEtpClient(req.sessionID, cfg);
+  } catch (err) {
+    res.status(502).json({ error: `Could not open an ETP session: ${etpErrorMessage(err, "unknown error")}` });
+    return;
+  }
+  req.session.rdmsMode = "etp";
+  res.json({ mode: "etp" });
+});
 
 router.get("/osdu/rdms/dataspaces", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {
     res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpGetDataspaces(req.sessionID, cfg));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to fetch dataspaces") });
+    }
     return;
   }
   const client = getOsduClient(cfg);
@@ -33,6 +98,14 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources", async (req, res): Promi
   const { dataspace } = req.params;
   if (!dataspace) {
     res.status(400).json({ error: "Dataspace parameter is required." });
+    return;
+  }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpGetResourceSummary(req.sessionID, cfg, dataspace));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to fetch resources") });
+    }
     return;
   }
   const client = getOsduClient(cfg);
@@ -63,6 +136,14 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid/arrays", 
     res.status(400).json({ error: "dataspace, datatype, uuid, and path query param are required." });
     return;
   }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpGetArray(req.sessionID, cfg, dataspace, datatype, uuid, rawPath));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to fetch array data") });
+    }
+    return;
+  }
   const client = getOsduClient(cfg);
   try {
     const hdfPath = encodeURIComponent(rawPath.replace(/^\/+/, ""));
@@ -91,6 +172,14 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", async (
     res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
     return;
   }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpGetRecord(req.sessionID, cfg, dataspace, datatype, uuid));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to fetch record") });
+    }
+    return;
+  }
   const client = getOsduClient(cfg);
   try {
     const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}`;
@@ -116,6 +205,15 @@ router.delete("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", asyn
   const { dataspace, datatype, uuid } = req.params;
   if (!dataspace || !datatype || !uuid) {
     res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
+    return;
+  }
+  if (rdmsMode(req) === "etp") {
+    try {
+      const data = await etpDeleteRecord(req.sessionID, cfg, dataspace, datatype, uuid);
+      res.status(200).json(data ?? null);
+    } catch (err) {
+      res.status(502).json({ error: `Reservoir DDMS: ${etpErrorMessage(err, "Failed to delete record")}` });
+    }
     return;
   }
   const client = getOsduClient(cfg);
@@ -152,6 +250,14 @@ router.get("/osdu/rdms/dataspaces/:dataspace/resources/:datatype", async (req, r
     res.status(400).json({ error: "Dataspace and datatype parameters are required." });
     return;
   }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpGetResourcesOfType(req.sessionID, cfg, dataspace, datatype));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to fetch resource records") });
+    }
+    return;
+  }
   const client = getOsduClient(cfg);
   try {
     const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}`;
@@ -177,6 +283,14 @@ router.post("/osdu/rdms/dataspaces/:dataspace/transactions", async (req, res): P
   const { dataspace } = req.params;
   if (!dataspace) {
     res.status(400).json({ error: "Dataspace parameter is required." });
+    return;
+  }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpStartTransaction(req.sessionID, cfg, dataspace));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to create transaction") });
+    }
     return;
   }
   const client = getOsduClient(cfg);
@@ -205,6 +319,14 @@ router.put("/osdu/rdms/dataspaces/:dataspace/resources", async (req, res): Promi
     res.status(400).json({ error: "Dataspace and transactionId query param are required." });
     return;
   }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpPutObjects(req.sessionID, cfg, req.body, transactionId));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to update resource") });
+    }
+    return;
+  }
   const client = getOsduClient(cfg);
   try {
     const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources`;
@@ -229,6 +351,14 @@ router.put("/osdu/rdms/dataspaces/:dataspace/transactions/:transactionId", async
   const { dataspace, transactionId } = req.params;
   if (!dataspace || !transactionId) {
     res.status(400).json({ error: "Dataspace and transactionId parameters are required." });
+    return;
+  }
+  if (rdmsMode(req) === "etp") {
+    try {
+      res.json(await etpCommitTransaction(req.sessionID, cfg, transactionId));
+    } catch (err) {
+      res.status(502).json({ error: etpErrorMessage(err, "Failed to commit transaction") });
+    }
     return;
   }
   const client = getOsduClient(cfg);

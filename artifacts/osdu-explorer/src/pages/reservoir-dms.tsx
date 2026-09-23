@@ -42,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -316,6 +317,9 @@ export default function ReservoirDmsPage() {
   const [dataspaces, setDataspaces] = useState<string[]>([]);
   const [dataspaceError, setDataspaceError] = useState<string | null>(null);
   const [selectedDataspace, setSelectedDataspace] = useState<string>("");
+  const [rdmsMode, setRdmsMode] = useState<"rest" | "etp">("rest");
+  const [modeSwitching, setModeSwitching] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
 
   const [resources, setResources] = useState<Resource[] | null>(null);
   const [resourcesLoading, setResourcesLoading] = useState(false);
@@ -368,6 +372,39 @@ export default function ReservoirDmsPage() {
     void loadDataspaces();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    fetch("/api/osdu/rdms/mode")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { mode?: unknown } | null) => {
+        if (data?.mode === "etp") setRdmsMode("etp");
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const toggleRdmsMode = useCallback(async (useEtp: boolean) => {
+    const nextMode = useEtp ? "etp" : "rest";
+    setModeSwitching(true);
+    setModeError(null);
+    try {
+      const res = await fetch("/api/osdu/rdms/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: nextMode }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setModeError(err.error ?? `Could not switch to ${nextMode.toUpperCase()} mode`);
+        return;
+      }
+      setRdmsMode(nextMode);
+      void loadDataspaces();
+    } catch {
+      setModeError(`Could not switch to ${nextMode.toUpperCase()} mode`);
+    } finally {
+      setModeSwitching(false);
+    }
+  }, [loadDataspaces]);
 
   useEffect(() => {
     countAbortRef.current?.abort();
@@ -824,6 +861,20 @@ export default function ReservoirDmsPage() {
           {resourcesLoading && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
           Fetch Resources
         </Button>
+        <div className="ml-auto flex items-center gap-2">
+          {modeError && (
+            <span className={cn("text-xs", RESERVOIR_ERROR_TEXT_CLASS)} role="alert">{modeError}</span>
+          )}
+          <span className={cn("text-xs", rdmsMode === "rest" ? "font-semibold text-foreground" : "text-muted-foreground")}>REST</span>
+          <Switch
+            aria-label="Toggle Reservoir DDMS access between REST and ETP"
+            checked={rdmsMode === "etp"}
+            disabled={modeSwitching}
+            onCheckedChange={(checked) => { void toggleRdmsMode(checked); }}
+          />
+          <span className={cn("text-xs", rdmsMode === "etp" ? "font-semibold text-foreground" : "text-muted-foreground")}>ETP</span>
+          {modeSwitching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </div>
       </div>
 
       {/* Content area — split when records are active */}
