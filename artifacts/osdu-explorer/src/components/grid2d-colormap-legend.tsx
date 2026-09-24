@@ -15,7 +15,6 @@ function formatTick(v: number): string {
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-/** Vertical color bar with min/mid/max ticks for the elevation ramp. */
 export function Grid2dColormapLegend({
   name,
   domain,

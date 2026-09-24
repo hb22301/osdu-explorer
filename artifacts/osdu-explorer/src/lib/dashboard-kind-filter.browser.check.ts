@@ -502,6 +502,59 @@ function dashboardTimestampMockApiScript(): string {
   `;
 }
 
+function consoleNarrowWidthMockApiScript(): string {
+  return `
+    (() => {
+      const entry = {
+        id: "console-narrow-width",
+        timestamp: "2026-09-22T12:34:56.789Z",
+        type: "api_request",
+        level: "info",
+        method: "GET",
+        url: "https://osdu.example.test/api/search",
+        requestHeaders: {
+          "x-request-context": "request-header-value-that-is-long-enough-to-wrap-at-narrow-width",
+          "x-request-trace": "request-trace-value-that-must-stay-inside-its-column"
+        },
+        requestBody: null,
+        responseStatus: 200,
+        responseHeaders: {
+          "content-type": "application/json; charset=utf-8",
+          "x-response-context": "response-header-value-that-is-long-enough-to-wrap-at-narrow-width",
+          "x-response-trace": "response-trace-value-that-must-stay-inside-its-column"
+        },
+        responseBody: null,
+        durationMs: 143,
+        responseSize: 2048,
+        recordCount: 2,
+        pending: false,
+        message: null
+      };
+      const realFetch = window.fetch.bind(window);
+
+      window.fetch = async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/api/osdu/config")) {
+          return new Response(JSON.stringify({ configured: true }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url.includes("/api/osdu/schemas")) {
+          return new Response(JSON.stringify({ schemas: [], total: 0 }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url.includes("/api/osdu/console")) {
+          return new Response(JSON.stringify({ entries: [entry], total: 1 }), {
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return realFetch(input, init);
+      };
+    })();
+  `;
+}
+
 async function evaluate<T>(client: CdpClient, expression: string): Promise<T> {
   const response = await client.call("Runtime.evaluate", {
     expression,
@@ -751,6 +804,181 @@ async function runDashboardTimestampBrowserCheck(): Promise<void> {
     }
 
     console.log("Dashboard timestamp mode browser check passed.");
+  } finally {
+    browser?.close();
+    terminateProcess(chromium);
+    terminateProcess(appServer);
+  }
+}
+
+async function runConsolePanelBrowserCheck(): Promise<void> {
+  let appServer: ChildProcess | undefined;
+  let chromium: ChildProcess | undefined;
+  let browser: CdpClient | undefined;
+
+  try {
+    appServer = spawn("pnpm", ["--filter", "@workspace/osdu-explorer", "run", "dev"], {
+      cwd: process.cwd(),
+      env: { ...process.env, BASE_PATH: "/", PORT: String(APP_PORT) },
+      detached: true,
+      stdio: "ignore",
+    });
+
+    await waitForUrl(`${APP_URL}/search`, "OSDU Explorer dev server for Console narrow-width check");
+
+    chromium = spawn(CHROMIUM_PATH, [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--remote-allow-origins=*",
+      `--remote-debugging-port=${DEBUG_PORT}`,
+      `--user-data-dir=/tmp/osdu-console-narrow-width-${process.pid}`,
+      "about:blank",
+    ], {
+      detached: true,
+      stdio: "ignore",
+    });
+
+    await waitForUrl(
+      `http://127.0.0.1:${DEBUG_PORT}/json/version`,
+      "headless Chromium for Console narrow-width check",
+    );
+    const target = await getPageTarget();
+    browser = await CdpClient.connect(target.webSocketDebuggerUrl!);
+    await browser.call("Runtime.enable");
+    await browser.call("Page.enable");
+    await browser.call("Emulation.setDeviceMetricsOverride", {
+      width: 760,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await browser.call("Page.addScriptToEvaluateOnNewDocument", {
+      source: consoleNarrowWidthMockApiScript(),
+    });
+    await browser.call("Page.navigate", { url: `${APP_URL}/search` });
+
+    await waitFor(
+      () => evaluate<boolean>(browser!, "document.querySelector('h1')?.textContent === 'Record Search'"),
+      "Record Search to render for Console narrow-width check",
+    );
+    await waitFor(
+      () => evaluate<boolean>(
+        browser!,
+        "document.querySelector('[data-testid=\"console-panel\"]') === null",
+      ),
+      "Console to remain collapsed before the interaction",
+    );
+    await evaluate<void>(browser, browserFunction(() => {
+      const toggle = document.querySelector('[aria-label="Toggle console"]');
+      if (!(toggle instanceof HTMLElement)) throw new Error("Console toggle was not found");
+      toggle.click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(
+        browser!,
+        "document.querySelector('[data-testid=\"console-entry-row\"]') !== null",
+      ),
+      "the Console entry to render",
+    );
+    await evaluate<void>(browser, browserFunction(() => {
+      const trigger = document.querySelector('[data-testid="console-entry-row"] button');
+      if (!(trigger instanceof HTMLElement)) throw new Error("Console entry disclosure control was not found");
+      trigger.click();
+    }));
+
+    await waitFor(
+      () => evaluate<boolean>(
+        browser!,
+        "document.querySelector('[data-testid=\"console-request-column\"] pre')?.textContent?.includes('x-request-context') === true",
+      ),
+      "the expanded Console entry with request headers",
+    );
+    await waitFor(
+      () => evaluate<boolean>(
+        browser!,
+        "document.querySelector('[data-testid=\"console-response-column\"] pre')?.textContent?.includes('x-response-context') === true",
+      ),
+      "the expanded Console entry with response headers",
+    );
+
+    const layout = await evaluate<{
+      viewportWidth: number;
+      panel: { left: number; right: number; width: number };
+      row: { left: number; right: number; width: number };
+      request: { left: number; right: number; width: number };
+      response: { left: number; right: number; width: number };
+      requestPre: { left: number; right: number };
+      responsePre: { left: number; right: number };
+    }>(browser, browserFunction(() => {
+      const panelElement = document.querySelector('[data-testid="console-panel"]');
+      const rowElement = document.querySelector('[data-testid="console-entry-row"]');
+      const requestElement = document.querySelector('[data-testid="console-request-column"]');
+      const responseElement = document.querySelector('[data-testid="console-response-column"]');
+      const requestPreElement = document.querySelector('[data-testid="console-request-column"] pre');
+      const responsePreElement = document.querySelector('[data-testid="console-response-column"] pre');
+      if (
+        !(panelElement instanceof HTMLElement)
+        || !(rowElement instanceof HTMLElement)
+        || !(requestElement instanceof HTMLElement)
+        || !(responseElement instanceof HTMLElement)
+        || !(requestPreElement instanceof HTMLElement)
+        || !(responsePreElement instanceof HTMLElement)
+      ) {
+        throw new Error("Console geometry elements were not found");
+      }
+      const panelBounds = panelElement.getBoundingClientRect();
+      const rowBounds = rowElement.getBoundingClientRect();
+      const requestBounds = requestElement.getBoundingClientRect();
+      const responseBounds = responseElement.getBoundingClientRect();
+      const requestPreBounds = requestPreElement.getBoundingClientRect();
+      const responsePreBounds = responsePreElement.getBoundingClientRect();
+      return {
+        viewportWidth: window.innerWidth,
+        panel: { left: panelBounds.left, right: panelBounds.right, width: panelBounds.width },
+        row: { left: rowBounds.left, right: rowBounds.right, width: rowBounds.width },
+        request: { left: requestBounds.left, right: requestBounds.right, width: requestBounds.width },
+        response: { left: responseBounds.left, right: responseBounds.right, width: responseBounds.width },
+        requestPre: { left: requestPreBounds.left, right: requestPreBounds.right },
+        responsePre: { left: responsePreBounds.left, right: responsePreBounds.right },
+      };
+    }));
+
+    assert.equal(layout.viewportWidth, 760);
+    assert.ok(layout.panel.width > 0, "the Console panel should have visible width");
+    assert.ok(
+      layout.panel.right <= layout.viewportWidth + 1,
+      `the Console should remain inside the narrow viewport (right ${layout.panel.right}, viewport ${layout.viewportWidth})`,
+    );
+    assert.ok(
+      layout.row.right <= layout.panel.right + 1,
+      "the expanded Console row should stay inside the Console panel",
+    );
+    assert.ok(
+      layout.request.width > 0 && layout.response.width > 0,
+      "both request and response columns should remain visible",
+    );
+    assert.ok(
+      layout.request.left >= layout.row.left - 1
+        && layout.request.right <= layout.row.right + 1
+        && layout.response.left >= layout.row.left - 1
+        && layout.response.right <= layout.row.right + 1,
+      "both Console columns should stay inside the expanded row",
+    );
+    assert.ok(
+      layout.response.width > layout.request.width,
+      "the response column should keep more room than the request column",
+    );
+    assert.ok(
+      layout.requestPre.left >= layout.request.left - 1
+        && layout.requestPre.right <= layout.request.right + 1
+        && layout.responsePre.left >= layout.response.left - 1
+        && layout.responsePre.right <= layout.response.right + 1,
+      "long request and response headers should stay inside their columns",
+    );
+
+    console.log("Console narrow-width browser check passed.");
   } finally {
     browser?.close();
     terminateProcess(chromium);
@@ -2685,6 +2913,7 @@ await runBrowserCheck();
 await runCancelBrowserCheck();
 await runStaleRefreshBrowserCheck();
 await runDashboardTimestampBrowserCheck();
+await runConsolePanelBrowserCheck();
 await runRecordLookupDialogBrowserCheck();
 await runLargeRddmsResponseBrowserCheck();
 await runReservoirTableBrowserCheck();

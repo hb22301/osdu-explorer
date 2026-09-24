@@ -2,13 +2,10 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
-import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
-const PgSession = connectPgSimple(session);
 
 app.use(
   pinoHttp({
@@ -42,7 +39,6 @@ if (!sessionSecret) {
 app.use(
   session({
     secret: sessionSecret,
-    store: new PgSession({ pool, createTableIfMissing: true }),
     resave: false,
     saveUninitialized: false,
     cookie: {

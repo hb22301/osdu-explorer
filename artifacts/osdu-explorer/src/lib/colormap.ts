@@ -1,18 +1,6 @@
-// Sequential colormaps for elevation / continuous-property coloring.
-//
-// Pure module — no `three`, no DOM, no React. Safe to import from tests (tsx),
-// from the mesh builder, and from the 3D view. Colors are returned as RGB in
-// the 0..1 range (what three.js BufferAttribute expects); helpers are provided
-// to render them as CSS `rgb()` for the legend.
-
 export type ColormapName = "viridis" | "cividis" | "turbo";
+export type RGB = [number, number, number];
 
-export type RGB = [number, number, number]; // each channel 0..1
-
-// Evenly-spaced control points across [0,1]. Sampled from the canonical
-// perceptually-uniform maps; linear interpolation between stops is close enough
-// for surface coloring and keeps this dependency-free. All are colorblind-safe;
-// none are rainbow/jet.
 const STOPS: Record<ColormapName, RGB[]> = {
   viridis: [
     [0.267, 0.005, 0.329],
@@ -58,12 +46,8 @@ const STOPS: Record<ColormapName, RGB[]> = {
 };
 
 export const COLORMAP_NAMES = Object.keys(STOPS) as ColormapName[];
-
-// Neutral gray used for null / undefined nodes so they read as "no data"
-// rather than as a value on the ramp.
 export const NULL_COLOR: RGB = [0.55, 0.55, 0.58];
 
-/** Sample a colormap at t (clamped to [0,1]) with linear interpolation. */
 export function sampleColormap(name: ColormapName, t: number): RGB {
   const stops = STOPS[name] ?? STOPS.viridis;
   const x = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0;
@@ -80,13 +64,11 @@ export function sampleColormap(name: ColormapName, t: number): RGB {
   ];
 }
 
-/** CSS `rgb(...)` string for an RGB in 0..1. */
 export function rgbToCss([r, g, b]: RGB): string {
   const to255 = (c: number) => Math.round(Math.min(1, Math.max(0, c)) * 255);
   return `rgb(${to255(r)}, ${to255(g)}, ${to255(b)})`;
 }
 
-/** A CSS `linear-gradient(...)` spanning a colormap, for legends/swatches. */
 export function colormapGradientCss(name: ColormapName, angle = "to top"): string {
   const stops = STOPS[name] ?? STOPS.viridis;
   const n = stops.length - 1;
@@ -94,11 +76,6 @@ export function colormapGradientCss(name: ColormapName, angle = "to top"): strin
   return `linear-gradient(${angle}, ${parts.join(", ")})`;
 }
 
-/**
- * Robust color domain [vmin, vmax] from the low/high percentiles of the finite
- * values, so a few outliers don't wash out the ramp. Defaults to 2nd/98th.
- * Returns [0,1] when there are no finite values, and widens a degenerate range.
- */
 export function robustDomain(
   values: ArrayLike<number>,
   loPct = 2,
@@ -121,7 +98,6 @@ export function robustDomain(
   let vmin = pick(loPct);
   let vmax = pick(hiPct);
   if (!(vmax > vmin)) {
-    // Degenerate (flat surface or single value): widen so coloring is stable.
     const c = vmin;
     const eps = Math.abs(c) > 0 ? Math.abs(c) * 0.5 : 1;
     vmin = c - eps;
@@ -130,10 +106,6 @@ export function robustDomain(
   return [vmin, vmax];
 }
 
-/**
- * Per-vertex RGB (0..1) for a scalar array. Non-finite scalars get NULL_COLOR.
- * Output length is values.length * 3, laid out [r,g,b, r,g,b, ...].
- */
 export function mapScalarsToColors(
   values: ArrayLike<number>,
   domain: [number, number],

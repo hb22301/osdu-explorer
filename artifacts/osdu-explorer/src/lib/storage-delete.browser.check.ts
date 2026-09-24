@@ -11,6 +11,7 @@ declare global {
   interface Window {
     __storageDeleteTest: {
       requests: { method: string; url: string }[];
+      failMode: "soft" | "purge" | null;
     };
   }
 }
@@ -126,7 +127,7 @@ function mockApiScript(): string {
         ancestry: {},
         tags: {},
       };
-      window.__storageDeleteTest = { requests: [] };
+      window.__storageDeleteTest = { requests: [], failMode: null };
 
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -147,11 +148,23 @@ function mockApiScript(): string {
         // Soft delete: POST to .../{id}/delete.
         if (method === "POST" && url.endsWith("/api/osdu/records/" + encodedId + "/delete")) {
           window.__storageDeleteTest.requests.push({ method, url });
+          if (window.__storageDeleteTest.failMode === "soft") {
+            return new Response(JSON.stringify({ error: "Soft delete rejected: record is protected" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
         }
         // Purge: DELETE on .../{id}.
         if (method === "DELETE" && url.endsWith("/api/osdu/records/" + encodedId)) {
           window.__storageDeleteTest.requests.push({ method, url });
+          if (window.__storageDeleteTest.failMode === "purge") {
+            return new Response(JSON.stringify({ error: "Purge rejected: record has active references" }), {
+              status: 409,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/api/osdu/records/")) {
@@ -268,6 +281,25 @@ async function clickConfirmAction(browser: CdpClient, label: string): Promise<vo
 async function runScenario(browser: CdpClient): Promise<void> {
   const encodedId = "tenant%3Abrowser-test%3Amaster-data--Well(uuid-store)";
 
+  // A rejected soft delete keeps the viewer open and surfaces the Storage API error.
+  await openStorageViewer(browser);
+  await evaluate<void>(browser, "window.__storageDeleteTest.failMode = 'soft'");
+  await openDeleteConfirm(browser);
+  await clickConfirmAction(browser, "Soft delete");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 1"),
+    "the rejected soft delete request to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]')?.textContent?.includes('Soft delete rejected: record is protected') ?? false"),
+    "the soft delete API error to appear",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') !== null"),
+    true,
+    "the viewer should remain available after a rejected soft delete",
+  );
+
   // Soft delete: POST to .../{id}/delete, then the viewer closes.
   await openStorageViewer(browser);
   await openDeleteConfirm(browser);
@@ -289,6 +321,25 @@ async function runScenario(browser: CdpClient): Promise<void> {
       `the soft delete should target the record's :delete endpoint, got ${requests[0].url}`,
     );
   }
+
+  // A rejected purge keeps the viewer open and surfaces the Storage API error.
+  await openStorageViewer(browser);
+  await evaluate<void>(browser, "window.__storageDeleteTest.failMode = 'purge'");
+  await openDeleteConfirm(browser);
+  await clickConfirmAction(browser, "Purge");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 1"),
+    "the rejected purge request to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]')?.textContent?.includes('Purge rejected: record has active references') ?? false"),
+    "the purge API error to appear",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') !== null"),
+    true,
+    "the viewer should remain available after a rejected purge",
+  );
 
   // Purge: DELETE on .../{id}. A fresh navigation resets the recorded requests.
   await openStorageViewer(browser);
