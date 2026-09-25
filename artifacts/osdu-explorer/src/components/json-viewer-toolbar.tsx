@@ -68,6 +68,7 @@ import {
 } from "@/components/json-tree-view";
 import { Textarea } from "@/components/ui/textarea";
 import type { Grid2dSurface } from "@/lib/grid2d-mesh";
+import { resolveGrid2dLattice } from "@/lib/grid2d-resqml";
 import { saveRdmsRecord } from "@/lib/rdms-record-save";
 import { deleteRdmsRecord, getRdmsDeleteGuidance } from "@/lib/rdms-record-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
@@ -463,31 +464,8 @@ function resolveGrid2dMeta(root: JsonValue): Grid2dMeta {
 
   const sg = gridReadNode(root, ["Grid2dPatch", "Geometry", "Points", "SupportingGeometry"]);
   if (sg) {
-    const ox = gridReadNumber(sg, ["Origin", "Coordinate1"]);
-    const oy = gridReadNumber(sg, ["Origin", "Coordinate2"]);
-    const oz = gridReadNumber(sg, ["Origin", "Coordinate3"]) ?? 0;
-    const offsetArr = gridReadNode(sg, ["Offset"]);
-    const offsets = Array.isArray(offsetArr) ? offsetArr : [];
-
-    const step = (off: JsonValue | undefined): [number, number, number] | undefined => {
-      if (!off) return undefined;
-      const dx = gridReadNumber(off, ["Offset", "Coordinate1"]);
-      const dy = gridReadNumber(off, ["Offset", "Coordinate2"]);
-      const dz = gridReadNumber(off, ["Offset", "Coordinate3"]) ?? 0;
-      const spacing =
-        gridReadNumber(off, ["Spacing", "Value"]) ??
-        gridReadNumber(off, ["Spacing", "Values", "Value"]);
-      if (dx === undefined || dy === undefined || spacing === undefined) return undefined;
-      return [dx * spacing, dy * spacing, dz * spacing];
-    };
-
-    const iStep = step(offsets[0]);
-    const jStep = step(offsets[1]);
-    if (ox !== undefined && oy !== undefined && iStep && jStep) {
-      meta.origin = [ox, oy, oz];
-      meta.iStep = iStep;
-      meta.jStep = jStep;
-    }
+    const lattice = resolveGrid2dLattice(sg);
+    if (lattice) Object.assign(meta, lattice);
   }
 
   return meta;

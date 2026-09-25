@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "check:dashboard-kind-filter-browser": "tsx src/lib/dashboard-kind-filter.browser.check.ts",
     "check:grid2d-surface-browser": "tsx src/lib/grid2d-surface.browser.check.ts",
     "check:grid2d-mesh": "tsx src/lib/grid2d-mesh.check.ts",
+    "check:grid2d-resqml": "tsx src/lib/grid2d-resqml.check.ts",
     "check:reservoir-edit-browser": "tsx src/lib/reservoir-edit.browser.check.ts",
     "check:reservoir-delete-browser": "tsx src/lib/reservoir-delete.browser.check.ts",
     "check:reservoir-mode-toggle-browser": "tsx src/lib/reservoir-mode-toggle.browser.check.ts",

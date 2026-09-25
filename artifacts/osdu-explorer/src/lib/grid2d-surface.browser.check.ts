@@ -129,8 +129,8 @@ function mockApiScript(forceNoWebgl: boolean): string {
               SupportingGeometry: {
                 Origin: { Coordinate1: 100, Coordinate2: 200, Coordinate3: 0 },
                 Offset: [
-                  { Offset: { Coordinate1: 1, Coordinate2: 0, Coordinate3: 0 }, Spacing: { Value: 10 } },
-                  { Offset: { Coordinate1: 0, Coordinate2: 1, Coordinate3: 0 }, Spacing: { Value: 20 } }
+                  { Offset: { Coordinate1: 0, Coordinate2: 1, Coordinate3: 0 }, Spacing: { Value: 20, Count: 1 } },
+                  { Offset: { Coordinate1: 1, Coordinate2: 0, Coordinate3: 0 }, Spacing: { Value: 10, Count: 2 } }
                 ]
               },
               ZValues: { Values: { PathInHdfFile: "/grid/z values" } }
