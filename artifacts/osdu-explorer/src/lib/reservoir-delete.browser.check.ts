@@ -275,8 +275,8 @@ async function openDeleteDialog(browser: CdpClient): Promise<void> {
 async function runScenario(browser: CdpClient): Promise<void> {
   await browser.call("Page.navigate", { url: `${APP_URL}/reservoir-dms` });
   await waitFor(
-    () => evaluate<boolean>(browser, "([...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Fetch Resources'))"),
-    "Fetch Resources button to become available",
+    () => evaluate<boolean>(browser, "([...document.querySelectorAll('button')].some((button) => button.textContent?.trim() === 'Fetch Resources' && !button.disabled))"),
+    "Fetch Resources button to become enabled",
   );
   await evaluate<void>(browser, browserFunction(() => {
     const button = [...document.querySelectorAll("button")]
