@@ -10,10 +10,31 @@ const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? "/repl/tools/bin/chromium";
 declare global {
   interface Window {
     __reservoirDeleteTest: {
-      requests: { method: string; url: string }[];
+      requests: { method: string; url: string; body?: string | null }[];
+      failDelete: boolean;
+      throwDelete: boolean;
+      failCascade: boolean;
+      referencers: { uri: string; datatype: string; uuid: string; name: string }[];
     };
   }
 }
+
+// The referencing records the cascade scenario discovers for the target. Two
+// records → a "Delete 3 records" cascade (well below the acknowledgement threshold).
+const CASCADE_REFERENCERS = [
+  {
+    uri: "eml:///dataspace('browser test/dataspace')/resqml20.obj_TriangulatedSetRepresentation(ref-uuid-1)",
+    datatype: "resqml20.obj_TriangulatedSetRepresentation",
+    uuid: "ref-uuid-1",
+    name: "First referencing record",
+  },
+  {
+    uri: "eml:///dataspace('browser test/dataspace')/resqml20.obj_Grid2dRepresentation(ref-uuid-2)",
+    datatype: "resqml20.obj_Grid2dRepresentation",
+    uuid: "ref-uuid-2",
+    name: "Second referencing record",
+  },
+];
 
 interface CdpMessage {
   id?: number;
@@ -127,7 +148,7 @@ function mockApiScript(): string {
         customData: { creator: "browser-check", created: "2026-01-01T00:00:00.000Z" },
         lastChanged: "2026-01-02T00:00:00.000Z"
       };
-      window.__reservoirDeleteTest = { requests: [], failDelete: false, throwDelete: false };
+      window.__reservoirDeleteTest = { requests: [], failDelete: false, throwDelete: false, failCascade: false, referencers: [] };
       let deleted = false;
 
       const realFetch = window.fetch.bind(window);
@@ -142,6 +163,32 @@ function mockApiScript(): string {
         }
         if (url.endsWith("/api/osdu/rdms/dataspaces")) {
           return new Response(JSON.stringify({ dataspaces: [dataspace] }), { headers: { "Content-Type": "application/json" } });
+        }
+        // Discovery: the records that reference the target. The delete dialog
+        // calls this on open to preview the cascade blast radius. Checked before
+        // the record GET below, whose URL is a prefix of this one.
+        if (method === "GET" && url.includes("/sources")) {
+          return new Response(JSON.stringify({
+            referencers: window.__reservoirDeleteTest.referencers,
+            truncated: false,
+          }), { headers: { "Content-Type": "application/json" } });
+        }
+        // Atomic cascade delete of the referencer set + target. The server
+        // orchestrates the transaction (start, delete-each, commit, rollback),
+        // so the frontend only ever issues this single POST.
+        if (method === "POST" && url.includes("/cascade-delete")) {
+          window.__reservoirDeleteTest.requests.push({ method, url, body: init && init.body ? String(init.body) : null });
+          if (window.__reservoirDeleteTest.failCascade) {
+            // Commit was refused because references shifted; the server rolled back.
+            return new Response(JSON.stringify({
+              error: "Reservoir DDMS: 2 dangling reference(s) in space " + dataspace,
+            }), { status: 412, headers: { "Content-Type": "application/json" } });
+          }
+          deleted = true;
+          return new Response(JSON.stringify({
+            ok: true,
+            deletedCount: window.__reservoirDeleteTest.referencers.length + 1,
+          }), { headers: { "Content-Type": "application/json" } });
         }
         // Delete the record. The RDDMS REST API self-commits this delete, so a
         // single request removes the record with no surrounding transaction.
@@ -206,6 +253,23 @@ function terminateProcess(child: ChildProcess | undefined): void {
   } catch {
     child.kill("SIGTERM");
   }
+}
+
+async function clickDialogButton(browser: CdpClient, label: string): Promise<void> {
+  await evaluate<void>(browser, browserFunction((text: string) => {
+    const button = [...document.querySelectorAll('[role="alertdialog"] button')]
+      .find((candidate) => candidate.textContent?.trim() === text);
+    if (!button) throw new Error("Dialog button not found: " + text);
+    (button as HTMLButtonElement).click();
+  }, label));
+}
+
+async function openDeleteDialog(browser: CdpClient): Promise<void> {
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Delete record in Reservoir DDMS"]');
+    if (!button) throw new Error("Delete trash button was not found");
+    (button as HTMLButtonElement).click();
+  }));
 }
 
 async function runScenario(browser: CdpClient): Promise<void> {
@@ -328,22 +392,82 @@ async function runScenario(browser: CdpClient): Promise<void> {
     );
   }
 
-  await evaluate<void>(browser, "window.__reservoirDeleteTest.failDelete = false; window.__reservoirDeleteTest.requests = []");
-  await evaluate<void>(browser, browserFunction(() => {
-    const confirm = [...document.querySelectorAll('[role="alertdialog"] button')]
-      .find((candidate) => candidate.textContent?.trim() === "Delete");
-    if (!confirm) throw new Error("Delete confirm button was not found");
-    (confirm as HTMLButtonElement).click();
-  }));
+  // --- Cascade delete: a referenced record deletes together with its referencers ---
+  // Dismiss the single-delete dialog, then reopen it against a target that now
+  // reports referencing records, so the dialog must offer an atomic cascade.
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.failDelete = false");
+  await clickDialogButton(browser, "Cancel");
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]') === null"),
+    "the delete dialog to close on cancel",
+  );
+  await evaluate<void>(
+    browser,
+    `window.__reservoirDeleteTest.referencers = ${JSON.stringify(CASCADE_REFERENCERS)}; window.__reservoirDeleteTest.requests = []`,
+  );
+  await openDeleteDialog(browser);
+  // Discovery runs on open; the dialog must preview the blast radius.
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"rdms-cascade-preview\"]') !== null"),
+    "the cascade blast-radius preview to appear",
+  );
+  {
+    const previewText = await evaluate<string>(
+      browser,
+      "document.querySelector('[data-testid=\"rdms-cascade-preview\"]')?.textContent ?? ''",
+    );
+    assert.match(previewText, /2 other records/, "the preview should count the referencing records");
+    assert.match(previewText, /ref-uuid-1/, "the preview should list the first referencer");
+    assert.match(previewText, /ref-uuid-2/, "the preview should list the second referencer");
+  }
+  // With 2 referencers (below the acknowledgement threshold) the destructive
+  // button deletes all 3 records together and is immediately enabled.
+  await waitFor(
+    () => evaluate<boolean>(browser, "[...document.querySelectorAll('[role=\"alertdialog\"] button')].some((b) => b.textContent?.trim() === 'Delete 3 records' && !b.disabled)"),
+    "the 'Delete 3 records' button to be enabled",
+  );
 
+  // A cascade whose commit is refused (references shifted) is rolled back server
+  // side; the frontend must explain nothing was deleted and keep the dialog open.
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.failCascade = true; window.__reservoirDeleteTest.requests = []");
+  await clickDialogButton(browser, "Delete 3 records");
   await waitFor(
     () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 1"),
-    "the delete request to fire after confirmation",
+    "the cascade delete request to fire",
   );
-  // The detail viewer closes on a successful delete, returning to the record list.
+  {
+    const requests = await evaluate<{ method: string; url: string; body?: string | null }[]>(
+      browser,
+      "window.__reservoirDeleteTest.requests",
+    );
+    assert.equal(requests.length, 1, "a cascade should issue exactly one request from the frontend");
+    assert.equal(requests[0].method, "POST", "the cascade should POST to the orchestration endpoint");
+    assert.match(requests[0].url, /\/cascade-delete$/, "the cascade should target the cascade-delete endpoint");
+    const body = JSON.parse(requests[0].body ?? "{}") as { target?: { uuid?: string }; referencers?: unknown[] };
+    assert.equal(body.target?.uuid, "uuid/delete", "the cascade body should carry the target record");
+    assert.equal(body.referencers?.length, 2, "the cascade body should carry the confirmed referencer set");
+  }
+  await waitFor(
+    () => evaluate<boolean>(browser, "(document.querySelector('[role=\"alert\"]')?.textContent?.includes('Deletion blocked') && document.querySelector('[role=\"alert\"]')?.textContent?.includes('re-check')) ?? false"),
+    "the cascade rollback / re-check guidance to appear",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]') !== null"),
+    true,
+    "the dialog should stay open after a rolled-back cascade",
+  );
+
+  // Retrying once the references settle deletes all three records atomically and
+  // closes the viewer — the same success path a single delete uses.
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.failCascade = false; window.__reservoirDeleteTest.requests = []");
+  await clickDialogButton(browser, "Delete 3 records");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__reservoirDeleteTest.requests.length === 1"),
+    "the retried cascade delete request to fire",
+  );
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Reservoir DDMS\"]') === null"),
-    "the record detail viewer to close after a successful delete",
+    "the record detail viewer to close after a successful cascade delete",
   );
 
   const requests = await evaluate<{ method: string; url: string }[]>(
@@ -352,13 +476,13 @@ async function runScenario(browser: CdpClient): Promise<void> {
   );
   assert.deepEqual(
     requests.map((request) => request.method),
-    ["DELETE"],
-    "a successful delete should fire exactly one self-committing DELETE request",
+    ["POST"],
+    "a successful cascade should fire exactly one POST to the orchestration endpoint",
   );
   assert.match(
     requests[0].url,
-    /\/resources\/resqml20\.obj_WellboreMarkerFrameRepresentation\/uuid%2Fdelete$/,
-    "the delete should target the record's resource URI with no transaction",
+    /\/cascade-delete$/,
+    "the cascade should target the cascade-delete orchestration endpoint",
   );
 }
 

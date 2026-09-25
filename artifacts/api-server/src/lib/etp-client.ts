@@ -1,5 +1,6 @@
 import { getAccessToken, type OsduConfig } from "./osdu-client";
 import { logger } from "./logger";
+import { parseObjectUri, extractTransactionId } from "./rdms-uri";
 
 // @osdu/open-etp-client is loaded lazily through a computed specifier so the
 // api-server still type-checks and runs in REST mode when the package is not
@@ -248,4 +249,66 @@ export async function etpDeleteRecord(
 ): Promise<unknown> {
   const client = await getEtpClient(sessionId, cfg);
   return client.deleteObjects([objectUri(dataspace, datatype, uuid)]);
+}
+
+// A record that references the delete target, normalised to the same shape the
+// REST /sources route returns so the frontend contract is identical.
+export interface RdmsReferencer {
+  uri: string;
+  datatype: string;
+  uuid: string;
+  name: string;
+}
+
+// Discovers the records that reference the target (its "sources" — the objects
+// whose deletion would otherwise be blocked by the target still existing). ETP
+// exposes this through getResources with a "sources" scope; shape is best effort
+// and MUST be verified live before ETP mode ships this feature.
+export async function etpGetSources(
+  sessionId: string,
+  cfg: OsduConfig,
+  dataspace: string,
+  datatype: string,
+  uuid: string,
+): Promise<RdmsReferencer[]> {
+  const client = await getEtpClient(sessionId, cfg);
+  const resources = asArray(
+    await client.getResources({ dataspace, uri: objectUri(dataspace, datatype, uuid) }, "sources"),
+  );
+  const referencers: RdmsReferencer[] = [];
+  // Dedup by { datatype, uuid } and drop the target itself, matching the REST path.
+  const seen = new Set<string>([`${datatype}|${uuid}`]);
+  for (const resource of resources) {
+    const record = resource as Record<string, unknown>;
+    const uri = typeof record?.uri === "string" ? record.uri : "";
+    const ref = parseObjectUri(uri);
+    if (!ref) continue;
+    const key = `${ref.datatype}|${ref.uuid}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    referencers.push({ uri, datatype: ref.datatype, uuid: ref.uuid, name: resourceName(resource) });
+  }
+  return referencers;
+}
+
+// Deletes the target and every referencer atomically inside one transaction,
+// rolling back on any failure. The whole "referenced-by" closure is deleted in a
+// single commit, so no dangling references remain and no delete ordering matters.
+export async function etpCascadeDelete(
+  sessionId: string,
+  cfg: OsduConfig,
+  dataspace: string,
+  uris: string[],
+): Promise<{ deletedCount: number }> {
+  const client = await getEtpClient(sessionId, cfg);
+  const txId = extractTransactionId(await client.startTransaction(false, [dataspace], "osdu-explorer cascade delete"));
+  if (!txId) throw new Error("ETP did not return a transaction id");
+  try {
+    await client.deleteObjects(uris, txId);
+    await client.commitTransaction(txId);
+    return { deletedCount: uris.length };
+  } catch (err) {
+    await client.rollbackTransaction(txId).catch(() => undefined);
+    throw err;
+  }
 }

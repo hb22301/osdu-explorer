@@ -18,7 +18,10 @@ import {
   etpPutObjects,
   etpCommitTransaction,
   etpDeleteRecord,
+  etpGetSources,
+  etpCascadeDelete,
 } from "../../lib/etp-client";
+import { parseObjectUri, extractTransactionId } from "../../lib/rdms-uri";
 
 const router: IRouter = Router();
 
@@ -30,20 +33,95 @@ function etpErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-// Pull a human-readable message out of a Reservoir DDMS error body. The service
-// is FastAPI-based and usually returns { detail }, while some gateways return
-// { message } or { reason }; a plain string body is used as-is. Returning the
-// server's own wording (rather than a bare "HTTP 409") lets the frontend detect
-// referential-integrity refusals and show the matching guidance.
+// Pull a human-readable message out of a Reservoir DDMS error body. The wire
+// shape varies by error and content negotiation: a 412 referential-integrity
+// refusal carries the reason in `description` (the NestJS PreconditionFailed
+// shape, e.g. "3 dangling reference(s) in space demo/Volve"); a problem+json
+// response uses `detail`; other codes use `message`; a plain string body is
+// used as-is. Surfacing the server's own wording (rather than a bare
+// "HTTP 412") lets the frontend detect referential-integrity refusals and show
+// the matching guidance. `title` is a last resort (it is only the generic
+// status phrase, e.g. "Precondition Failed", but still beats "HTTP 412").
 function extractErrorDetail(data: unknown): string | null {
   if (typeof data === "string") return data.length > 0 ? data : null;
   if (data && typeof data === "object") {
-    for (const key of ["message", "detail", "reason", "error"] as const) {
+    for (const key of ["message", "detail", "description", "reason", "error", "title"] as const) {
       const value = (data as Record<string, unknown>)[key];
       if (typeof value === "string" && value.length > 0) return value;
     }
   }
   return null;
+}
+
+// Cascade-delete discovery/orchestration tuning. `/sources` returns the full
+// transitive "referenced-by" closure (recursive up to SOURCES_DEPTH); we page
+// through it and stop at SOURCES_MAX so a pathological graph can never make the
+// preview (or the resulting one-shot transaction) unbounded — the frontend warns
+// when the list is truncated.
+const SOURCES_DEPTH = 1000;
+const SOURCES_PAGE_SIZE = 256;
+const SOURCES_MAX = 2000;
+
+interface RdmsReferencer {
+  uri: string;
+  datatype: string;
+  uuid: string;
+  name: string;
+}
+
+// Pages through the REST /sources endpoint, normalising each item to the
+// { uri, datatype, uuid, name } shape the frontend uses and parsing the ETP URI
+// into the { datatype, uuid } the delete calls address. Items whose URI does not
+// parse (e.g. a dataspace-only URI) are skipped rather than failing the request.
+async function collectRdmsSources(
+  client: ReturnType<typeof getOsduClient>,
+  dataspace: string,
+  datatype: string,
+  uuid: string,
+): Promise<{ referencers: RdmsReferencer[]; truncated: boolean }> {
+  const basePath = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}/sources`;
+  const referencers: RdmsReferencer[] = [];
+  // Dedup by { datatype, uuid }: a transitive closure can list the same record
+  // more than once via diamond reference paths, and the target itself can appear
+  // in a cycle. Both would otherwise inflate the preview and issue a redundant
+  // in-transaction delete.
+  const seen = new Set<string>([`${datatype}|${uuid}`]);
+  let skip = 0;
+  let truncated = false;
+  for (;;) {
+    const { status, data } = await client.fetch(basePath, {
+      params: {
+        depth: String(SOURCES_DEPTH),
+        countObjects: "true",
+        $skip: String(skip),
+        $top: String(SOURCES_PAGE_SIZE),
+      },
+      headers: { Accept: "application/json" },
+    });
+    if (status !== 200) throw new Error(`HTTP ${status} from Reservoir DDMS`);
+    const page = Array.isArray(data)
+      ? data
+      : Array.isArray((data as Record<string, unknown> | null)?.items)
+        ? ((data as Record<string, unknown>).items as unknown[])
+        : [];
+    for (const item of page) {
+      const record = item as Record<string, unknown>;
+      const uri = typeof record?.uri === "string" ? record.uri : "";
+      const ref = parseObjectUri(uri);
+      if (!ref) continue;
+      const key = `${ref.datatype}|${ref.uuid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      referencers.push({ uri, datatype: ref.datatype, uuid: ref.uuid, name: String(record?.name ?? "") });
+      if (referencers.length >= SOURCES_MAX) {
+        truncated = true;
+        break;
+      }
+    }
+    if (truncated || page.length < SOURCES_PAGE_SIZE) break;
+    skip += SOURCES_PAGE_SIZE;
+  }
+  return { referencers, truncated };
 }
 
 router.get("/osdu/rdms/mode", async (req, res): Promise<void> => {
@@ -307,6 +385,173 @@ router.delete("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", asyn
     }
   } catch (err) {
     res.status(502).json({ error: err instanceof Error ? err.message : "Failed to delete record" });
+  }
+});
+
+// Discovery: the records that reference this one (its transitive "referenced-by"
+// closure). Deleting a record that still has referencers is refused by Reservoir
+// DDMS (HTTP 412), so the delete dialog calls this first to preview exactly what
+// would have to be removed together.
+router.get(
+  "/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid/sources",
+  async (req, res): Promise<void> => {
+    const cfg = req.session.osduConfig;
+    if (!cfg) {
+      res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+      return;
+    }
+    const { dataspace, datatype, uuid } = req.params;
+    if (!dataspace || !datatype || !uuid) {
+      res.status(400).json({ error: "Dataspace, datatype and uuid parameters are required." });
+      return;
+    }
+    if (rdmsMode(req) === "etp") {
+      try {
+        const referencers = await etpGetSources(req.sessionID, cfg, dataspace, datatype, uuid);
+        res.json({ referencers, truncated: false });
+      } catch (err) {
+        res.status(502).json({ error: etpErrorMessage(err, "Failed to discover referencing records") });
+      }
+      return;
+    }
+    const client = getOsduClient(cfg);
+    try {
+      const result = await collectRdmsSources(client, dataspace, datatype, uuid);
+      res.json(result);
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : "Failed to discover referencing records" });
+    }
+  },
+);
+
+// Atomic cascade delete: removes the confirmed referencer set and the target in
+// one transaction, rolling back if any delete or the commit fails, so the
+// dataspace is never left partially deleted. The referencer set is exactly what
+// the user confirmed in the dialog (passed in the body), not a fresh server-side
+// re-discovery — that keeps the blast radius the user saw and approved.
+router.post("/osdu/rdms/dataspaces/:dataspace/cascade-delete", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const { dataspace } = req.params;
+  const body = req.body as
+    | { target?: { datatype?: unknown; uuid?: unknown }; referencers?: unknown }
+    | undefined;
+  const target = body?.target;
+  const rawReferencers = Array.isArray(body?.referencers) ? body.referencers : [];
+  if (
+    !dataspace ||
+    !target ||
+    typeof target.datatype !== "string" ||
+    typeof target.uuid !== "string"
+  ) {
+    res.status(400).json({ error: "A target { datatype, uuid } and referencers array are required." });
+    return;
+  }
+  const referencers: { datatype: string; uuid: string }[] = [];
+  for (const entry of rawReferencers) {
+    const record = entry as Record<string, unknown>;
+    if (typeof record?.datatype === "string" && typeof record?.uuid === "string") {
+      referencers.push({ datatype: record.datatype, uuid: record.uuid });
+    }
+  }
+  // Delete referencers first, target last. Inside one transaction the order does
+  // not affect the outcome, but it keeps the sequence intuitive if it is inspected.
+  const deletions = [...referencers, { datatype: target.datatype, uuid: target.uuid }];
+
+  if (rdmsMode(req) === "etp") {
+    try {
+      const uris = deletions.map(
+        (d) => `eml:///dataspace('${dataspace}')/${d.datatype}(${d.uuid})`,
+      );
+      const result = await etpCascadeDelete(req.sessionID, cfg, dataspace, uris);
+      res.json({ ok: true, deletedCount: result.deletedCount });
+    } catch (err) {
+      res.status(502).json({ error: `Reservoir DDMS: ${etpErrorMessage(err, "Failed to delete records")}` });
+    }
+    return;
+  }
+
+  const client = getOsduClient(cfg);
+  const dsPath = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}`;
+
+  // Best-effort rollback used on any failure after the transaction is open. A 410
+  // (WEBSOCKET_SESSION_TERMINATED) means the transaction is already dead, so we
+  // never try to roll back in that case.
+  const rollback = async (transactionId: string): Promise<void> => {
+    try {
+      await client.fetch(`${dsPath}/transactions/${encodeURIComponent(transactionId)}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+    } catch {
+      // Swallow — the original failure is what we report to the user.
+    }
+  };
+
+  let transactionId: string | null = null;
+  try {
+    const txResult = await client.fetch(`${dsPath}/transactions`, {
+      method: "POST",
+      body: {},
+      headers: { Accept: "application/json" },
+    });
+    if (txResult.status < 200 || txResult.status >= 300) {
+      const detail = extractErrorDetail(txResult.data);
+      res.status(502).json({
+        error: detail ? `Reservoir DDMS: ${detail}` : `Could not start a transaction (HTTP ${txResult.status}).`,
+      });
+      return;
+    }
+    transactionId = extractTransactionId(txResult.data);
+    if (!transactionId) {
+      res.status(502).json({ error: "Reservoir DDMS did not return a transaction id." });
+      return;
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to start a transaction" });
+    return;
+  }
+
+  try {
+    for (const d of deletions) {
+      const path = `${dsPath}/resources/${encodeURIComponent(d.datatype)}/${encodeURIComponent(d.uuid)}`;
+      const { status, data } = await client.fetch(path, {
+        method: "DELETE",
+        params: { transactionId },
+        headers: { Accept: "application/json" },
+      });
+      // 404 = already gone; the closure the user saw may have shifted underneath
+      // them. Treat as success for that record and keep going.
+      if (status === 404) continue;
+      if (status < 200 || status >= 300) {
+        if (status !== 410) await rollback(transactionId);
+        const detail = extractErrorDetail(data);
+        res.status(status).json({
+          error: detail ? `Reservoir DDMS: ${detail}` : `HTTP ${status} while deleting a record.`,
+        });
+        return;
+      }
+    }
+
+    const commit = await client.fetch(`${dsPath}/transactions/${encodeURIComponent(transactionId)}`, {
+      method: "PUT",
+      headers: { Accept: "application/json" },
+    });
+    if (commit.status < 200 || commit.status >= 300) {
+      if (commit.status !== 410) await rollback(transactionId);
+      const detail = extractErrorDetail(commit.data);
+      res.status(commit.status).json({
+        error: detail ? `Reservoir DDMS: ${detail}` : `HTTP ${commit.status} while committing the deletion.`,
+      });
+      return;
+    }
+    res.json({ ok: true, deletedCount: deletions.length });
+  } catch (err) {
+    await rollback(transactionId);
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to delete records" });
   }
 });
 

@@ -71,6 +71,12 @@ import type { Grid2dSurface } from "@/lib/grid2d-mesh";
 import { resolveGrid2dLattice } from "@/lib/grid2d-resqml";
 import { saveRdmsRecord } from "@/lib/rdms-record-save";
 import { deleteRdmsRecord, getRdmsDeleteGuidance } from "@/lib/rdms-record-delete";
+import {
+  discoverRdmsReferencers,
+  cascadeDeleteRdmsRecord,
+  getRdmsCascadeGuidance,
+  type RdmsReferencer,
+} from "@/lib/rdms-cascade-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
 import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
 
@@ -632,6 +638,10 @@ interface ArrayDataResult {
 
 const MAX_RENDERED_ROWS = 500;
 
+// Above this many referencing records, a cascade delete requires an explicit
+// acknowledgement checkbox before it can be run — a safety gate on large blast radii.
+const BLAST_RADIUS_THRESHOLD = 10;
+
 function formatNumber(n: number): string {
   if (!isFinite(n)) return String(n);
   return Math.trunc(n).toLocaleString();
@@ -1047,6 +1057,13 @@ export function JsonViewerContent({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Cascade-delete discovery state. `referencers` is null until the check
+  // finishes: null → still checking / not yet checked, [] → deletable on its own,
+  // non-empty → other records must be deleted together (blast radius preview).
+  const [checkingRefs, setCheckingRefs] = useState(false);
+  const [referencers, setReferencers] = useState<RdmsReferencer[] | null>(null);
+  const [referencersTruncated, setReferencersTruncated] = useState(false);
+  const [blastAck, setBlastAck] = useState(false);
   const [storageDeleteConfirmOpen, setStorageDeleteConfirmOpen] = useState(false);
   const [storageDeleting, setStorageDeleting] = useState<"soft" | "purge" | null>(null);
   const [storageDeleteError, setStorageDeleteError] = useState<string | null>(null);
@@ -1777,20 +1794,50 @@ export function JsonViewerContent({
     }
   }, [activeRdmsContext, canEditStorage, editDraft]);
 
-  const openDeleteConfirm = useCallback(() => {
+  const openDeleteConfirm = useCallback(async () => {
     setDeleteError(null);
+    setReferencers(null);
+    setReferencersTruncated(false);
+    setBlastAck(false);
     setDeleteConfirmOpen(true);
-  }, []);
+    if (!activeRdmsContext?.dataspace || !activeRdmsContext?.datatype || !activeRdmsContext?.uuid) return;
+    // Preview the blast radius before offering the delete: list the records that
+    // reference this one, since Reservoir DDMS refuses to delete a referenced
+    // record on its own.
+    setCheckingRefs(true);
+    const result = await discoverRdmsReferencers(
+      activeRdmsContext.dataspace,
+      activeRdmsContext.datatype,
+      activeRdmsContext.uuid,
+    );
+    setCheckingRefs(false);
+    // If discovery fails, fall back to a plain single delete: the delete itself
+    // will still surface a 412 with guidance if references actually exist.
+    setReferencers(result.ok ? result.referencers : []);
+    setReferencersTruncated(result.ok ? result.truncated : false);
+  }, [activeRdmsContext]);
 
   const confirmDelete = useCallback(async () => {
     if (!activeRdmsContext?.dataspace || !activeRdmsContext?.datatype || !activeRdmsContext?.uuid) return;
     setDeleting(true);
     setDeleteError(null);
-    const result = await deleteRdmsRecord(
-      activeRdmsContext.dataspace,
-      activeRdmsContext.datatype,
-      activeRdmsContext.uuid,
-    );
+    const refs = referencers ?? [];
+    // With referencers, delete them and the target atomically in one transaction;
+    // without, the single self-committing DELETE is enough (and avoids the extra
+    // transaction round-trips).
+    const result =
+      refs.length > 0
+        ? await cascadeDeleteRdmsRecord(
+            activeRdmsContext.dataspace,
+            activeRdmsContext.datatype,
+            activeRdmsContext.uuid,
+            refs,
+          )
+        : await deleteRdmsRecord(
+            activeRdmsContext.dataspace,
+            activeRdmsContext.datatype,
+            activeRdmsContext.uuid,
+          );
     setDeleting(false);
     if (!result.ok) {
       setDeleteError(result.error);
@@ -1806,7 +1853,7 @@ export function JsonViewerContent({
       setResolvedRdmsContext(null);
     }
     onRecordDeleted?.();
-  }, [activeRdmsContext, lookupResult, overlayJson, onLookupResult, onRecordDeleted]);
+  }, [activeRdmsContext, referencers, lookupResult, overlayJson, onLookupResult, onRecordDeleted]);
 
   const openStorageDeleteConfirm = useCallback(() => {
     setStorageDeleteError(null);
@@ -2246,7 +2293,7 @@ export function JsonViewerContent({
                       variant="ghost"
                       size="icon"
                       className={cn("h-7 w-7", iconStateClass(!deleting), "text-destructive hover:text-destructive")}
-                      onClick={openDeleteConfirm}
+                      onClick={() => { void openDeleteConfirm(); }}
                       aria-label="Delete record in Reservoir DDMS"
                       disabled={deleting}
                     >
@@ -2773,6 +2820,58 @@ export function JsonViewerContent({
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {checkingRefs && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid="rdms-cascade-checking">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Checking for records that reference this one…
+            </div>
+          )}
+          {!checkingRefs && referencers && referencers.length > 0 && (
+            <div className="space-y-2" data-testid="rdms-cascade-preview">
+              <div className="flex items-start gap-3 rounded-lg border-2 border-amber-500/60 bg-amber-500/15 px-4 py-3 text-sm text-amber-950 shadow-sm dark:text-amber-100">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="font-semibold leading-5">
+                    {referencers.length} other record{referencers.length === 1 ? "" : "s"}{" "}
+                    reference{referencers.length === 1 ? "s" : ""} this one
+                  </p>
+                  <p className="mt-1 leading-5">
+                    Reservoir DDMS will not delete this record while it is referenced. To remove it, all{" "}
+                    {referencers.length + 1} records must be deleted together in one transaction — all of them, or
+                    none. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <ul
+                className="max-h-48 space-y-1 overflow-auto rounded-md border border-border bg-muted/40 p-2 text-xs"
+                data-testid="rdms-cascade-list"
+              >
+                {referencers.map((r) => (
+                  <li key={r.uri} className="flex flex-col gap-0.5 border-b border-border/40 pb-1 last:border-b-0 last:pb-0">
+                    <span className="font-medium text-foreground break-all">{r.name || r.datatype}</span>
+                    <span className="font-mono text-muted-foreground break-all">{r.datatype} · {r.uuid}</span>
+                  </li>
+                ))}
+              </ul>
+              {referencersTruncated && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  Only the first {referencers.length} referencing records are shown; there may be more. If so, the
+                  deletion will be refused and rolled back — delete again to remove the rest.
+                </p>
+              )}
+              {referencers.length >= BLAST_RADIUS_THRESHOLD && (
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={blastAck}
+                    onChange={(e) => setBlastAck(e.target.checked)}
+                    data-testid="rdms-cascade-ack"
+                  />
+                  I understand this permanently deletes {referencers.length + 1} records.
+                </label>
+              )}
+            </div>
+          )}
           {deleteError && (
             <>
               <div
@@ -2783,7 +2882,11 @@ export function JsonViewerContent({
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-300" aria-hidden="true" />
                 <div className="min-w-0">
                   <p className="font-semibold leading-5">Deletion blocked</p>
-                  <p className="mt-1 leading-5">{getRdmsDeleteGuidance(deleteError)}</p>
+                  <p className="mt-1 leading-5">
+                    {(referencers?.length ?? 0) > 0
+                      ? getRdmsCascadeGuidance(deleteError)
+                      : getRdmsDeleteGuidance(deleteError)}
+                  </p>
                 </div>
               </div>
                <div className="flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
@@ -2803,13 +2906,20 @@ export function JsonViewerContent({
               variant="destructive"
               size="sm"
               onClick={() => { void confirmDelete(); }}
-              disabled={deleting}
+              disabled={
+                deleting ||
+                checkingRefs ||
+                referencers === null ||
+                (referencers.length >= BLAST_RADIUS_THRESHOLD && !blastAck)
+              }
             >
               {deleting ? (
                 <span className="flex items-center gap-1.5">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Deleting…
                 </span>
+              ) : referencers && referencers.length > 0 ? (
+                `Delete ${referencers.length + 1} records`
               ) : (
                 "Delete"
               )}
