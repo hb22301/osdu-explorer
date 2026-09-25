@@ -127,7 +127,7 @@ function mockApiScript(): string {
         customData: { creator: "browser-check", created: "2026-01-01T00:00:00.000Z" },
         lastChanged: "2026-01-02T00:00:00.000Z"
       };
-      window.__reservoirDeleteTest = { requests: [], failDelete: false };
+      window.__reservoirDeleteTest = { requests: [], failDelete: false, throwDelete: false };
       let deleted = false;
 
       const realFetch = window.fetch.bind(window);
@@ -147,6 +147,10 @@ function mockApiScript(): string {
         // single request removes the record with no surrounding transaction.
         if (method === "DELETE" && url.includes("/resources/" + encodeURIComponent(datatype) + "/" + encodeURIComponent(uuid))) {
           window.__reservoirDeleteTest.requests.push({ method, url });
+          // A thrown fetch models a transport failure (offline, DNS, aborted).
+          if (window.__reservoirDeleteTest.throwDelete) {
+            throw new TypeError("Failed to fetch");
+          }
           if (window.__reservoirDeleteTest.failDelete) {
             return new Response(JSON.stringify({
               error: "Reservoir DDMS: cannot delete resource because it is still referenced by another object",
@@ -259,6 +263,31 @@ async function runScenario(browser: CdpClient): Promise<void> {
     0,
     "opening the confirmation should not send a delete request",
   );
+
+  // A transport failure (thrown fetch) must not strand the dialog: the delete
+  // has to resolve to an error, re-enable the buttons, and keep the viewer open
+  // so the user can retry rather than being stuck behind a spinner forever.
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.throwDelete = true");
+  await evaluate<void>(browser, browserFunction(() => {
+    const confirm = [...document.querySelectorAll('[role="alertdialog"] button')]
+      .find((candidate) => candidate.textContent?.trim() === "Delete");
+    if (!confirm) throw new Error("Delete confirm button was not found");
+    (confirm as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alert\"]')?.textContent?.includes('Deletion blocked') ?? false"),
+    "the transport-failure error to appear",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "(() => { const b = [...document.querySelectorAll('[role=\"alertdialog\"] button')].find((c) => c.textContent?.trim() === 'Delete'); return b instanceof HTMLButtonElement && !b.disabled; })()"),
+    "the Delete button to re-enable after a transport failure",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]') !== null"),
+    true,
+    "the confirmation dialog should stay open after a transport failure",
+  );
+  await evaluate<void>(browser, "window.__reservoirDeleteTest.throwDelete = false; window.__reservoirDeleteTest.requests = []");
 
   // A referential-integrity rejection keeps the dialog and record available,
   // while explaining what must change before deletion can succeed.

@@ -30,6 +30,22 @@ function etpErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+// Pull a human-readable message out of a Reservoir DDMS error body. The service
+// is FastAPI-based and usually returns { detail }, while some gateways return
+// { message } or { reason }; a plain string body is used as-is. Returning the
+// server's own wording (rather than a bare "HTTP 409") lets the frontend detect
+// referential-integrity refusals and show the matching guidance.
+function extractErrorDetail(data: unknown): string | null {
+  if (typeof data === "string") return data.length > 0 ? data : null;
+  if (data && typeof data === "object") {
+    for (const key of ["message", "detail", "reason", "error"] as const) {
+      const value = (data as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.length > 0) return value;
+    }
+  }
+  return null;
+}
+
 router.get("/osdu/rdms/mode", async (req, res): Promise<void> => {
   const etpAvailable = await isEtpClientAvailable();
   res.json({
@@ -286,12 +302,7 @@ router.delete("/osdu/rdms/dataspaces/:dataspace/resources/:datatype/:uuid", asyn
     if (status >= 200 && status < 300) {
       res.status(status).json(data ?? null);
     } else {
-      const detail =
-        typeof data === "string"
-          ? data
-          : data && typeof data === "object" && "message" in data
-            ? String((data as { message?: unknown }).message)
-            : null;
+      const detail = extractErrorDetail(data);
       res.status(status).json({ error: detail ? `Reservoir DDMS: ${detail}` : `HTTP ${status} from Reservoir DDMS` });
     }
   } catch (err) {
