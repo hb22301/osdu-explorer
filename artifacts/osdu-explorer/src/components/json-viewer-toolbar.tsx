@@ -557,8 +557,12 @@ interface ParsedDdmsDataset {
 
 interface ReservoirDdmsTarget {
   dataspace: string;
-  datatype: string | null;
-  uuid: string | null;
+  datatype: string;
+  uuid: string;
+}
+
+function reservoirDdmsTargetKey(target: ReservoirDdmsTarget): string {
+  return `${target.dataspace}\u0000${target.datatype}\u0000${target.uuid}`;
 }
 
 function parseDdmsDataset(value: string): ParsedDdmsDataset | null {
@@ -566,46 +570,124 @@ function parseDdmsDataset(value: string): ParsedDdmsDataset | null {
   if (!match) return null;
   const dataspace = match[1].replace(/^(['"])(.*)\1$/, "$2").trim();
   if (!dataspace) return null;
+  const rawIdentifier = match[3]?.trim() ?? "";
+  const uuidField = /(?:^|,)\s*uuid\s*=\s*([^,]+)/i.exec(rawIdentifier);
+  const rawUuid = uuidField?.[1] ?? rawIdentifier;
+  const uuid = rawUuid.replace(/^(['"])(.*)\1$/, "$2").trim();
   return {
     dataspace,
-    datatype: match[2] ?? null,
-    uuid: match[3] ?? null,
+    datatype: match[2]?.trim() || null,
+    uuid: uuid || null,
   };
 }
 
-function findReservoirDdmsTarget(node: JsonValue): ReservoirDdmsTarget | null {
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      const found = findReservoirDdmsTarget(item);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (typeof node !== "object" || node === null) return null;
+function findReservoirDdmsTargets(node: JsonValue): {
+  targets: ReservoirDdmsTarget[];
+  unresolvedCount: number;
+} {
+  const targets: ReservoirDdmsTarget[] = [];
+  const seen = new Set<string>();
+  let unresolvedCount = 0;
 
-  const obj = node as Record<string, JsonValue>;
-  const datasets = obj["DDMSDatasets"];
-  if (Array.isArray(datasets)) {
-    const dataset = datasets
-      .filter((value): value is string => typeof value === "string")
-      .map(parseDdmsDataset)
-      .find((value): value is ParsedDdmsDataset => value !== null);
-    if (dataset) {
-      return {
-        dataspace: dataset.dataspace,
-        datatype: typeof obj["$type"] === "string" ? obj["$type"] : dataset.datatype,
-        uuid: typeof obj.uuid === "string" ? obj.uuid : dataset.uuid,
-      };
+  const visit = (value: JsonValue): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
     }
-  }
+    if (typeof value !== "object" || value === null) return;
 
-  for (const value of Object.values(obj)) {
-    if (value && typeof value === "object") {
-      const found = findReservoirDdmsTarget(value);
-      if (found) return found;
+    const obj = value as Record<string, JsonValue>;
+    const rawDatasets = obj["DDMSDatasets"];
+    const datasets = Array.isArray(rawDatasets)
+      ? rawDatasets
+      : typeof rawDatasets === "string"
+        ? [rawDatasets]
+        : [];
+
+    for (const rawDataset of datasets) {
+      if (typeof rawDataset !== "string" || !rawDataset.trim()) {
+        unresolvedCount++;
+        continue;
+      }
+      const dataset = parseDdmsDataset(rawDataset.trim());
+      if (!dataset) {
+        unresolvedCount++;
+        continue;
+      }
+      const datatype =
+        dataset.datatype ??
+        (typeof obj["$type"] === "string" ? obj["$type"].trim() : "");
+      const uuid =
+        dataset.uuid ??
+        (typeof obj.uuid === "string" ? obj.uuid.trim() : "");
+      if (!datatype || !uuid) {
+        unresolvedCount++;
+        continue;
+      }
+      const target = { dataspace: dataset.dataspace, datatype, uuid };
+      const key = reservoirDdmsTargetKey(target);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push(target);
+    }
+
+    for (const child of Object.values(obj)) {
+      if (child && typeof child === "object") visit(child);
+    }
+  };
+
+  visit(node);
+  return { targets, unresolvedCount };
+}
+
+function formatReservoirDdmsId(target: ReservoirDdmsTarget): string {
+  return `${target.dataspace}/${target.datatype}(${target.uuid})`;
+}
+
+interface StorageDdmsDeleteOutcome {
+  target: ReservoirDdmsTarget;
+  status: "deleted" | "already-absent";
+}
+
+interface StorageDeleteCompletion {
+  mode: "soft" | "purge";
+  recordId: string;
+  ddmsOutcomes: StorageDdmsDeleteOutcome[];
+}
+
+function formatStorageDeleteSummary(completion: StorageDeleteCompletion): string {
+  const lines = [
+    `Storage record ${completion.mode === "soft" ? "soft-deleted" : "permanently purged"}: ${completion.recordId}`,
+  ];
+  if (completion.ddmsOutcomes.length === 0) {
+    lines.push("Reservoir DDMS records deleted: none");
+  } else {
+    lines.push("Reservoir DDMS records:");
+    for (const outcome of completion.ddmsOutcomes) {
+      lines.push(
+        `${outcome.status === "deleted" ? "Deleted" : "Already absent"}: ${formatReservoirDdmsId(outcome.target)}`,
+      );
     }
   }
-  return null;
+  return lines.join("\n");
+}
+
+function formatPartialStorageDeleteSummary(
+  recordId: string,
+  outcomes: StorageDdmsDeleteOutcome[],
+): string {
+  const lines = [`Storage record deletion did not complete successfully: ${recordId}`];
+  if (outcomes.length === 0) {
+    lines.push("No Reservoir DDMS records were deleted.");
+  } else {
+    lines.push("Reservoir DDMS results:");
+    for (const outcome of outcomes) {
+      lines.push(
+        `${outcome.status === "deleted" ? "Deleted" : "Already absent"}: ${formatReservoirDdmsId(outcome.target)}`,
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 function findFirstStringField(node: JsonValue, key: string): string | null {
@@ -686,6 +768,53 @@ function CopyErrorButton({ error }: { error: string }) {
       </TooltipTrigger>
       <TooltipContent>{copied ? "Copied!" : "Copy error"}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function CopyTextButton({
+  text,
+  label,
+  testId,
+}: {
+  text: string;
+  label: string;
+  testId: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copiedResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (copiedResetRef.current) clearTimeout(copiedResetRef.current);
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) return;
+    void writeText.call(navigator.clipboard, text).then(() => {
+      setCopied(true);
+      if (copiedResetRef.current) clearTimeout(copiedResetRef.current);
+      copiedResetRef.current = setTimeout(() => {
+        setCopied(false);
+        copiedResetRef.current = null;
+      }, 1500);
+    }).catch(() => {
+      setCopied(false);
+    });
+  }, [text]);
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-7 shrink-0 gap-1.5 px-2 text-xs"
+      onClick={handleCopy}
+      aria-label={copied ? `${label} copied` : label}
+      data-testid={testId}
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? "Copied" : label}
+    </Button>
   );
 }
 
@@ -1067,6 +1196,10 @@ export function JsonViewerContent({
   const [storageDeleteConfirmOpen, setStorageDeleteConfirmOpen] = useState(false);
   const [storageDeleting, setStorageDeleting] = useState<"soft" | "purge" | null>(null);
   const [storageDeleteError, setStorageDeleteError] = useState<string | null>(null);
+  const [deleteLinkedDdms, setDeleteLinkedDdms] = useState(false);
+  const [storageDeleteStep, setStorageDeleteStep] = useState<string | null>(null);
+  const [storageDdmsDeleteOutcomes, setStorageDdmsDeleteOutcomes] = useState<StorageDdmsDeleteOutcome[]>([]);
+  const [storageDeleteCompletion, setStorageDeleteCompletion] = useState<StorageDeleteCompletion | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
   const wdmsAbortControllerRef = useRef<AbortController | null>(null);
   const arrayAbortControllerRef = useRef<AbortController | null>(null);
@@ -1127,15 +1260,11 @@ export function JsonViewerContent({
     const rootId = getRootField<string>(parsedJson, "id")?.trim();
     return rootId || storageRecordId?.trim() || searchRecordId?.trim() || null;
   }, [parsedJson, storageRecordId, searchRecordId]);
-  const ddmsTarget = useMemo(() => {
-    const target = parsedJson ? findReservoirDdmsTarget(parsedJson) : null;
-    if (!target) return null;
-    return {
-      ...target,
-      datatype: target.datatype ?? findFirstStringField(parsedJson, "$type"),
-      uuid: target.uuid ?? findFirstStringField(parsedJson, "uuid"),
-    };
-  }, [parsedJson]);
+  const storageDdmsScan = useMemo(
+    () => parsedJson ? findReservoirDdmsTargets(parsedJson) : { targets: [], unresolvedCount: 0 },
+    [parsedJson],
+  );
+  const ddmsTarget = storageDdmsScan.targets[0] ?? null;
 
   // --- Tree mode matches ---
   const treeMatches: TreeMatch[] = useMemo(() => {
@@ -1857,6 +1986,10 @@ export function JsonViewerContent({
 
   const openStorageDeleteConfirm = useCallback(() => {
     setStorageDeleteError(null);
+    setDeleteLinkedDdms(false);
+    setStorageDeleteStep(null);
+    setStorageDdmsDeleteOutcomes([]);
+    setStorageDeleteCompletion(null);
     setStorageDeleteConfirmOpen(true);
   }, []);
 
@@ -1865,20 +1998,89 @@ export function JsonViewerContent({
       if (!displayedRecordId || storageDeleting) return;
       setStorageDeleting(mode);
       setStorageDeleteError(null);
-      const result = mode === "soft"
-        ? await softDeleteStorageRecord(displayedRecordId)
-        : await purgeStorageRecord(displayedRecordId);
-      setStorageDeleting(null);
-      if (!result.ok) {
-        setStorageDeleteError(result.error);
-        return;
+      let storageRequestStarted = false;
+      try {
+        const outcomes = new Map(
+          storageDdmsDeleteOutcomes.map((outcome) => [
+            reservoirDdmsTargetKey(outcome.target),
+            outcome,
+          ]),
+        );
+        if (deleteLinkedDdms) {
+          for (const [index, target] of storageDdmsScan.targets.entries()) {
+            const targetKey = reservoirDdmsTargetKey(target);
+            if (outcomes.has(targetKey)) continue;
+
+            setStorageDeleteStep(
+              `Deleting Reservoir DDMS record ${index + 1} of ${storageDdmsScan.targets.length}…`,
+            );
+            const result = await deleteRdmsRecord(
+              target.dataspace,
+              target.datatype,
+              target.uuid,
+            );
+            if (!result.ok && result.status !== 404) {
+              setStorageDeleteError(
+                `Could not delete Reservoir DDMS record ${formatReservoirDdmsId(target)}. The Storage record was not deleted. ${getRdmsDeleteGuidance(result.error)}`,
+              );
+              return;
+            }
+
+            outcomes.set(targetKey, {
+              target,
+              status: result.ok ? "deleted" : "already-absent",
+            });
+            setStorageDdmsDeleteOutcomes([...outcomes.values()]);
+          }
+        }
+
+        setStorageDeleteStep(
+          mode === "soft"
+            ? "Soft deleting the Storage record…"
+            : "Purging the Storage record…",
+        );
+        storageRequestStarted = true;
+        const result = mode === "soft"
+          ? await softDeleteStorageRecord(displayedRecordId)
+          : await purgeStorageRecord(displayedRecordId);
+        if (!result.ok) {
+          setStorageDeleteError(result.error);
+          return;
+        }
+
+        const completion: StorageDeleteCompletion = {
+          mode,
+          recordId: displayedRecordId,
+          ddmsOutcomes: [...outcomes.values()],
+        };
+        setStorageDeleteConfirmOpen(false);
+        setEditOpen(false);
+        setStorageDeleteCompletion(completion);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        setStorageDeleteError(
+          storageRequestStarted
+            ? `The Storage delete request did not return a result. Check the record in Storage Service before retrying. ${detail}`
+            : `The Storage record was not deleted because the linked-record deletion did not complete. ${detail}`,
+        );
+      } finally {
+        setStorageDeleting(null);
+        setStorageDeleteStep(null);
       }
-      setStorageDeleteConfirmOpen(false);
-      setEditOpen(false);
-      onRecordDeleted?.();
     },
-    [displayedRecordId, storageDeleting, onRecordDeleted],
+    [
+      displayedRecordId,
+      storageDeleting,
+      storageDdmsDeleteOutcomes,
+      deleteLinkedDdms,
+      storageDdmsScan,
+    ],
   );
+
+  const closeStorageDeleteCompletion = useCallback(() => {
+    setStorageDeleteCompletion(null);
+    onRecordDeleted?.();
+  }, [onRecordDeleted]);
 
   const rawSegments = buildRawSegments(displayJson, rawMatches, activeIndex);
   let rawSegmentMatchIndex = -1;
@@ -2943,10 +3145,93 @@ export function JsonViewerContent({
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {storageDdmsScan.targets.length > 0 && (
+            <section
+              className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3"
+              data-testid="storage-ddms-summary"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold">
+                  Linked Reservoir DDMS records ({storageDdmsScan.targets.length})
+                </p>
+                <CopyTextButton
+                  text={storageDdmsScan.targets.map(formatReservoirDdmsId).join("\n")}
+                  label="Copy DDMS IDs"
+                  testId="button-copy-storage-ddms-ids"
+                />
+              </div>
+              <ul className="max-h-28 space-y-1 overflow-y-auto rounded bg-background/60 p-2">
+                {storageDdmsScan.targets.map((target, index) => {
+                  const outcome = storageDdmsDeleteOutcomes.find(
+                    (item) => reservoirDdmsTargetKey(item.target) === reservoirDdmsTargetKey(target),
+                  );
+                  return (
+                    <li
+                      key={reservoirDdmsTargetKey(target)}
+                      className="flex flex-wrap items-baseline gap-x-2 text-xs"
+                      data-testid={`storage-ddms-target-${index}`}
+                    >
+                      <code className="break-all">{formatReservoirDdmsId(target)}</code>
+                      {outcome && (
+                        <span className="text-muted-foreground">
+                          {outcome.status === "deleted" ? "deleted" : "already absent"}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <label className="flex cursor-pointer items-start gap-2 text-xs leading-relaxed">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-primary"
+                  checked={deleteLinkedDdms}
+                  onChange={(event) => setDeleteLinkedDdms(event.target.checked)}
+                  disabled={Boolean(storageDeleting)}
+                  data-testid="checkbox-delete-linked-ddms"
+                />
+                <span>
+                  Also delete these Reservoir DDMS records first, then delete the Storage record.
+                </span>
+              </label>
+            </section>
+          )}
+          {storageDdmsScan.unresolvedCount > 0 && (
+            <div
+              role="status"
+              className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+              data-testid="storage-ddms-unresolved-warning"
+            >
+              {storageDdmsScan.unresolvedCount} DDMS reference{storageDdmsScan.unresolvedCount === 1 ? "" : "s"} could not be identified and will not be included in the delete list.
+            </div>
+          )}
+          {storageDeleteStep && (
+            <p role="status" className="text-xs text-muted-foreground" data-testid="storage-delete-progress">
+              {storageDeleteStep}
+            </p>
+          )}
           {storageDeleteError && (
             <div role="alert" className="flex items-start gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
               <span className="min-w-0 flex-1 break-words">{storageDeleteError}</span>
               <CopyErrorButton error={storageDeleteError} />
+            </div>
+          )}
+          {storageDeleteError && storageDdmsDeleteOutcomes.length > 0 && displayedRecordId && (
+            <div
+              className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3"
+              data-testid="storage-delete-partial-summary"
+            >
+              <p className="text-xs font-semibold">
+                DDMS deletions already completed cannot be rolled back.
+              </p>
+              <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-all text-[11px]">
+                {formatPartialStorageDeleteSummary(displayedRecordId, storageDdmsDeleteOutcomes)}
+              </pre>
+              <CopyTextButton
+                text={formatPartialStorageDeleteSummary(displayedRecordId, storageDdmsDeleteOutcomes)}
+                label="Copy partial summary"
+                testId="button-copy-storage-delete-partial-summary"
+              />
             </div>
           )}
           <AlertDialogFooter>
@@ -2962,10 +3247,10 @@ export function JsonViewerContent({
               {storageDeleting === "soft" ? (
                 <span className="flex items-center gap-1.5">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Soft deleting…
+                  {storageDeleteStep ?? "Soft deleting…"}
                 </span>
               ) : (
-                "Soft delete"
+                deleteLinkedDdms ? "Delete DDMS + soft delete" : "Soft delete"
               )}
             </Button>
             <Button
@@ -2977,11 +3262,57 @@ export function JsonViewerContent({
               {storageDeleting === "purge" ? (
                 <span className="flex items-center gap-1.5">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Purging…
+                  {storageDeleteStep ?? "Purging…"}
                 </span>
               ) : (
-                "Purge"
+                deleteLinkedDdms ? "Delete DDMS + purge" : "Purge"
               )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={storageDeleteCompletion !== null}
+        onOpenChange={(open) => {
+          if (!open && storageDeleteCompletion) closeStorageDeleteCompletion();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Check className="h-4 w-4 text-emerald-600" />
+              Storage record deletion complete
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {storageDeleteCompletion?.mode === "soft"
+                ? "The Storage record was soft deleted."
+                : "The Storage record and all of its versions were permanently purged."}
+              {storageDeleteCompletion?.recordId && (
+                <span className="mt-2 block break-all font-mono text-xs text-foreground">
+                  {storageDeleteCompletion.recordId}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {storageDeleteCompletion && (
+            <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-3">
+              <pre
+                className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all text-xs"
+                data-testid="storage-delete-completion-summary"
+              >
+                {formatStorageDeleteSummary(storageDeleteCompletion)}
+              </pre>
+              <CopyTextButton
+                text={formatStorageDeleteSummary(storageDeleteCompletion)}
+                label="Copy deletion summary"
+                testId="button-copy-storage-delete-summary"
+              />
+            </div>
+          )}
+          <AlertDialogFooter>
+            <Button size="sm" onClick={closeStorageDeleteCompletion} data-testid="button-close-storage-delete-summary">
+              Done
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

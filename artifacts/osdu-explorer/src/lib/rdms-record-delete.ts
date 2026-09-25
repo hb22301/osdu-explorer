@@ -10,7 +10,9 @@ async function readError(response: Response, fallback: string): Promise<string> 
   return body?.error ?? `${fallback} (HTTP ${response.status})`;
 }
 
-export type RdmsDeleteResult = { ok: true } | { ok: false; error: string };
+export type RdmsDeleteResult =
+  | { ok: true }
+  | { ok: false; error: string; status?: number };
 
 export function getRdmsDeleteGuidance(error: string): string {
   const normalized = error.toLowerCase();
@@ -43,6 +45,12 @@ export async function deleteRdmsRecord(
     const detail = error instanceof Error ? error.message : String(error);
     return { ok: false, error: `Could not reach the server to delete the record: ${detail}` };
   }
-  if (!res.ok) return { ok: false, error: await readError(res, "Failed to delete record") };
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: await readError(res, "Failed to delete record"),
+      status: res.status,
+    };
+  }
   return { ok: true };
 }

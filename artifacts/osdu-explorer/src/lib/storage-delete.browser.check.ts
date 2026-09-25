@@ -12,6 +12,9 @@ declare global {
     __storageDeleteTest: {
       requests: { method: string; url: string }[];
       failMode: "soft" | "purge" | null;
+      failDdmsUuid: string | null;
+      missingDdmsUuid: string | null;
+      copiedText: string | null;
     };
   }
 }
@@ -122,12 +125,31 @@ function mockApiScript(): string {
         version: 1,
         acl: { owners: ["data.default.owners@browser-test"], viewers: ["data.default.viewers@browser-test"] },
         legal: {},
-        data: { FacilityName: "Storage deletable record" },
+        data: {
+          FacilityName: "Storage deletable record",
+          DDMSDatasets: [
+            "eml:///dataspace('browser test/dataspace')/resqml20.obj_TriangulatedSetRepresentation(linked-ddms-1)",
+            "eml:///dataspace(browser-test-dataspace)/resqml20.obj_Grid2dRepresentation(linked-ddms-2)",
+            "eml:///dataspace('browser test/dataspace')/resqml20.obj_TriangulatedSetRepresentation(linked-ddms-1)",
+          ],
+        },
         meta: [],
         ancestry: {},
         tags: {},
       };
-      window.__storageDeleteTest = { requests: [], failMode: null };
+      window.__storageDeleteTest = {
+        requests: [],
+        failMode: null,
+        failDdmsUuid: null,
+        missingDdmsUuid: null,
+        copiedText: null,
+      };
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text) => { window.__storageDeleteTest.copiedText = text; },
+        },
+      });
 
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -144,6 +166,22 @@ function mockApiScript(): string {
             results: [{ id: recordId, kind: storageRecord.kind, data: { FacilityName: "Storage deletable record" } }],
             totalCount: 1,
           }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (method === "DELETE" && url.includes("/api/osdu/rdms/dataspaces/")) {
+          window.__storageDeleteTest.requests.push({ method, url });
+          if (window.__storageDeleteTest.missingDdmsUuid && url.includes(encodeURIComponent(window.__storageDeleteTest.missingDdmsUuid))) {
+            return new Response(JSON.stringify({ error: "DDMS record was already absent" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (window.__storageDeleteTest.failDdmsUuid && url.includes(encodeURIComponent(window.__storageDeleteTest.failDdmsUuid))) {
+            return new Response(JSON.stringify({ error: "DDMS record is protected by the browser test" }), {
+              status: 409,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
         }
         // Soft delete: POST to .../{id}/delete.
         if (method === "POST" && url.endsWith("/api/osdu/records/" + encodedId + "/delete")) {
@@ -280,27 +318,216 @@ async function clickConfirmAction(browser: CdpClient, label: string): Promise<vo
 
 async function runScenario(browser: CdpClient): Promise<void> {
   const encodedId = "tenant%3Abrowser-test%3Amaster-data--Well(uuid-store)";
+  const firstDdmsId = "browser test/dataspace/resqml20.obj_TriangulatedSetRepresentation(linked-ddms-1)";
+  const secondDdmsId = "browser-test-dataspace/resqml20.obj_Grid2dRepresentation(linked-ddms-2)";
 
-  // A rejected soft delete keeps the viewer open and surfaces the Storage API error.
+  // The linked targets are shown and copyable before deletion. Approval deletes
+  // both unique DDMS targets before the Storage record, then shows a summary.
+  await openStorageViewer(browser);
+  await openDeleteConfirm(browser);
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelectorAll('[data-testid^=\"storage-ddms-target-\"]').length === 2"),
+    true,
+    "the preview should list both unique DDMS targets",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-copy-storage-ddms-ids"]');
+    if (!button) throw new Error("The copy DDMS IDs button was not found");
+    (button as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText?.includes('linked-ddms-1') ?? false"),
+    "the linked DDMS IDs to be copied",
+  );
+  {
+    const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
+    assert.ok(copied.includes(firstDdmsId), "the copied IDs should include the first target");
+    assert.ok(copied.includes(secondDdmsId), "the copied IDs should include the second target");
+    assert.equal(copied.split("linked-ddms-1").length - 1, 1, "duplicate pointers should appear once in the copy summary");
+  }
+  await evaluate<void>(browser, browserFunction(() => {
+    const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
+    if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
+    checkbox.click();
+  }));
+  await clickConfirmAction(browser, "Delete DDMS + soft delete");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 3"),
+    "both DDMS deletes and the Storage soft delete to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage record deletion complete') ?? false"),
+    "the successful deletion summary to appear",
+  );
+  {
+    const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
+    assert.equal(requests[0].method, "DELETE", "the first DDMS target should be deleted first");
+    assert.ok(requests[0].url.includes("/resources/resqml20.obj_TriangulatedSetRepresentation/linked-ddms-1"));
+    assert.equal(requests[1].method, "DELETE", "the second DDMS target should be deleted second");
+    assert.ok(requests[1].url.includes("/resources/resqml20.obj_Grid2dRepresentation/linked-ddms-2"));
+    assert.equal(requests[2].method, "POST", "Storage soft delete should happen only after both DDMS deletes");
+    assert.ok(requests[2].url.endsWith(`/api/osdu/records/${encodedId}/delete`));
+  }
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-copy-storage-delete-summary"]');
+    if (!button) throw new Error("The copy deletion summary button was not found");
+    (button as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText?.includes('soft-deleted') ?? false"),
+    "the completion summary to be copied",
+  );
+  {
+    const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
+    assert.ok(copied.includes("uuid-store"), "the completion summary should include the Storage ID");
+    assert.ok(copied.includes("linked-ddms-1") && copied.includes("linked-ddms-2"));
+  }
+  await clickConfirmAction(browser, "Done");
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') === null"),
+    "the viewer to close after the completion summary is dismissed",
+  );
+
+  // A missing linked target is treated as already absent, so a retry can
+  // continue through the remaining DDMS records and the Storage delete.
+  await openStorageViewer(browser);
+  await evaluate<void>(browser, "window.__storageDeleteTest.missingDdmsUuid = 'linked-ddms-1'");
+  await openDeleteConfirm(browser);
+  await evaluate<void>(browser, browserFunction(() => {
+    const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
+    if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
+    checkbox.click();
+  }));
+  await clickConfirmAction(browser, "Delete DDMS + soft delete");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 3"),
+    "the missing DDMS target, remaining DDMS target, and Storage delete requests to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage record deletion complete') ?? false"),
+    "the completion summary after an already-absent target",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[data-testid="storage-delete-completion-summary"]')?.textContent?.includes('Already absent: ${firstDdmsId}') ?? false`),
+    true,
+    "a 404 from Reservoir DDMS should appear as already absent in the summary",
+  );
+  {
+    const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
+    assert.ok(requests[0].url.includes("linked-ddms-1"));
+    assert.ok(requests[1].url.includes("linked-ddms-2"));
+    assert.equal(requests[2].method, "POST", "Storage should be deleted after a linked record is already absent");
+  }
+  await clickConfirmAction(browser, "Done");
+
+  // If one DDMS delete fails after another succeeds, Storage is not deleted.
+  // The completed DDMS delete is reported and skipped on retry.
+  await openStorageViewer(browser);
+  await evaluate<void>(browser, "window.__storageDeleteTest.failDdmsUuid = 'linked-ddms-2'");
+  await openDeleteConfirm(browser);
+  await evaluate<void>(browser, browserFunction(() => {
+    const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
+    if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
+    checkbox.click();
+  }));
+  await clickConfirmAction(browser, "Delete DDMS + soft delete");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 2"),
+    "the successful and failed DDMS deletes to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-delete-partial-summary\"]') !== null"),
+    "the partial deletion summary to appear",
+  );
+  {
+    const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
+    assert.ok(requests[0].url.includes("linked-ddms-1"));
+    assert.ok(requests[1].url.includes("linked-ddms-2"));
+    assert.equal(requests.some((request) => request.url.includes("/api/osdu/records/")), false, "Storage must not be deleted after a DDMS failure");
+  }
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-delete-partial-summary\"]')?.textContent?.includes('linked-ddms-1') ?? false"),
+    true,
+    "the partial summary should identify the DDMS record already deleted",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-copy-storage-delete-partial-summary"]');
+    if (!button) throw new Error("The copy partial summary button was not found");
+    (button as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText?.includes('Storage record deletion did not complete successfully') ?? false"),
+    "the partial summary to be copied",
+  );
+  assert.ok(
+    (await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''")).includes("linked-ddms-1"),
+    "the copied partial summary should include the DDMS record already deleted",
+  );
+  await evaluate<void>(browser, "window.__storageDeleteTest.failDdmsUuid = null");
+  await clickConfirmAction(browser, "Delete DDMS + soft delete");
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 4"),
+    "the remaining DDMS delete and Storage retry to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage record deletion complete') ?? false"),
+    "the retry completion summary to appear",
+  );
+  {
+    const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
+    assert.ok(requests[2].url.includes("linked-ddms-2"), "retry should continue with the failed DDMS target");
+    assert.equal(requests[3].method, "POST", "Storage should be deleted after the retry succeeds");
+  }
+  await clickConfirmAction(browser, "Done");
+
+  // If Storage fails after the DDMS targets have already been deleted, expose
+  // and copy those irreversible partial results.
   await openStorageViewer(browser);
   await evaluate<void>(browser, "window.__storageDeleteTest.failMode = 'soft'");
   await openDeleteConfirm(browser);
-  await clickConfirmAction(browser, "Soft delete");
+  await evaluate<void>(browser, browserFunction(() => {
+    const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
+    if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
+    checkbox.click();
+  }));
+  await clickConfirmAction(browser, "Delete DDMS + soft delete");
   await waitFor(
-    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 1"),
-    "the rejected soft delete request to fire",
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 3"),
+    "both DDMS deletes and the rejected Storage soft delete to fire",
   );
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]')?.textContent?.includes('Soft delete rejected: record is protected') ?? false"),
     "the soft delete API error to appear",
   );
   assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-delete-partial-summary\"]') !== null"),
+    true,
+    "the Storage failure should show the completed DDMS deletions",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-copy-storage-delete-partial-summary"]');
+    if (!button) throw new Error("The copy partial summary button was not found");
+    (button as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText?.includes('Storage record deletion did not complete successfully') ?? false"),
+    "the Storage failure partial summary to be copied",
+  );
+  {
+    const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
+    assert.ok(requests[0].url.includes("linked-ddms-1"));
+    assert.ok(requests[1].url.includes("linked-ddms-2"));
+    assert.equal(requests[2].method, "POST", "Storage should only be attempted after both DDMS records");
+    const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
+    assert.ok(copied.includes("linked-ddms-1") && copied.includes("linked-ddms-2"));
+  }
+  assert.equal(
     await evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') !== null"),
     true,
     "the viewer should remain available after a rejected soft delete",
   );
 
-  // Soft delete: POST to .../{id}/delete, then the viewer closes.
+  // Declining the DDMS option preserves Storage-only soft-delete behavior.
   await openStorageViewer(browser);
   await openDeleteConfirm(browser);
   await clickConfirmAction(browser, "Soft delete");
@@ -309,8 +536,8 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the soft delete request to fire after confirmation",
   );
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') === null"),
-    "the viewer to close after a successful soft delete",
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage record deletion complete') ?? false"),
+    "the successful soft-delete summary to appear",
   );
   {
     const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
@@ -321,6 +548,11 @@ async function runScenario(browser: CdpClient): Promise<void> {
       `the soft delete should target the record's :delete endpoint, got ${requests[0].url}`,
     );
   }
+  await clickConfirmAction(browser, "Done");
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') === null"),
+    "the viewer to close after the soft-delete summary is dismissed",
+  );
 
   // A rejected purge keeps the viewer open and surfaces the Storage API error.
   await openStorageViewer(browser);
@@ -350,8 +582,8 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the purge request to fire after confirmation",
   );
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') === null"),
-    "the viewer to close after a successful purge",
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage record deletion complete') ?? false"),
+    "the successful purge summary to appear",
   );
   {
     const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
@@ -362,6 +594,11 @@ async function runScenario(browser: CdpClient): Promise<void> {
       `the purge should target the record's endpoint, got ${requests[0].url}`,
     );
   }
+  await clickConfirmAction(browser, "Done");
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') === null"),
+    "the viewer to close after the purge summary is dismissed",
+  );
 }
 
 async function runBrowserCheck(): Promise<void> {
