@@ -123,14 +123,14 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
       : "text-green-500";
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full min-w-0">
       <div
         data-testid="console-entry-row"
-        className={`px-3 py-1.5 border-b border-border/50 transition-colors ${
+        className={`w-full min-w-0 pl-3 pr-5 py-1.5 border-b border-border/50 transition-colors ${
           isOpen ? "bg-card" : "hover:bg-muted/40"
         }`}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex flex-wrap items-start gap-2 min-w-0">
           {hasBody ? (
             <CollapsibleTrigger asChild>
               <button className="shrink-0 text-muted-foreground hover:text-foreground">
@@ -170,9 +170,10 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
           )}
 
           {entry.url && (
-            <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div className="flex min-w-0 flex-[1_1_18rem] items-start gap-1">
               <span
-                className="min-w-0 truncate text-[11px] font-mono text-muted-foreground"
+                data-testid="console-entry-url"
+                className="min-w-0 flex-1 break-all whitespace-normal text-[11px] leading-4 font-mono text-muted-foreground"
                 title={entry.url}
               >
                 {entry.url}
@@ -214,7 +215,7 @@ function ConsoleEntryRow({ entry }: ConsoleEntryRowProps) {
         {entry.message && (
           <div className="flex items-start gap-2 mt-1 pl-5 text-[11px] font-mono text-muted-foreground/80">
             <span className="shrink-0">↳</span>
-            <span>{entry.message}</span>
+            <span className="min-w-0 break-all">{entry.message}</span>
           </div>
         )}
 
@@ -306,7 +307,7 @@ export function ConsolePanel({ height = 280 }: ConsolePanelProps) {
   const entries = [...(data?.entries ?? [])].reverse();
 
   return (
-    <div data-testid="console-panel" className="flex flex-col bg-background border-border" style={{ height }}>
+    <div data-testid="console-panel" className="flex w-full min-w-0 min-h-0 flex-col overflow-hidden bg-background border-border" style={{ height }}>
       {/* Panel toolbar */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-card/60">
         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
@@ -341,13 +342,13 @@ export function ConsolePanel({ height = 280 }: ConsolePanelProps) {
       </div>
 
       {/* Entries */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="w-full min-w-0 min-h-0 flex-1">
         {entries.length === 0 ? (
           <div className="p-6 text-center text-[12px] font-mono text-muted-foreground">
             No requests captured yet.
           </div>
         ) : (
-          <div>
+          <div className="w-full min-w-0">
             {entries.map((entry) => (
               <ConsoleEntryRow key={entry.id} entry={entry} />
             ))}
