@@ -298,13 +298,27 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.body?.innerText.includes('uuid/delete') ?? false"),
     "the mocked record row to load",
   );
-  // Double-click the record row to open the record detail viewer.
+  // Select a record and use the table's delete shortcut. It should open the
+  // same viewer confirmation flow that the response toolbar uses.
   await evaluate<void>(browser, browserFunction(() => {
     const row = [...document.querySelectorAll("table tbody tr")]
       .find((candidate) => candidate.textContent?.includes("uuid/delete"));
     if (!row) throw new Error("Record row was not found");
-    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "(() => { const b = document.querySelector('[data-testid=\"button-delete-selected-rdms-record\"]'); return b instanceof HTMLButtonElement && !b.disabled; })()"),
+    "the selected-record delete button to enable",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-delete-selected-rdms-record"]');
+    if (!(button instanceof HTMLButtonElement)) throw new Error("Selected-record delete button was not found");
+    button.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]')?.textContent?.includes('Delete this Reservoir DDMS record?') ?? false"),
+    "the selected row to open the existing delete confirmation",
+  );
   // The viewer exposes a Delete button once its rdmsContext (dataspace/datatype/uuid) resolves.
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Reservoir DDMS\"]') !== null"),

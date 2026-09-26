@@ -13,6 +13,7 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  Trash2,
   X,
 } from "lucide-react";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
@@ -335,6 +336,7 @@ export default function ReservoirDmsPage() {
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [detailRecord, setDetailRecord] = useState<{ json: string; title: string; uuid: string; datatype: string } | null>(null);
+  const [rdmsDeleteRequestId, setRdmsDeleteRequestId] = useState<string | null>(null);
   const [recordFilter, setRecordFilter] = useState("");
   const [recordOffset, setRecordOffset] = useState(0);
   const [recordLimit, setRecordLimit] = useState(loadRecordPageSize);
@@ -481,7 +483,7 @@ export default function ReservoirDmsPage() {
   }, [selectedDataspace, resourcesLoading]);
 
   const fetchRecordDetail = useCallback(async (uuid: string, datatype: string) => {
-    if (!selectedDataspace || !uuid) return;
+    if (!selectedDataspace || !uuid) return false;
     try {
       const res = await fetch(
         `/api/osdu/rdms/dataspaces/${encodeURIComponent(selectedDataspace)}/resources/${encodeURIComponent(datatype)}/${encodeURIComponent(uuid)}`
@@ -489,7 +491,7 @@ export default function ReservoirDmsPage() {
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         setRecordsError(err.error ?? "Failed to fetch record detail");
-        return;
+        return false;
       }
       const data: unknown = await res.json();
       setDetailRecord({
@@ -498,8 +500,10 @@ export default function ReservoirDmsPage() {
         uuid,
         datatype,
       });
+      return true;
     } catch {
       setRecordsError("Failed to fetch record detail");
+      return false;
     }
   }, [selectedDataspace]);
 
@@ -724,6 +728,20 @@ export default function ReservoirDmsPage() {
     if (!selectedRecord) return;
     void fetchRecordDetail(selectedRecord.uuid, selectedResource ?? "");
   }, [selectedRecord, selectedResource, fetchRecordDetail]);
+
+  const deleteSelectedRecord = useCallback(async () => {
+    if (!selectedRecord?.uuid || !selectedResource || rdmsDeleteRequestId) return;
+    const requestId = selectedRecord.uuid;
+    setRdmsDeleteRequestId(requestId);
+    const detailLoaded = await fetchRecordDetail(requestId, selectedResource);
+    if (!detailLoaded) {
+      setRdmsDeleteRequestId((current) => current === requestId ? null : current);
+    }
+  }, [selectedRecord, selectedResource, rdmsDeleteRequestId, fetchRecordDetail]);
+
+  const handleRdmsDeleteRequestHandled = useCallback(() => {
+    setRdmsDeleteRequestId(null);
+  }, []);
 
   const showRecords = records !== null || recordsLoading || recordsError !== null;
 
@@ -1021,6 +1039,27 @@ export default function ReservoirDmsPage() {
                   <Button
                     variant="outline"
                     size="icon"
+                    className={cn(
+                      "h-8 w-8",
+                      selectedRecord
+                        ? "text-destructive hover:text-destructive"
+                        : "disabled:opacity-100 disabled:text-muted-foreground",
+                    )}
+                    disabled={!selectedRecord?.uuid || Boolean(rdmsDeleteRequestId)}
+                    onClick={() => { void deleteSelectedRecord(); }}
+                    aria-label="Delete selected record in Reservoir DDMS"
+                    data-testid="button-delete-selected-rdms-record"
+                    title={selectedRecord ? "Delete selected record" : "Select a record first"}
+                  >
+                    {rdmsDeleteRequestId ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
                     className="h-8 w-8"
                     onClick={() => setRecordTableFullscreen(true)}
                     aria-label="Full screen records table"
@@ -1213,15 +1252,41 @@ export default function ReservoirDmsPage() {
                   <span className="text-xs font-mono text-muted-foreground truncate">{selectedResource}</span>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setRecordTableFullscreen(false)}
-                aria-label="Exit full screen"
-              >
-                <Minimize2 className="h-3.5 w-3.5" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "h-7 w-7",
+                    selectedRecord
+                      ? "text-destructive hover:text-destructive"
+                      : "disabled:opacity-100 disabled:text-muted-foreground",
+                  )}
+                  disabled={!selectedRecord?.uuid || Boolean(rdmsDeleteRequestId)}
+                  onClick={() => {
+                    setRecordTableFullscreen(false);
+                    void deleteSelectedRecord();
+                  }}
+                  aria-label="Delete selected record in Reservoir DDMS"
+                  data-testid="button-delete-selected-rdms-record-fullscreen"
+                  title={selectedRecord ? "Delete selected record" : "Select a record first"}
+                >
+                  {rdmsDeleteRequestId ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => setRecordTableFullscreen(false)}
+                  aria-label="Exit full screen"
+                >
+                  <Minimize2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
               <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -1267,6 +1332,8 @@ export default function ReservoirDmsPage() {
           hideDdmsLookup
           hideWdmsLookup
           rdmsContext={{ dataspace: selectedDataspace, datatype: detailRecord.datatype, uuid: detailRecord.uuid }}
+          openRdmsDeleteRequestId={rdmsDeleteRequestId}
+          onRdmsDeleteRequestHandled={handleRdmsDeleteRequestHandled}
           onFullscreenClose={() => setDetailRecord(null)}
           onRecordDeleted={() => {
             setDetailRecord(null);

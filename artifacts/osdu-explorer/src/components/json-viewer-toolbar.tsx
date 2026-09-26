@@ -116,6 +116,10 @@ interface JsonViewerToolbarProps {
   onLookupResult?: (result: JsonViewerLookupResult | null) => void;
   /** Called after the displayed Reservoir DDMS record is deleted */
   onRecordDeleted?: () => void;
+  /** Opens the existing Reservoir DDMS delete confirmation for this UUID */
+  openRdmsDeleteRequestId?: string | null;
+  /** Called after a controlled Reservoir DDMS delete request is handled */
+  onRdmsDeleteRequestHandled?: () => void;
 }
 
 interface RawMatch {
@@ -1224,6 +1228,8 @@ export function JsonViewerContent({
   onRecordDeleted,
   openStorageDeleteRequestId,
   onStorageDeleteRequestHandled,
+  openRdmsDeleteRequestId,
+  onRdmsDeleteRequestHandled,
 }: JsonViewerToolbarProps & {
   onMaximize?: () => void;
   onPopOut?: () => void;
@@ -1322,6 +1328,7 @@ export function JsonViewerContent({
   const [storageDdmsBlastAck, setStorageDdmsBlastAck] = useState(false);
   const storageDdmsPreviewRunRef = useRef(0);
   const handledStorageDeleteRequestRef = useRef<string | null>(null);
+  const handledRdmsDeleteRequestRef = useRef<string | null>(null);
   const [storageDeleteCompletion, setStorageDeleteCompletion] = useState<StorageDeleteCompletion | null>(null);
   const lookupAbortControllerRef = useRef<AbortController | null>(null);
   const wdmsAbortControllerRef = useRef<AbortController | null>(null);
@@ -2189,6 +2196,30 @@ export function JsonViewerContent({
     onStorageDeleteRequestHandled,
     openStorageDeleteConfirm,
     openStorageDeleteRequestId,
+  ]);
+
+  useEffect(() => {
+    if (!openRdmsDeleteRequestId) {
+      handledRdmsDeleteRequestRef.current = null;
+      return;
+    }
+    if (
+      handledRdmsDeleteRequestRef.current === openRdmsDeleteRequestId ||
+      openRdmsDeleteRequestId !== activeRdmsContext?.uuid ||
+      !canEditRdms
+    ) {
+      return;
+    }
+
+    handledRdmsDeleteRequestRef.current = openRdmsDeleteRequestId;
+    onRdmsDeleteRequestHandled?.();
+    void openDeleteConfirm();
+  }, [
+    activeRdmsContext?.uuid,
+    canEditRdms,
+    onRdmsDeleteRequestHandled,
+    openDeleteConfirm,
+    openRdmsDeleteRequestId,
   ]);
 
   const runStorageDelete = useCallback(
@@ -3737,7 +3768,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, onRecordDeleted }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -3905,6 +3936,8 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           onLookupResult={handleLookupResult}
           onResponseTypeChange={handleResponseTypeChange}
           onRecordDeleted={onRecordDeleted}
+          openRdmsDeleteRequestId={openRdmsDeleteRequestId}
+          onRdmsDeleteRequestHandled={onRdmsDeleteRequestHandled}
         />
       )}
 
@@ -3940,6 +3973,8 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               onLookupResult={handleLookupResult}
               onResponseTypeChange={handleResponseTypeChange}
               onRecordDeleted={onRecordDeleted}
+              openRdmsDeleteRequestId={openRdmsDeleteRequestId}
+              onRdmsDeleteRequestHandled={onRdmsDeleteRequestHandled}
             />
           </div>
           {fsConsoleOpen && (
