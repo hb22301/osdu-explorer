@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { KindCombobox } from "@/components/kind-combobox";
 import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
+import { VersionHistoryPanel } from "@/components/version-history-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/dashboard-kind-filter";
 import type { DashboardKindOption, DashboardRowsProgress } from "@/lib/dashboard-kind-filter";
 import { trackEvent } from "@/lib/analytics";
+import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
 
 const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
@@ -628,6 +630,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [storageOpenId, setStorageOpenId] = useState<string | null>(null);
+  const [selectedStorageVersion, setSelectedStorageVersion] = useState<number | undefined>();
   const [colWidths, setColWidths] = useState<Record<ColKey, number>>(loadColWidths);
   const [colOrder, setColOrder] = useState<ColKey[]>(loadColOrder);
   const [colVisible, setColVisible] = useState<Record<ColKey, boolean>>(loadColVisible);
@@ -1187,6 +1190,19 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
       setSelectedRowId(null);
     }
   }, [displayRows, selectedRowId]);
+
+  // When a version is selected, fetch and display it
+  useEffect(() => {
+    if (!selected?.id || !selectedStorageVersion) return;
+    const recordId = selected.id as string;
+    fetchStorageRecordVersion(recordId, selectedStorageVersion)
+      .then((versionData) => {
+        setSelected(versionData as RawRecord);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch version:", err);
+      });
+  }, [selectedStorageVersion, selected?.id]);
 
   return (
     <div className="p-4 sm:p-5 max-w-full mx-auto space-y-3 isolate">
@@ -1889,14 +1905,27 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
       )}
 
       {selected !== null && (
-        <JsonViewerToolbar
-          json={JSON.stringify(selected, null, 2)}
-          storageKey={selected.id as string | undefined}
-          title="Record from Search Service"
-          defaultFullscreen
-          onFullscreenClose={() => setSelected(null)}
-          storageRecordId={selected.id as string | undefined}
-        />
+        <div className="flex gap-4 h-full">
+          <div className="flex-1">
+            <JsonViewerToolbar
+              json={JSON.stringify(selected, null, 2)}
+              storageKey={selected.id as string | undefined}
+              title="Record from Search Service"
+              defaultFullscreen
+              onFullscreenClose={() => setSelected(null)}
+              storageRecordId={selected.id as string | undefined}
+              selectedStorageVersion={selectedStorageVersion}
+              onStorageVersionSelect={setSelectedStorageVersion}
+            />
+          </div>
+          <div className="w-56 border-l">
+            <VersionHistoryPanel
+              recordId={selected.id as string | undefined}
+              selectedVersion={selectedStorageVersion ?? 0}
+              onVersionSelect={setSelectedStorageVersion}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

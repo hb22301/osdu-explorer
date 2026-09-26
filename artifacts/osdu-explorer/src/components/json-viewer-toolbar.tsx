@@ -120,6 +120,10 @@ interface JsonViewerToolbarProps {
   openRdmsDeleteRequestId?: string | null;
   /** Called after a controlled Reservoir DDMS delete request is handled */
   onRdmsDeleteRequestHandled?: () => void;
+  /** When showing a Storage record, the currently selected version to display */
+  selectedStorageVersion?: number;
+  /** Called when user selects a different version of a Storage record */
+  onStorageVersionSelect?: (version: number) => void;
 }
 
 interface RawMatch {
