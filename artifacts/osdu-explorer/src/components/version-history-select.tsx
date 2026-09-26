@@ -14,6 +14,7 @@ interface VersionHistorySelectProps {
   recordId: string | undefined;
   selectedVersion: number | undefined;
   onVersionSelect: (version: number) => void;
+  isVersionLoading?: boolean;
 }
 
 // Compact version picker for the JSON viewer's fullscreen header. Lets the user
@@ -22,6 +23,7 @@ export function VersionHistorySelect({
   recordId,
   selectedVersion,
   onVersionSelect,
+  isVersionLoading = false,
 }: VersionHistorySelectProps) {
   const { data, isLoading, error } = useGetOsduRecordVersions(recordId ?? "", {
     query: { enabled: !!recordId } as any,
@@ -45,10 +47,11 @@ export function VersionHistorySelect({
           variant="outline"
           size="sm"
           className="h-7 gap-1.5 px-2 text-xs"
-          disabled={isLoading || !!error}
+          disabled={isLoading || isVersionLoading || !!error}
           aria-label="Select record version"
+          title={error ? "Version history could not be loaded. Check your Storage Service connection and access." : undefined}
         >
-          {isLoading ? (
+          {isLoading || isVersionLoading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
             <History className="h-3.5 w-3.5" />

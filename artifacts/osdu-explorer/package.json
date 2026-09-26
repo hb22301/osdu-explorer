@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.3.7",
+  "version": "2.3.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "check:reservoir-mode-toggle-browser": "tsx src/lib/reservoir-mode-toggle.browser.check.ts",
     "check:storage-edit-browser": "tsx src/lib/storage-edit.browser.check.ts",
     "check:storage-delete-browser": "tsx src/lib/storage-delete.browser.check.ts",
+    "check:storage-version-select-browser": "tsx src/lib/storage-version-select.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

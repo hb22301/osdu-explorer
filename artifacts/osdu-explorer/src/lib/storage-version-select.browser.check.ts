@@ -239,6 +239,55 @@ async function openRecordViewer(browser: CdpClient): Promise<void> {
   );
 }
 
+// Search → open the same record through the Storage API lookup dialog.
+async function openStorageRecordDialog(browser: CdpClient): Promise<void> {
+  await browser.call("Page.navigate", { url: `${APP_URL}/search` });
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
+    "Record Search to render for the Storage API dialog",
+  );
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const input = document.querySelector("form input") as HTMLInputElement | null;
+    if (!input) throw new Error("Lucene query input was not found");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setter) throw new Error("Lucene query input setter was not found");
+    setter.call(input, "*:*");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.form?.requestSubmit();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('version-record') ?? false"),
+    "the mocked search result for the Storage API dialog",
+  );
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) =>
+      candidate.textContent?.includes("version-record"));
+    if (!row) throw new Error("The search result row was not found");
+    (row as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('tbody tr[data-state=\"selected\"]') !== null"),
+    "the result row to become selected for the Storage API dialog",
+  );
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const open = document.querySelector('button[aria-label="Open record in Storage API"]') as HTMLButtonElement | null;
+    if (!open) throw new Error("The Open record in Storage API button was not found");
+    if (open.disabled) throw new Error("The Open record in Storage API button is disabled");
+    open.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('Record from Storage Service') ?? false"),
+    "the Storage API record dialog",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Select record version\"]') !== null"),
+    "the Storage API version selector to appear",
+  );
+}
+
 async function runScenario(browser: CdpClient): Promise<void> {
   await openRecordViewer(browser);
 
@@ -291,6 +340,51 @@ async function runScenario(browser: CdpClient): Promise<void> {
     await evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Select record version\"]')?.textContent?.includes('v1') ?? false"),
     true,
     "the selector should reflect the chosen version",
+  );
+
+  // The Storage API lookup dialog has its own header and must expose the same
+  // version selector rather than relying on the Search viewer wrapper.
+  await openStorageRecordDialog(browser);
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Select record version\"]')?.textContent?.includes('v3 (latest)') ?? false"),
+    true,
+    "the Storage API selector should default to the latest version",
+  );
+  const previousVersionRequestCount = await evaluate<number>(
+    browser,
+    "window.__versionTest.versionRequests.length",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[role="dialog"] button[aria-label="Select record version"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Storage API version selector button was not found");
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "[...document.querySelectorAll('[role=\"menuitem\"]')].some((item) => item.textContent?.includes('v1')) ?? false"),
+    "the Storage API version menu items",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const item = [...document.querySelectorAll('[role="menuitem"]')]
+      .find((candidate) => candidate.textContent?.trim() === "v1");
+    if (!item) throw new Error("The Storage API v1 menu item was not found");
+    (item as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      `window.__versionTest.versionRequests.length > ${previousVersionRequestCount} && window.__versionTest.versionRequests.at(-1) === 1`,
+    ),
+    "the Storage API version 1 fetch to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('marker-v1') ?? false"),
+    "the Storage API version 1 record content to render",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Select record version\"]')?.textContent?.includes('v1') ?? false"),
+    true,
+    "the Storage API selector should reflect the chosen version",
   );
 }
 

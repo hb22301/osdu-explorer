@@ -6,6 +6,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
+import { VersionHistorySelect } from "@/components/version-history-select";
+import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
 const MIN_CONSOLE_HEIGHT = 80;
@@ -29,9 +31,14 @@ export function RecordLookupDialog({
   const [storageDeleteRequestId, setStorageDeleteRequestId] = useState<string | null>(null);
   const [displayedTitle, setDisplayedTitle] = useState("Record from Storage Service");
   const [lookupResult, setLookupResult] = useState<JsonViewerLookupResult | null>(null);
+  const [selectedStorageVersion, setSelectedStorageVersion] = useState<number | undefined>();
+  const [versionRecord, setVersionRecord] = useState<unknown | null>(null);
+  const [isVersionLoading, setIsVersionLoading] = useState(false);
+  const [versionFetchError, setVersionFetchError] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
   const consoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
+  const versionRequestRef = useRef(0);
 
   const { data, isFetching, isError, error } = useGetOsduRecord(recordId, {
     query: {
@@ -41,8 +48,41 @@ export function RecordLookupDialog({
     },
   });
 
+  const resetVersionState = useCallback(() => {
+    versionRequestRef.current += 1;
+    setSelectedStorageVersion(undefined);
+    setVersionRecord(null);
+    setIsVersionLoading(false);
+    setVersionFetchError(null);
+  }, []);
+
+  const handleStorageVersionSelect = useCallback(async (version: number) => {
+    const currentRecordId = recordId.trim();
+    if (!currentRecordId) return;
+
+    const requestId = ++versionRequestRef.current;
+    setIsVersionLoading(true);
+    setVersionFetchError(null);
+    try {
+      const selectedRecord = await fetchStorageRecordVersion(currentRecordId, version);
+      if (requestId !== versionRequestRef.current) return;
+      setVersionRecord(selectedRecord);
+      setSelectedStorageVersion(version);
+    } catch (versionError) {
+      if (requestId !== versionRequestRef.current) return;
+      setVersionFetchError(
+        versionError instanceof Error
+          ? versionError.message
+          : "Could not load the selected Storage version.",
+      );
+    } finally {
+      if (requestId === versionRequestRef.current) setIsVersionLoading(false);
+    }
+  }, [recordId]);
+
   const handleOpenChange = useCallback((next: boolean) => {
     setOpen(next);
+    resetVersionState();
     if (next) {
       const seed = selectedId.trim();
       setRecordId(seed);
@@ -54,7 +94,7 @@ export function RecordLookupDialog({
       setConsoleOpen(false);
       setStorageDeleteRequestId(null);
     }
-  }, [selectedId]);
+  }, [resetVersionState, selectedId]);
 
   const handleStorageDeleteRequest = useCallback(() => {
     const seed = selectedId.trim();
@@ -110,7 +150,8 @@ export function RecordLookupDialog({
     document.addEventListener("mouseup", onUp);
   }, [consoleHeight]);
 
-  const json = data ? JSON.stringify(data, null, 2) : "";
+  const displayedRecord = versionRecord ?? data;
+  const json = displayedRecord ? JSON.stringify(displayedRecord, null, 2) : "";
   const activeJson = lookupResult?.json ?? json;
   const isReservoirDdmsResponse = Boolean(lookupResult);
   const handleLookupResult = useCallback((result: JsonViewerLookupResult | null) => {
@@ -184,10 +225,30 @@ export function RecordLookupDialog({
           <div className="flex items-center gap-3 border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <StorageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-sm font-medium text-foreground shrink-0">{displayedTitle}</span>
+            {!lookupResult && recordId && (
+              <div className="ml-auto shrink-0">
+                <VersionHistorySelect
+                  recordId={recordId}
+                  selectedVersion={selectedStorageVersion}
+                  onVersionSelect={handleStorageVersionSelect}
+                  isVersionLoading={isVersionLoading}
+                />
+              </div>
+            )}
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-hidden min-h-0 p-4">
+          <div className="flex-1 overflow-hidden min-h-0 p-4 flex flex-col gap-2">
+            {versionFetchError && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-error-border/60 bg-error-surface p-3 text-sm text-error-text shrink-0"
+              >
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span className="break-all">{versionFetchError}</span>
+              </div>
+            )}
+            <div className="flex-1 min-h-0">
             {isError && (
               <div className="flex items-start gap-2 rounded-lg border border-error-border/60 bg-error-surface p-4 text-sm text-error-text">
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -204,7 +265,7 @@ export function RecordLookupDialog({
             )}
             {!isError && data && (
               <JsonViewerContent
-                key={`${recordId}:${lookupResult?.label ?? "original"}`}
+                  key={`${recordId}:${selectedStorageVersion ?? "latest"}:${lookupResult?.label ?? "original"}`}
                 json={activeJson}
                 storageKey={lookupResult?.storageKey ?? (recordId || undefined)}
                 _isFullscreen
@@ -233,6 +294,7 @@ export function RecordLookupDialog({
                 No record returned for this ID.
               </div>
             )}
+            </div>
           </div>
 
           {/* Console drag handle + panel */}

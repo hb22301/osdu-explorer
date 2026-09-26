@@ -1711,6 +1711,14 @@ function recordLookupMockApiScript(): string {
             headers: { "Content-Type": "application/json" },
           });
         }
+        if (url.includes("/api/osdu/records/") && url.includes("/versions")) {
+          return new Response(JSON.stringify({
+            recordId,
+            versions: [1, 2, 3],
+          }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         if (url.includes("/api/osdu/records/")) {
           window.__recordLookupTest.recordRequests.push(url);
           return new Response(JSON.stringify(storageRecord), {
@@ -1876,6 +1884,14 @@ function largeRddmsMockApiScript(): string {
               data: { Name: "Large RDDMS response browser regression fixture" },
             }],
             totalCount: 1,
+          }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.includes("/api/osdu/records/") && url.includes("/versions")) {
+          return new Response(JSON.stringify({
+            recordId,
+            versions: [1, 2, 3],
           }), {
             headers: { "Content-Type": "application/json" },
           });
