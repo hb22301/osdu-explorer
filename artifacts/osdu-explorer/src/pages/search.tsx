@@ -1,4 +1,394 @@
-oreground hover:text-destructive"
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { searchOsduRecords, useSearchOsduRecords, useListOsduKinds } from "@workspace/api-client-react";
+import { LuceneQueryInput } from "@/components/lucene-query-input";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { KindCombobox } from "@/components/kind-combobox";
+import { RecordLookupDialog } from "@/components/record-lookup-dialog";
+import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ConsolePanel } from "@/components/console-panel";
+import { format } from "date-fns";
+import {
+  collectDashboardRows,
+  DashboardRowsFetchError,
+  filterDashboardRows,
+  getDashboardKindOptions,
+  paginateDashboardRows,
+} from "@/lib/dashboard-kind-filter";
+import type { DashboardKindOption, DashboardRowsProgress } from "@/lib/dashboard-kind-filter";
+import { trackEvent } from "@/lib/analytics";
+
+const FS_CONSOLE_DEFAULT = 300;
+const FS_CONSOLE_MIN = 80;
+const FS_CONSOLE_MAX = 700;
+const DASHBOARD_KIND_PAGE_SIZE = 1000;
+const ID_COLUMN_WIDTH = 280;
+
+type SortDir = "asc" | "desc";
+type ColKey = "id" | "kind" | "name" | "code" | "createdBy" | "createTime" | "modifyBy" | "modifyTime";
+type DashboardSortMode = "createTime" | "modifyTime";
+type DashboardWindowUnit = "seconds" | "minutes" | "hours" | "days";
+
+interface DashboardWindowSetting {
+  value: number;
+  unit: DashboardWindowUnit;
+}
+
+interface Col {
+  key: ColKey;
+  label: string;
+  defaultWidth: number;
+  minWidth: number;
+}
+
+const COLUMNS: Col[] = [
+  { key: "id",         label: "ID",          defaultWidth: ID_COLUMN_WIDTH, minWidth: ID_COLUMN_WIDTH },
+  { key: "kind",       label: "Kind",        defaultWidth: 140, minWidth: 80 },
+  { key: "name",       label: "Name",        defaultWidth: 160, minWidth: 70 },
+  { key: "code",       label: "Code",        defaultWidth: 120, minWidth: 60 },
+  { key: "createdBy",  label: "Created By",  defaultWidth: 140, minWidth: 70 },
+  { key: "createTime", label: "Create Time", defaultWidth: 160, minWidth: 80 },
+  { key: "modifyBy",   label: "Updated By",  defaultWidth: 140, minWidth: 70 },
+  { key: "modifyTime", label: "Update Time", defaultWidth: 160, minWidth: 80 },
+];
+
+const COL_WIDTHS_KEY = "osdu-explorer:col-widths";
+const MAX_COL_WIDTH = 800;
+
+const COL_ORDER_KEY = "osdu-explorer:col-order";
+const DASHBOARD_WINDOW_VALUE_KEY = "osdu-explorer:dashboard-window-value";
+const DASHBOARD_WINDOW_UNIT_KEY = "osdu-explorer:dashboard-window-unit";
+const LEGACY_DASHBOARD_WINDOW_MINUTES_KEY = "osdu-explorer:dashboard-window-minutes";
+const DASHBOARD_WINDOW_MAX_SECONDS = 7 * 24 * 60 * 60;
+
+const DASHBOARD_WINDOW_UNITS: Array<{
+  value: DashboardWindowUnit;
+  label: string;
+  suffix: string;
+  seconds: number;
+  max: number;
+}> = [
+  { value: "seconds", label: "Seconds", suffix: "s", seconds: 1, max: DASHBOARD_WINDOW_MAX_SECONDS },
+  { value: "minutes", label: "Minutes", suffix: "m", seconds: 60, max: DASHBOARD_WINDOW_MAX_SECONDS / 60 },
+  { value: "hours", label: "Hours", suffix: "h", seconds: 60 * 60, max: DASHBOARD_WINDOW_MAX_SECONDS / (60 * 60) },
+  { value: "days", label: "Days", suffix: "d", seconds: 24 * 60 * 60, max: DASHBOARD_WINDOW_MAX_SECONDS / (24 * 60 * 60) },
+];
+
+function getDashboardWindowUnit(unit: DashboardWindowUnit) {
+  return DASHBOARD_WINDOW_UNITS.find((entry) => entry.value === unit) ?? DASHBOARD_WINDOW_UNITS[1];
+}
+
+function clampDashboardWindowValue(value: number, unit: DashboardWindowUnit): number {
+  const max = getDashboardWindowUnit(unit).max;
+  return Number.isFinite(value) ? Math.min(max, Math.max(1, Math.round(value))) : unit === "minutes" ? 60 : 1;
+}
+
+function dashboardWindowToSeconds(value: number, unit: DashboardWindowUnit): number {
+  return clampDashboardWindowValue(value, unit) * getDashboardWindowUnit(unit).seconds;
+}
+
+function loadDashboardWindowSetting(): DashboardWindowSetting {
+  try {
+    const storedUnit = localStorage.getItem(DASHBOARD_WINDOW_UNIT_KEY);
+    const unit = DASHBOARD_WINDOW_UNITS.some((entry) => entry.value === storedUnit)
+      ? storedUnit as DashboardWindowUnit
+      : null;
+    const storedValue = Number(localStorage.getItem(DASHBOARD_WINDOW_VALUE_KEY));
+    if (unit && Number.isFinite(storedValue)) {
+      return { value: clampDashboardWindowValue(storedValue, unit), unit };
+    }
+
+    const legacyMinutes = Number(localStorage.getItem(LEGACY_DASHBOARD_WINDOW_MINUTES_KEY));
+    if (Number.isFinite(legacyMinutes)) {
+      return { value: clampDashboardWindowValue(legacyMinutes, "minutes"), unit: "minutes" };
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+  return { value: 60, unit: "minutes" };
+}
+
+function loadColOrder(): ColKey[] {
+  const defaults = COLUMNS.map((c) => c.key);
+  try {
+    const raw = localStorage.getItem(COL_ORDER_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      const valid = parsed.filter(
+        (key): key is ColKey =>
+          typeof key === "string" && defaults.includes(key as ColKey),
+      );
+      const missing = defaults.filter((key) => !valid.includes(key));
+      return [...valid, ...missing];
+    }
+  } catch { /* ignore */ }
+  return defaults;
+}
+
+const CELL_CLASS: Record<ColKey, string> = {
+  id:         "font-mono truncate",
+  kind:       "font-mono truncate",
+  name:       "truncate",
+  code:       "font-mono truncate",
+  createdBy:  "truncate",
+  createTime: "font-mono tabular-nums truncate",
+  modifyBy:   "truncate",
+  modifyTime: "font-mono tabular-nums truncate",
+};
+
+const CELL_HAS_TITLE = new Set<ColKey>(["id", "kind", "name", "code", "createdBy", "modifyBy"]);
+
+function displayCellValue(col: ColKey, value: string): string {
+  if (col === "id") {
+    const separator = value.lastIndexOf(":");
+    return separator >= 0 ? value.slice(separator + 1) : value;
+  }
+  if (col !== "kind") return value;
+  const separator = value.indexOf("--");
+  return separator >= 0 ? value.slice(separator + 2) : value;
+}
+
+const COL_VISIBLE_KEY = "osdu-explorer:col-visible";
+
+function loadColVisible(): Record<ColKey, boolean> {
+  const all = Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
+  try {
+    const raw = localStorage.getItem(COL_VISIBLE_KEY);
+    if (!raw) return all;
+    const parsed = JSON.parse(raw) as Partial<Record<ColKey, boolean>>;
+    for (const c of COLUMNS) {
+      if (typeof parsed[c.key] === "boolean") all[c.key] = parsed[c.key]!;
+    }
+    if (COLUMNS.every((c) => !all[c.key])) return Object.fromEntries(COLUMNS.map((c) => [c.key, true])) as Record<ColKey, boolean>;
+  } catch { /* ignore */ }
+  return all;
+}
+
+function clampWidth(col: Col, v: number): number {
+  if (col.key === "id") return ID_COLUMN_WIDTH;
+  return Math.min(MAX_COL_WIDTH, Math.max(col.minWidth, v));
+}
+
+function loadColWidths(): Record<ColKey, number> {
+  const defaults = Object.fromEntries(
+    COLUMNS.map((c) => [c.key, c.defaultWidth]),
+  ) as Record<ColKey, number>;
+  try {
+    const raw = localStorage.getItem(COL_WIDTHS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<Record<ColKey, number>>;
+    for (const c of COLUMNS) {
+      const v = parsed[c.key];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        const isLegacyKindWidth = c.key === "kind" && (v === 240 || v === 180);
+        defaults[c.key] = clampWidth(c, isLegacyKindWidth ? c.defaultWidth : v);
+      }
+    }
+  } catch {
+    /* ignore malformed storage */
+  }
+  return defaults;
+}
+
+type RawRecord = {
+  id?: string;
+  kind?: string;
+  version?: number | null;
+  data?: Record<string, unknown>;
+  meta?: Record<string, unknown>[];
+  [key: string]: unknown;
+};
+
+interface FlatRow {
+  _raw: RawRecord;
+  id: string;
+  kind: string;
+  name: string;
+  code: string;
+  createdBy: string;
+  createTime: string;
+  modifyBy: string;
+  modifyTime: string;
+}
+
+function timestampValue(value: string): number {
+  if (value === "—") return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
+function dashboardSortFor(mode: DashboardSortMode) {
+  return mode === "createTime"
+    ? { field: ["createTime"], order: ["desc"] }
+    : { field: ["modifyTime"], order: ["desc"] };
+}
+
+function compareDashboardRows(a: FlatRow, b: FlatRow, mode: DashboardSortMode): number {
+  const primaryField = mode === "createTime" ? "createTime" : "modifyTime";
+  return timestampValue(b[primaryField]) - timestampValue(a[primaryField]);
+}
+
+interface RecentSearch {
+  kind: string;
+  query: string;
+  ts: number;
+}
+
+const STORAGE_KEY = "osdu-explorer:recent-searches";
+const MAX_RECENT = 10;
+
+function loadRecentSearches(): RecentSearch[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RecentSearch[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentSearches(searches: RecentSearch[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(searches));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function useRecentSearches() {
+  const [recent, setRecent] = useState<RecentSearch[]>(loadRecentSearches);
+
+  const add = useCallback((kind: string, query: string) => {
+    setRecent((prev) => {
+      const entry: RecentSearch = { kind, query, ts: Date.now() };
+      const filtered = prev.filter((r) => !(r.kind === kind && r.query === query));
+      const next = [entry, ...filtered].slice(0, MAX_RECENT);
+      saveRecentSearches(next);
+      return next;
+    });
+  }, []);
+
+  const clear = useCallback(() => {
+    saveRecentSearches([]);
+    setRecent([]);
+  }, []);
+
+  return { recent, add, clear };
+}
+
+function fmtDate(val: unknown): string {
+  if (!val) return "—";
+  try {
+    return format(new Date(String(val)), "yyyy-MM-dd HH:mm");
+  } catch {
+    return String(val);
+  }
+}
+
+function flatten(rec: RawRecord): FlatRow {
+  const data = rec.data ?? {};
+  const sys = (rec.meta?.[0] ?? {}) as Record<string, unknown>;
+
+  const pick = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = data[k] ?? sys[k] ?? rec[k];
+      if (v != null && v !== "") return String(v);
+    }
+    return "—";
+  };
+
+  return {
+    _raw: rec,
+    id:         rec.id ?? "—",
+    kind:       rec.kind ?? "—",
+    name:       pick("Name", "name"),
+    code:       pick("Code", "code"),
+    createdBy:  pick("createUser", "createdBy", "CreateUser"),
+    createTime: fmtDate(data["createTime"] ?? sys["createTime"] ?? rec["createTime"]),
+    modifyBy:   pick("modifyUser", "modifyBy", "updatedBy", "ModifyUser"),
+    modifyTime: fmtDate(data["modifyTime"] ?? sys["modifyTime"] ?? rec["modifyTime"]),
+  };
+}
+
+function SortIcon({ col, sortCol, sortDir }: { col: ColKey; sortCol: ColKey | null; sortDir: SortDir }) {
+  if (sortCol !== col) return <ChevronsUpDown className="ml-1 h-3 w-3 opacity-40 inline" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="ml-1 h-3 w-3 inline" />
+    : <ArrowDown className="ml-1 h-3 w-3 inline" />;
+}
+
+const KIND_QUERY_EXAMPLES: Record<string, string> = {
+  well:      'data.WellName:"Volve" AND data.CountryName:"Norway"',
+  wellbore:  'data.WellboreName:"Volve-1" AND data.VerticalMeasurement.VerticalMeasurementID:"*KB*"',
+  welllog:   'data.Name:"GR Log" AND data.CurveID:"*GR*"',
+  seismic:   'data.Name:"3D Survey" AND data.SeismicDomainTypeID:"*Time*"',
+  survey:    'data.SurveyName:"Block 34" AND data.ProjectedCRSID:"*WGS84*"',
+  field:     'data.FieldName:"Volve" AND data.GeoPoliticalEntityID:"*Norway*"',
+  facility:  'data.FacilityName:"Platform A" AND data.FacilityTypeID:"*Wellhead*"',
+  document:  'data.DocumentTitle:"Well Report" AND data.DocumentTypeID:"*Completion*"',
+  dataset:   'data.Name:"Seismic Dataset" AND data.DatasetProperties.FileSourceInfo.FileSize:[1000 TO *]',
+};
+
+const GENERIC_EXAMPLE = 'data.ProjectName:"MyProject"';
+
+function getQueryExample(kind: string): string {
+  if (!kind || kind === "*:*:*:*") return GENERIC_EXAMPLE;
+  const lower = kind.toLowerCase();
+  const entries = Object.entries(KIND_QUERY_EXAMPLES).sort(
+    ([a], [b]) => b.length - a.length
+  );
+  for (const [key, example] of entries) {
+    if (lower.includes(key)) return example;
+  }
+  return GENERIC_EXAMPLE;
+}
+
+function buildRecentRecordsQuery(
+  value: number,
+  unit: DashboardWindowUnit,
+  sortMode: DashboardSortMode,
+): string {
+  const { suffix } = getDashboardWindowUnit(unit);
+  const timeField = sortMode === "createTime" ? "createTime" : "modifyTime";
+  return `${timeField}:[now-${value}${suffix} TO now]`;
+}
+
+function RecentSearchesDropdown({
+  recent,
+  onSelect,
+  onClear,
+  onClose,
+}: {
+  recent: RecentSearch[];
+  onSelect: (r: RecentSearch) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Recent searches</span>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
             onClick={onClear}
             title="Clear history"
           >
