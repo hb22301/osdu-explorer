@@ -9,6 +9,18 @@ import { getOsduClient } from "../../lib/osdu-client";
 
 const router: IRouter = Router();
 
+export function parseOsduSchemaResponse(
+  schemaData: Record<string, unknown>,
+  fallbackKind: string,
+) {
+  const identity = schemaData.schemaIdentity as Record<string, unknown> | undefined;
+
+  return GetOsduSchemaResponse.passthrough().parse({
+    ...schemaData,
+    kind: identity?.id ?? schemaData.id ?? schemaData.kind ?? fallbackKind,
+  });
+}
+
 router.get("/osdu/schemas", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {
@@ -97,14 +109,8 @@ router.get("/osdu/schemas/:kind", async (req, res): Promise<void> => {
     return;
   }
 
-  const schemaData = data as Record<string, unknown>;
-  const identity = schemaData.schemaIdentity as Record<string, unknown> | undefined;
-
-  // Return the full raw OSDU response, augmented with a top-level `kind` for convenience.
-  const result = GetOsduSchemaResponse.parse({
-    ...schemaData,
-    kind: identity?.id ?? schemaData.id ?? schemaData.kind ?? kind,
-  });
+  // Preserve custom top-level OSDU schema fields while validating the known contract.
+  const result = parseOsduSchemaResponse(data as Record<string, unknown>, kind);
 
   res.json(result);
 });

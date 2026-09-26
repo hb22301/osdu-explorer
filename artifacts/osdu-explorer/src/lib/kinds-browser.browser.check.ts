@@ -149,7 +149,22 @@ function mockApiScript(): string {
             kind: targetKind,
             schemaIdentity: { id: targetKind },
             status: "PUBLISHED",
-            schema: { marker: "schema-view-ok", properties: {} },
+            dataType: "QuantitativeAccuracyBand",
+            GroupType: "reference-data",
+            schema: {
+              marker: "schema-view-ok",
+              properties: {
+                Wellbore: {
+                  type: "object",
+                  properties: {
+                    Trajectory: {
+                      type: "string",
+                      description: "complete-schema-definition-visible",
+                    },
+                  },
+                },
+              },
+            },
           }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/api/osdu/schemas")) {
@@ -235,10 +250,24 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.body.textContent?.includes('schema-view-ok') ?? false"),
     "the schema viewer to open with the fetched schema",
   );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body.textContent?.includes('QuantitativeAccuracyBand') ?? false"),
+    "arbitrary top-level schema fields to be displayed",
+  );
   assert.equal(
     await evaluate<boolean>(browser, `window.__kindsTest.schemaRequests.includes(${JSON.stringify(TARGET_KIND)})`),
     true,
     "the schema should be fetched for the exact kind",
+  );
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Raw view"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The raw schema view button was not found");
+    button.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body.textContent?.includes('complete-schema-definition-visible') ?? false"),
+    "deep schema definitions to remain available in raw view",
   );
 }
 
