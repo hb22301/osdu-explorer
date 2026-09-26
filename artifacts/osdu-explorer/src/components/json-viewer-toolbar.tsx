@@ -2850,18 +2850,21 @@ export function JsonViewerContent({
                       </TooltipTrigger>
                       <TooltipContent>Delete record from Storage Service</TooltipContent>
                     </Tooltip>
-                    {!lookupResult && storageRecordId && onStorageVersionSelect && (
-                      <>
-                        <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
-                        <VersionHistorySelect
-                          recordId={storageRecordId}
-                          selectedVersion={selectedStorageVersion}
-                          onVersionSelect={onStorageVersionSelect}
-                        />
-                      </>
-                    )}
                   </>
                 )}
+              </>
+            )}
+
+            {!lookupResult && storageRecordId && onStorageVersionSelect && (
+              <>
+                {canEditStorage && displayedRecordId && (
+                  <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+                )}
+                <VersionHistorySelect
+                  recordId={storageRecordId}
+                  selectedVersion={selectedStorageVersion}
+                  onVersionSelect={onStorageVersionSelect}
+                />
               </>
             )}
 
@@ -3951,6 +3954,8 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           rdmsContext={activeRdmsContext}
           searchRecordId={lookupResult ? undefined : searchRecordId}
           storageRecordId={lookupResult ? undefined : storageRecordId}
+          selectedStorageVersion={selectedStorageVersion}
+          onStorageVersionSelect={onStorageVersionSelect}
           lookupResult={lookupResult}
           onLookupResult={handleLookupResult}
           onResponseTypeChange={handleResponseTypeChange}

@@ -291,7 +291,7 @@ async function openStorageRecordDialog(browser: CdpClient): Promise<void> {
 async function runScenario(browser: CdpClient): Promise<void> {
   await openRecordViewer(browser);
 
-  // The version selector appears in the fullscreen header and defaults to latest.
+  // The version selector appears in the Storage actions toolbar and defaults to latest.
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Select record version\"]') !== null"),
     "the version selector to appear",
