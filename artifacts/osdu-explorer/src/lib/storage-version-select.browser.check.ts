@@ -257,7 +257,10 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await evaluate<void>(browser, browserFunction(() => {
     const button = document.querySelector('button[aria-label="Select record version"]') as HTMLButtonElement | null;
     if (!button) throw new Error("The version selector button was not found");
-    button.click();
+    // Radix opens the menu from keydown/pointerdown; HTMLElement.click() does not
+    // synthesize either event, so use the keyboard path to exercise the trigger.
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
   }));
   await waitFor(
     () => evaluate<boolean>(browser, "[...document.querySelectorAll('[role=\"menuitem\"]')].some((item) => item.textContent?.includes('v1')) ?? false"),
