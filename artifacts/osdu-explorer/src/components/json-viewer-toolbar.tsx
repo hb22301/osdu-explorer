@@ -1227,6 +1227,8 @@ export function JsonViewerContent({
   rdmsContext,
   searchRecordId,
   storageRecordId,
+  selectedStorageVersion,
+  onStorageVersionSelect,
   lookupResult,
   onLookupResult,
   onResponseTypeChange,
@@ -2828,25 +2830,37 @@ export function JsonViewerContent({
                   <TooltipContent>Edit &amp; save record in Storage Service</TooltipContent>
                 </Tooltip>
                 {displayedRecordId && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn("h-7 w-7", iconStateClass(!storageDeleting), "text-destructive hover:text-destructive")}
-                        onClick={openStorageDeleteConfirm}
-                        aria-label="Delete record in Storage Service"
-                        disabled={Boolean(storageDeleting)}
-                      >
-                        {storageDeleting ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Delete record from Storage Service</TooltipContent>
-                  </Tooltip>
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn("h-7 w-7", iconStateClass(!storageDeleting), "text-destructive hover:text-destructive")}
+                          onClick={openStorageDeleteConfirm}
+                          aria-label="Delete record in Storage Service"
+                          disabled={Boolean(storageDeleting)}
+                        >
+                          {storageDeleting ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete record from Storage Service</TooltipContent>
+                    </Tooltip>
+                    {!lookupResult && storageRecordId && onStorageVersionSelect && (
+                      <>
+                        <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
+                        <VersionHistorySelect
+                          recordId={storageRecordId}
+                          selectedVersion={selectedStorageVersion}
+                          onVersionSelect={onStorageVersionSelect}
+                        />
+                      </>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -3957,15 +3971,6 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           <DialogTitle className="sr-only">{displayedTitle}</DialogTitle>
           <div className="flex items-center gap-3 border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <span className="text-sm font-medium text-foreground">{displayedTitle}</span>
-            {!lookupResult && storageRecordId && onStorageVersionSelect && (
-              <div className="ml-auto">
-                <VersionHistorySelect
-                  recordId={storageRecordId}
-                  selectedVersion={selectedStorageVersion}
-                  onVersionSelect={onStorageVersionSelect}
-                />
-              </div>
-            )}
           </div>
           <div className="flex-1 overflow-hidden min-h-0 p-4">
             <JsonViewerContent
@@ -3983,6 +3988,8 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               rdmsContext={activeRdmsContext}
               searchRecordId={lookupResult ? undefined : searchRecordId}
               storageRecordId={lookupResult ? undefined : storageRecordId}
+              selectedStorageVersion={selectedStorageVersion}
+              onStorageVersionSelect={onStorageVersionSelect}
               lookupResult={lookupResult}
               onLookupResult={handleLookupResult}
               onResponseTypeChange={handleResponseTypeChange}
