@@ -36,13 +36,15 @@ router.get("/osdu/records/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const versionQuery =
+  // A specific version is a path segment (/records/{id}/{version}); omitting it
+  // returns the latest. The upstream rejects ?version= as a query parameter.
+  const versionPath =
     typeof requestedVersion === "string"
-      ? `?version=${encodeURIComponent(requestedVersion)}`
+      ? `/${encodeURIComponent(requestedVersion)}`
       : "";
   const client = getOsduClient(cfg);
   const { status, data } = await client.fetch(
-    `/api/storage/v2/records/${encodeURIComponent(recordId)}${versionQuery}`,
+    `/api/storage/v2/records/${encodeURIComponent(recordId)}${versionPath}`,
   );
 
   if (status === 404) {
@@ -86,7 +88,9 @@ router.get("/osdu/records/:id/versions", async (req, res): Promise<void> => {
 
   const recordId = params.data.id;
   const client = getOsduClient(cfg);
-  const { status, data } = await client.fetch(`/api/storage/v2/records/${encodeURIComponent(recordId)}/versions`);
+  // The version list lives at /records/versions/{id}; /records/{id}/versions
+  // makes the upstream parse "versions" as a version number and return 400.
+  const { status, data } = await client.fetch(`/api/storage/v2/records/versions/${encodeURIComponent(recordId)}`);
 
   if (status !== 200) {
     req.log.warn({ status, data }, "OSDU get record versions error");
