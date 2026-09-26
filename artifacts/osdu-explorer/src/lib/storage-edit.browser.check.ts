@@ -281,6 +281,9 @@ async function runScenario(browser: CdpClient): Promise<void> {
     acl: { owners: ["data.default.owners@browser-test"], viewers: ["data.default.viewers@browser-test"] },
     legal: {},
     data: { FacilityName: "Edited in browser" },
+    meta: [],
+    ancestry: {},
+    tags: {},
   }, null, 2);
   await setTextareaValue(browser, edited);
   await waitFor(() => saveEnabled(browser), "Save to re-enable for the valid edited JSON");
@@ -306,6 +309,9 @@ async function runScenario(browser: CdpClient): Promise<void> {
   assert.ok(Array.isArray(body), "the request body should be an array of records");
   assert.equal(body.length, 1, "the request body should contain exactly the edited record");
   assert.equal(body[0].data.FacilityName, "Edited in browser", "the save should send the edited record");
+  assert.equal("meta" in body[0], false, "the save should omit response-only meta");
+  assert.equal("ancestry" in body[0], false, "the save should omit response-only ancestry");
+  assert.equal("tags" in body[0], false, "the save should omit response-only tags");
 }
 
 async function runBrowserCheck(): Promise<void> {
