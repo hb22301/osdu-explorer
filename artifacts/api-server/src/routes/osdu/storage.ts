@@ -11,6 +11,53 @@ import { getOsduClient } from "../../lib/osdu-client";
 
 const router: IRouter = Router();
 
+// Fetch a specific version of a record: /records/{id}/{version}
+// This must come BEFORE /records/:id so that path-segment versions take priority.
+router.get("/osdu/records/:id/:version", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+
+  const recordId = req.params.id;
+  const versionStr = req.params.version;
+  if (!recordId || !/^[1-9]\d*$/.test(versionStr) || !Number.isSafeInteger(Number(versionStr))) {
+    res.status(400).json({ error: "Record ID and version must be valid." });
+    return;
+  }
+
+  const client = getOsduClient(cfg);
+  const { status, data } = await client.fetch(
+    `/api/storage/v2/records/${encodeURIComponent(recordId)}/${encodeURIComponent(versionStr)}`,
+  );
+
+  if (status === 404) {
+    res.status(404).json({ error: "Record version not found" });
+    return;
+  }
+  if (status !== 200) {
+    req.log.warn({ status, data }, "OSDU get record version error");
+    res.status(status >= 400 && status < 600 ? status : 502).json({ error: "Failed to fetch record version", details: data });
+    return;
+  }
+
+  const record = data as Record<string, unknown>;
+  const result = GetOsduRecordResponse.parse({
+    id: record.id ?? null,
+    kind: record.kind ?? null,
+    version: record.version ?? null,
+    acl: record.acl ?? {},
+    legal: record.legal ?? {},
+    data: record.data ?? {},
+    meta: record.meta ?? [],
+    ancestry: record.ancestry ?? {},
+    tags: record.tags ?? {},
+  });
+
+  res.json(result);
+});
+
 router.get("/osdu/records/:id", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {

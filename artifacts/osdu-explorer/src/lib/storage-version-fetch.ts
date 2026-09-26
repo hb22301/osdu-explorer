@@ -5,7 +5,7 @@ export async function fetchStorageRecordVersion(
   version: number,
 ): Promise<Record<string, unknown>> {
   const response = await fetch(
-    `/api/osdu/records/${encodeURIComponent(recordId)}?version=${version}`,
+    `/api/osdu/records/${encodeURIComponent(recordId)}/${version}`,
   );
   if (!response.ok) {
     throw new Error(`Failed to fetch version ${version}: HTTP ${response.status}`);
