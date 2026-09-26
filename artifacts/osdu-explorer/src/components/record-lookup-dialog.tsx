@@ -3,7 +3,7 @@ import { useGetOsduRecord, getGetOsduRecordQueryKey } from "@workspace/api-clien
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp } from "lucide-react";
+import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
 
@@ -15,15 +15,18 @@ interface RecordLookupDialogProps {
   selectedId?: string;
   openRequestId?: string | null;
   onOpenRequestHandled?: () => void;
+  onRecordDeleted?: () => void;
 }
 
 export function RecordLookupDialog({
   selectedId = "",
   openRequestId = null,
   onOpenRequestHandled,
+  onRecordDeleted,
 }: RecordLookupDialogProps) {
   const [open, setOpen] = useState(false);
   const [recordId, setRecordId] = useState("");
+  const [storageDeleteRequestId, setStorageDeleteRequestId] = useState<string | null>(null);
   const [displayedTitle, setDisplayedTitle] = useState("Record from Storage Service");
   const [lookupResult, setLookupResult] = useState<JsonViewerLookupResult | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
@@ -49,8 +52,25 @@ export function RecordLookupDialog({
       setRecordId("");
       setLookupResult(null);
       setConsoleOpen(false);
+      setStorageDeleteRequestId(null);
     }
   }, [selectedId]);
+
+  const handleStorageDeleteRequest = useCallback(() => {
+    const seed = selectedId.trim();
+    if (!seed) return;
+    setStorageDeleteRequestId(seed);
+    handleOpenChange(true);
+  }, [handleOpenChange, selectedId]);
+
+  const handleStorageDeleteRequestHandled = useCallback(() => {
+    setStorageDeleteRequestId(null);
+  }, []);
+
+  const handleRecordDeleted = useCallback(() => {
+    handleOpenChange(false);
+    onRecordDeleted?.();
+  }, [handleOpenChange, onRecordDeleted]);
 
   const handleResponseTypeChange = useCallback((type: "search" | "storage" | "ddms") => {
     setDisplayedTitle(
@@ -104,27 +124,54 @@ export function RecordLookupDialog({
 
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span
-            className="inline-flex"
-            tabIndex={!selectedId ? 0 : undefined}
-            aria-label={!selectedId ? "Storage API unavailable until a row is selected" : undefined}
-          >
-            <Button
-              variant="outline"
-              size="icon"
-              className={`h-8 w-8 ${selectedId ? "text-primary hover:text-primary" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
-              disabled={!selectedId}
-              onClick={() => handleOpenChange(true)}
+      <div className="inline-flex items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex"
+              tabIndex={!selectedId ? 0 : undefined}
+              aria-label={!selectedId ? "Storage API unavailable until a row is selected" : undefined}
             >
-              <StorageIcon className="h-4 w-4" />
-              <span className="sr-only">Storage API</span>
-            </Button>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Storage API</TooltipContent>
-      </Tooltip>
+              <Button
+                variant="outline"
+                size="icon"
+                className={`h-8 w-8 ${selectedId ? "text-primary hover:text-primary" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
+                disabled={!selectedId}
+                onClick={() => handleOpenChange(true)}
+                aria-label="Open record in Storage API"
+              >
+                <StorageIcon className="h-4 w-4" />
+                <span className="sr-only">Storage API</span>
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Storage API</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex"
+              tabIndex={!selectedId ? 0 : undefined}
+              aria-label={!selectedId ? "Delete unavailable until a row is selected" : undefined}
+            >
+              <Button
+                variant="outline"
+                size="icon"
+                className={`h-8 w-8 ${selectedId ? "text-destructive hover:text-destructive" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
+                disabled={!selectedId}
+                onClick={handleStorageDeleteRequest}
+                aria-label="Delete selected Storage Service record"
+                data-testid="button-delete-selected-storage-record"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="sr-only">Delete Storage record</span>
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Delete Storage record</TooltipContent>
+        </Tooltip>
+      </div>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
@@ -171,7 +218,9 @@ export function RecordLookupDialog({
                  lookupResult={lookupResult}
                  onLookupResult={handleLookupResult}
                  onResponseTypeChange={handleResponseTypeChange}
-                 onRecordDeleted={() => handleOpenChange(false)}
+                  onRecordDeleted={handleRecordDeleted}
+                  openStorageDeleteRequestId={storageDeleteRequestId}
+                  onStorageDeleteRequestHandled={handleStorageDeleteRequestHandled}
               />
             )}
             {!isError && !data && !isFetching && recordId === "" && (

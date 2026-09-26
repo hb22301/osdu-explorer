@@ -142,6 +142,8 @@ function mockApiScript(): string {
         failMode: null,
         failDdmsUuid: null,
         missingDdmsUuid: null,
+        failPreviewUuid: null,
+        previewRequests: [],
         copiedText: null,
       };
       Object.defineProperty(navigator, "clipboard", {
@@ -166,6 +168,46 @@ function mockApiScript(): string {
             results: [{ id: recordId, kind: storageRecord.kind, data: { FacilityName: "Storage deletable record" } }],
             totalCount: 1,
           }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (method === "GET" && url.includes("/sources")) {
+          const resourcePath = url.split("/resources/")[1];
+          const requestedUuid = resourcePath ? decodeURIComponent(resourcePath.split("/")[1] ?? "") : "";
+          window.__storageDeleteTest.previewRequests.push({ url, uuid: requestedUuid });
+          if (window.__storageDeleteTest.failPreviewUuid === requestedUuid) {
+            return new Response(JSON.stringify({ error: "Reference lookup is unavailable for this DDMS record" }), {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          const referencers = requestedUuid === "linked-ddms-1" &&
+            window.__storageDeleteTest.missingDdmsUuid !== requestedUuid
+            ? [{
+                uri: "eml:///dataspace('browser test/dataspace')/resqml20.obj_WellboreMarkerSet(referencing-ddms-1)",
+                name: "Wellbore marker set referencing the linked record",
+                datatype: "resqml20.obj_WellboreMarkerSet",
+                uuid: "referencing-ddms-1",
+              }]
+            : [];
+          return new Response(JSON.stringify({ referencers, truncated: false }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (method === "POST" && url.includes("/cascade-delete")) {
+          const body = JSON.parse(String(init && init.body ? init.body : "{}"));
+          window.__storageDeleteTest.requests.push({ method, url, body });
+          const cascadeUuids = [
+            body.target?.uuid,
+            ...(Array.isArray(body.referencers) ? body.referencers.map((record) => record.uuid) : []),
+          ];
+          if (window.__storageDeleteTest.failDdmsUuid && cascadeUuids.includes(window.__storageDeleteTest.failDdmsUuid)) {
+            return new Response(JSON.stringify({ error: "DDMS cascade is protected by the browser test" }), {
+              status: 409,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          return new Response(JSON.stringify({ ok: true, deletedCount: cascadeUuids.length }), {
+            headers: { "Content-Type": "application/json" },
+          });
         }
         if (method === "DELETE" && url.includes("/api/osdu/rdms/dataspaces/")) {
           window.__storageDeleteTest.requests.push({ method, url });
@@ -243,10 +285,18 @@ function terminateProcess(child: ChildProcess | undefined): void {
 // Drive the search → Storage API viewer flow until the storage Delete button is visible.
 async function openStorageViewer(browser: CdpClient): Promise<void> {
   await browser.call("Page.navigate", { url: `${APP_URL}/search` });
-  await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
-    "Record Search to render",
-  );
+  try {
+    await waitFor(
+      () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
+      "Record Search to render",
+    );
+  } catch (error) {
+    const pageState = await evaluate<string>(
+      browser,
+      "JSON.stringify({ url: location.href, title: document.title, text: document.body?.innerText?.slice(0, 500), html: document.body?.innerHTML?.slice(0, 800) })",
+    );
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; page state: ${pageState}`);
+  }
 
   await evaluate<void>(browser, browserFunction(() => {
     const input = document.querySelector("form input") as HTMLInputElement | null;
@@ -289,6 +339,45 @@ async function openStorageViewer(browser: CdpClient): Promise<void> {
   );
 }
 
+async function openDashboardDeleteConfirm(browser: CdpClient): Promise<void> {
+  await browser.call("Page.navigate", { url: `${APP_URL}/dashboard` });
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Dashboard'"),
+    "Dashboard to render",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('uuid-store') ?? false"),
+    "the mocked Dashboard record",
+  );
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) =>
+      candidate.textContent?.includes("uuid-store"));
+    if (!row) throw new Error("The Dashboard record row was not found");
+    (row as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('tbody tr[data-state=\"selected\"]') !== null"),
+    "the Dashboard record row to become selected",
+  );
+  await evaluate<void>(browser, "window.__storageDeleteTest.failPreviewUuid = 'linked-ddms-1'");
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-delete-selected-storage-record"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Dashboard Storage delete button was not found");
+    if (button.disabled) throw new Error("The Dashboard Storage delete button should be enabled for a selected row");
+    button.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"alertdialog\"]')?.textContent?.includes('Delete this Storage Service record?') ?? false"),
+    "the Storage deletion confirmation from the Dashboard button",
+  );
+  assert.equal(
+    await evaluate<number>(browser, "window.__storageDeleteTest.requests.length"),
+    0,
+    "the Dashboard delete button should open the existing confirmation without sending a delete request",
+  );
+}
+
 // Open the confirmation dialog and assert no request fires before the user confirms.
 async function openDeleteConfirm(browser: CdpClient): Promise<void> {
   await evaluate<void>(browser, browserFunction(() => {
@@ -307,6 +396,16 @@ async function openDeleteConfirm(browser: CdpClient): Promise<void> {
   );
 }
 
+async function waitForStorageDdmsPreview(browser: CdpClient): Promise<void> {
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]');
+      return checkbox !== null && !checkbox.disabled;
+    })()`),
+    "the complete linked Reservoir DDMS reference preview",
+  );
+}
+
 async function clickConfirmAction(browser: CdpClient, label: string): Promise<void> {
   await evaluate<void>(browser, browserFunction((buttonLabel: string) => {
     const confirm = [...document.querySelectorAll('[role="alertdialog"] button')]
@@ -318,32 +417,72 @@ async function clickConfirmAction(browser: CdpClient, label: string): Promise<vo
 
 async function runScenario(browser: CdpClient): Promise<void> {
   const encodedId = "tenant%3Abrowser-test%3Amaster-data--Well(uuid-store)";
+  const storageRecordId = "tenant:browser-test:master-data--Well(uuid-store)";
   const firstDdmsId = "browser test/dataspace/resqml20.obj_TriangulatedSetRepresentation(linked-ddms-1)";
   const secondDdmsId = "browser-test-dataspace/resqml20.obj_Grid2dRepresentation(linked-ddms-2)";
+  const referencerDdmsId = "browser test/dataspace/resqml20.obj_WellboreMarkerSet(referencing-ddms-1)";
 
-  // The linked targets are shown and copyable before deletion. Approval deletes
-  // both unique DDMS targets before the Storage record, then shows a summary.
+  // If the reference graph cannot be read, do not offer an incomplete DDMS delete.
+  await openDashboardDeleteConfirm(browser);
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-ddms-preview-error\"]') !== null"),
+    "a clear warning when the reference preview fails",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"checkbox-delete-linked-ddms\"]')?.disabled ?? false"),
+    true,
+    "linked DDMS deletion must be disabled when the reference list is incomplete",
+  );
+  await clickConfirmAction(browser, "Cancel");
+
+  // The complete deletion plan is shown and copyable before deletion. A linked
+  // target's referencer is deleted in the same cascade before Storage.
   await openStorageViewer(browser);
   await openDeleteConfirm(browser);
+  await waitForStorageDdmsPreview(browser);
   assert.equal(
-    await evaluate<boolean>(browser, "document.querySelectorAll('[data-testid^=\"storage-ddms-target-\"]').length === 2"),
+    await evaluate<boolean>(browser, "document.querySelectorAll('[data-testid^=\"storage-ddms-target-\"]').length === 3"),
     true,
-    "the preview should list both unique DDMS targets",
+    "the preview should list both linked DDMS targets and the additional referencer",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-ddms-summary\"]')?.textContent?.includes('3 unique records') ?? false"),
+    true,
+    "the preview should show the total unique DDMS deletion count",
   );
   await evaluate<void>(browser, browserFunction(() => {
-    const button = document.querySelector('[data-testid="button-copy-storage-ddms-ids"]');
-    if (!button) throw new Error("The copy DDMS IDs button was not found");
+    const button = document.querySelector('[data-testid="button-copy-storage-id"]');
+    if (!button) throw new Error("The copy Storage ID button was not found");
     (button as HTMLButtonElement).click();
   }));
   await waitFor(
-    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText?.includes('linked-ddms-1') ?? false"),
-    "the linked DDMS IDs to be copied",
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText === 'tenant:browser-test:master-data--Well(uuid-store)'"),
+    "the Storage ID to be copied",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="button-copy-storage-delete-plan"]');
+    if (!button) throw new Error("The full deletion list copy button was not found");
+    (button as HTMLButtonElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__storageDeleteTest.copiedText?.includes('referencing-ddms-1') ?? false"),
+    "the full Storage and DDMS deletion list to be copied",
   );
   {
     const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
+    assert.ok(copied.includes(storageRecordId), "the copied list should include the Storage ID");
     assert.ok(copied.includes(firstDdmsId), "the copied IDs should include the first target");
     assert.ok(copied.includes(secondDdmsId), "the copied IDs should include the second target");
-    assert.equal(copied.split("linked-ddms-1").length - 1, 1, "duplicate pointers should appear once in the copy summary");
+    assert.ok(copied.includes(referencerDdmsId), "the copied list should include the cascade referencer");
+  }
+  assert.equal(
+    await evaluate<number>(browser, "Array.from(document.querySelectorAll('[data-testid^=\"storage-ddms-target-\"] code')).filter((node) => node.textContent?.includes('linked-ddms-1')).length"),
+    1,
+    "duplicate pointers should appear as one linked DDMS entry",
+  );
+  {
+    const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
+    assert.ok(copied.includes(storageRecordId), "the copied list should retain the Storage ID");
   }
   await evaluate<void>(browser, browserFunction(() => {
     const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
@@ -353,17 +492,20 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await clickConfirmAction(browser, "Delete DDMS + soft delete");
   await waitFor(
     () => evaluate<boolean>(browser, "window.__storageDeleteTest.requests.length === 3"),
-    "both DDMS deletes and the Storage soft delete to fire",
+    "the DDMS cascade, remaining DDMS delete, and Storage soft delete to fire",
   );
   await waitFor(
     () => evaluate<boolean>(browser, "document.body?.innerText.includes('Storage record deletion complete') ?? false"),
     "the successful deletion summary to appear",
   );
   {
-    const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
-    assert.equal(requests[0].method, "DELETE", "the first DDMS target should be deleted first");
-    assert.ok(requests[0].url.includes("/resources/resqml20.obj_TriangulatedSetRepresentation/linked-ddms-1"));
-    assert.equal(requests[1].method, "DELETE", "the second DDMS target should be deleted second");
+    const requests = await evaluate<{ method: string; url: string; body?: string | Record<string, unknown> }[]>(browser, "window.__storageDeleteTest.requests");
+    assert.equal(requests[0].method, "POST", "the linked target with a referencer should use the atomic cascade endpoint first");
+    assert.ok(requests[0].url.endsWith("/cascade-delete"));
+    const cascadeBody = typeof requests[0].body === "string" ? JSON.parse(requests[0].body) : requests[0].body;
+    assert.equal((cascadeBody as any)?.target?.uuid, "linked-ddms-1");
+    assert.ok((cascadeBody as any)?.referencers?.some((record: any) => record.uuid === "referencing-ddms-1"));
+    assert.equal(requests[1].method, "DELETE", "the unreferenced second DDMS target should use its single delete");
     assert.ok(requests[1].url.includes("/resources/resqml20.obj_Grid2dRepresentation/linked-ddms-2"));
     assert.equal(requests[2].method, "POST", "Storage soft delete should happen only after both DDMS deletes");
     assert.ok(requests[2].url.endsWith(`/api/osdu/records/${encodedId}/delete`));
@@ -381,6 +523,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
     assert.ok(copied.includes("uuid-store"), "the completion summary should include the Storage ID");
     assert.ok(copied.includes("linked-ddms-1") && copied.includes("linked-ddms-2"));
+    assert.ok(copied.includes("referencing-ddms-1"), "the completion summary should include the cascaded referencer");
   }
   await clickConfirmAction(browser, "Done");
   await waitFor(
@@ -393,6 +536,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await openStorageViewer(browser);
   await evaluate<void>(browser, "window.__storageDeleteTest.missingDdmsUuid = 'linked-ddms-1'");
   await openDeleteConfirm(browser);
+  await waitForStorageDdmsPreview(browser);
   await evaluate<void>(browser, browserFunction(() => {
     const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
     if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
@@ -425,6 +569,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await openStorageViewer(browser);
   await evaluate<void>(browser, "window.__storageDeleteTest.failDdmsUuid = 'linked-ddms-2'");
   await openDeleteConfirm(browser);
+  await waitForStorageDdmsPreview(browser);
   await evaluate<void>(browser, browserFunction(() => {
     const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
     if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
@@ -441,14 +586,15 @@ async function runScenario(browser: CdpClient): Promise<void> {
   );
   {
     const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
-    assert.ok(requests[0].url.includes("linked-ddms-1"));
+    assert.equal(requests[0].method, "POST", "the first target and its referencer should use the atomic cascade");
+    assert.ok(requests[0].url.endsWith("/cascade-delete"));
     assert.ok(requests[1].url.includes("linked-ddms-2"));
     assert.equal(requests.some((request) => request.url.includes("/api/osdu/records/")), false, "Storage must not be deleted after a DDMS failure");
   }
   assert.equal(
     await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-delete-partial-summary\"]')?.textContent?.includes('linked-ddms-1') ?? false"),
     true,
-    "the partial summary should identify the DDMS record already deleted",
+    "the partial summary should identify the DDMS cascade already deleted",
   );
   await evaluate<void>(browser, browserFunction(() => {
     const button = document.querySelector('[data-testid="button-copy-storage-delete-partial-summary"]');
@@ -462,6 +608,10 @@ async function runScenario(browser: CdpClient): Promise<void> {
   assert.ok(
     (await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''")).includes("linked-ddms-1"),
     "the copied partial summary should include the DDMS record already deleted",
+  );
+  assert.ok(
+    (await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''")).includes("referencing-ddms-1"),
+    "the copied partial summary should include the cascade referencer already deleted",
   );
   await evaluate<void>(browser, "window.__storageDeleteTest.failDdmsUuid = null");
   await clickConfirmAction(browser, "Delete DDMS + soft delete");
@@ -485,6 +635,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await openStorageViewer(browser);
   await evaluate<void>(browser, "window.__storageDeleteTest.failMode = 'soft'");
   await openDeleteConfirm(browser);
+  await waitForStorageDdmsPreview(browser);
   await evaluate<void>(browser, browserFunction(() => {
     const checkbox = document.querySelector('[data-testid="checkbox-delete-linked-ddms"]') as HTMLInputElement | null;
     if (!checkbox) throw new Error("The linked DDMS delete checkbox was not found");
@@ -515,11 +666,13 @@ async function runScenario(browser: CdpClient): Promise<void> {
   );
   {
     const requests = await evaluate<{ method: string; url: string }[]>(browser, "window.__storageDeleteTest.requests");
-    assert.ok(requests[0].url.includes("linked-ddms-1"));
+    assert.equal(requests[0].method, "POST", "the first target and its referencer should use the cascade endpoint");
+    assert.ok(requests[0].url.endsWith("/cascade-delete"));
     assert.ok(requests[1].url.includes("linked-ddms-2"));
     assert.equal(requests[2].method, "POST", "Storage should only be attempted after both DDMS records");
     const copied = await evaluate<string>(browser, "window.__storageDeleteTest.copiedText ?? ''");
     assert.ok(copied.includes("linked-ddms-1") && copied.includes("linked-ddms-2"));
+    assert.ok(copied.includes("referencing-ddms-1"));
   }
   assert.equal(
     await evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') !== null"),
