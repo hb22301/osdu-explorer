@@ -7,7 +7,6 @@ import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown
 import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
 import { VersionHistorySelect } from "@/components/version-history-select";
-import { RecordRelationshipsNav } from "@/components/record-relationships-nav";
 import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
 import { findRecordRelationships } from "@/lib/storage-record-relationships";
 
@@ -295,14 +294,6 @@ export function RecordLookupDialog({
           >
             <StorageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-sm font-medium text-foreground shrink-0">{displayedTitle}</span>
-            <div className="ml-auto shrink-0">
-              <RecordRelationshipsNav
-                relationships={relationships}
-                onNavigate={handleNavigateToRelated}
-                canGoBack={navHistory.length > 0}
-                onBack={handleNavigateBack}
-              />
-            </div>
           </div>
 
           {/* Content */}
@@ -381,6 +372,10 @@ export function RecordLookupDialog({
                  lookupResult={lookupResult}
                  onLookupResult={handleLookupResult}
                  onResponseTypeChange={handleResponseTypeChange}
+                  relationships={relationships}
+                  onNavigateToRelated={handleNavigateToRelated}
+                  canNavigateBack={navHistory.length > 0}
+                  onNavigateBack={handleNavigateBack}
                   onRecordDeleted={handleRecordDeleted}
                   openStorageDeleteRequestId={storageDeleteRequestId}
                   onStorageDeleteRequestHandled={handleStorageDeleteRequestHandled}

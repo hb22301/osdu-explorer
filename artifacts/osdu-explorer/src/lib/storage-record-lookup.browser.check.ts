@@ -220,10 +220,17 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('direct-lookup-ok') ?? false"),
     "the looked-up record content",
   );
+  const recordRequests = await evaluate<string[]>(browser, "window.__lookupTest.recordRequests");
   assert.equal(
-    await evaluate<boolean>(browser, `window.__lookupTest.recordRequests.some((url) => url.includes(encodeURIComponent(${JSON.stringify(recordId)})))`),
+    recordRequests.some((url) => {
+      try {
+        return decodeURIComponent(new URL(url, APP_URL).pathname).endsWith(recordId);
+      } catch {
+        return false;
+      }
+    }),
     true,
-    "the lookup should request the record by its exact ID",
+    `the lookup should request the record by its exact ID; received ${JSON.stringify(recordRequests)}`,
   );
 }
 
@@ -267,3 +274,4 @@ async function runBrowserCheck(): Promise<void> {
 }
 
 await runBrowserCheck();
+

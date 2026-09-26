@@ -80,6 +80,8 @@ import {
 import { saveStorageRecord } from "@/lib/storage-record-save";
 import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
 import { VersionHistorySelect } from "@/components/version-history-select";
+import { RecordRelationshipsNav } from "@/components/record-relationships-nav";
+import type { RecordRelationship } from "@/lib/storage-record-relationships";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
 // out of the load path unless a Grid2d surface is actually visualized.
@@ -1246,6 +1248,10 @@ export function JsonViewerContent({
   onStorageDeleteRequestHandled,
   openRdmsDeleteRequestId,
   onRdmsDeleteRequestHandled,
+  relationships,
+  onNavigateToRelated,
+  canNavigateBack,
+  onNavigateBack,
 }: JsonViewerToolbarProps & {
   onMaximize?: () => void;
   onPopOut?: () => void;
@@ -1254,6 +1260,10 @@ export function JsonViewerContent({
   onResponseTypeChange?: (type: ResponseType) => void;
   openStorageDeleteRequestId?: string | null;
   onStorageDeleteRequestHandled?: () => void;
+  relationships?: RecordRelationship[];
+  onNavigateToRelated?: (id: string) => void;
+  canNavigateBack?: boolean;
+  onNavigateBack?: () => void;
 }) {
   const { startActivity } = useActivityProgress();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2526,6 +2536,18 @@ export function JsonViewerContent({
               <TooltipContent>Raw view</TooltipContent>
             </Tooltip>
           </div>
+        )}
+
+        {relationships && onNavigateToRelated && onNavigateBack && (
+          <>
+            <div className="mx-0.5 h-4 w-px shrink-0 bg-border/60" />
+            <RecordRelationshipsNav
+              relationships={relationships}
+              onNavigate={onNavigateToRelated}
+              canGoBack={Boolean(canNavigateBack)}
+              onBack={onNavigateBack}
+            />
+          </>
         )}
 
         {_isFullscreen && (

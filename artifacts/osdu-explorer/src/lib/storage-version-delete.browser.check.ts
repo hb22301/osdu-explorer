@@ -238,17 +238,37 @@ async function openRecordViewer(browser: CdpClient): Promise<void> {
 }
 
 async function openVersionMenu(browser: CdpClient): Promise<void> {
+  await waitFor(
+    () => evaluate<boolean>(browser, "(() => { const button = document.querySelector('button[aria-label=\"Select record version\"]'); return !!button && !button.disabled; })()"),
+    "the version list to finish loading",
+  );
   await evaluate<void>(browser, browserFunction(() => {
     const button = document.querySelector('button[aria-label="Select record version"]') as HTMLButtonElement | null;
     if (!button) throw new Error("The version selector button was not found");
-    // Radix opens the menu from keydown/pointerdown, not synthetic click().
     button.focus();
-    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
   }));
-  await waitFor(
-    () => evaluate<boolean>(browser, "[...document.querySelectorAll('[role=\"menuitem\"]')].some((item) => item.textContent?.includes('v1')) ?? false"),
-    "the version menu items",
-  );
+  // Use Chrome DevTools input so Radix receives a real, trusted key event.
+  await browser.call("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "ArrowDown",
+    code: "ArrowDown",
+    windowsVirtualKeyCode: 40,
+  });
+  await browser.call("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "ArrowDown",
+    code: "ArrowDown",
+    windowsVirtualKeyCode: 40,
+  });
+  try {
+    await waitFor(
+      () => evaluate<boolean>(browser, "document.querySelectorAll('[role=\"menuitem\"]').length > 0"),
+      "the version menu items",
+    );
+  } catch (error) {
+    const state = await evaluate<string>(browser, "JSON.stringify({ active: document.activeElement?.getAttribute('aria-label'), selectorDisabled: document.querySelector('button[aria-label=\"Select record version\"]')?.disabled, menu: document.querySelector('[role=\"menu\"]')?.outerHTML?.slice(0, 1400) ?? null, items: [...document.querySelectorAll('[role=\"menuitem\"]')].map((item) => item.textContent), tail: document.body.innerText.slice(-800) })");
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; menu state: ${state}`);
+  }
 }
 
 async function runScenario(browser: CdpClient): Promise<void> {

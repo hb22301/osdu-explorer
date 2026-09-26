@@ -249,8 +249,18 @@ async function runScenario(browser: CdpClient): Promise<void> {
 
   // The related-records control lists exactly the one referenced wellbore.
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Related records\"]')?.textContent?.includes('Related (1)') ?? false"),
-    "the Related (1) control",
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]') !== null && document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]') !== null"),
+    "the Related and Back controls in the JSON toolbar",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]')?.disabled ?? false"),
+    true,
+    "Back should remain visible but disabled before a record has been visited",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"record-lookup-dialog-header\"] button[aria-label=\"Related records\"]') !== null"),
+    false,
+    "the Related control should no longer be in the record header",
   );
 
   await openRelatedMenu(browser);
@@ -271,16 +281,35 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('wellbore-record-ok') ?? false"),
     "the child wellbore record content",
   );
+  await waitFor(
+    () => evaluate<boolean>(browser, "Boolean(document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]')?.disabled && !document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]')?.disabled)"),
+    "disabled Related and enabled Back controls for the child record",
+  );
   assert.equal(
-    await evaluate<boolean>(browser, `window.__relTest.recordRequests.some((url) => url.includes(encodeURIComponent(${JSON.stringify(WELLBORE_ID)})))`),
-    true,
-    "navigation should fetch the wellbore by its exact ID",
+    await evaluate<string>(browser, "document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]')?.getAttribute('aria-description') ?? ''"),
+    "0 related records",
+    "Related should show a zero count when the displayed record has no references",
+  );
+  const recordRequestUrls = await evaluate<string[]>(browser, "window.__relTest.recordRequests");
+  const requestedRecordIds = recordRequestUrls.map((url) => {
+    const path = new URL(url, APP_URL).pathname;
+    const rawId = path.split("/api/osdu/records/")[1]?.split("/")[0];
+    if (!rawId) return null;
+    try {
+      return decodeURIComponent(rawId);
+    } catch {
+      return rawId;
+    }
+  });
+  assert.ok(
+    requestedRecordIds.includes(WELLBORE_ID),
+    `navigation should fetch the wellbore by its exact ID; requests: ${recordRequestUrls.join(", ")}`,
   );
 
   // Step back to the parent well.
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Back to previous record\"]') !== null"),
-    "the Back control",
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]') !== null"),
+    "the Back control in the JSON toolbar",
   );
   await evaluate<void>(browser, browserFunction(() => {
     const back = document.querySelector('button[aria-label="Back to previous record"]') as HTMLButtonElement | null;
@@ -290,6 +319,10 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('well-record-ok') ?? false"),
     "the parent well record to return",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "Boolean(document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]') && !document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]')?.disabled && document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]')?.disabled)"),
+    "enabled Related and disabled Back controls after returning to the parent",
   );
 }
 
