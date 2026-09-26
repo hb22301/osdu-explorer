@@ -75,6 +75,7 @@ export const SearchOsduRecordsBody = zod.object({
   "query": zod.string().nullish().describe('Lucene query string'),
   "limit": zod.number().default(searchOsduRecordsBodyLimitDefault),
   "offset": zod.number().default(searchOsduRecordsBodyOffsetDefault),
+  "trackTotalCount": zod.boolean().optional().describe('Request an accurate total count instead of the default partial count.'),
   "returnedFields": zod.array(zod.string()).optional(),
   "sort": zod.object({
   "field": zod.array(zod.string()).optional(),

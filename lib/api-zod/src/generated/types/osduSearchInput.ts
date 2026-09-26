@@ -17,6 +17,8 @@ export interface OsduSearchInput {
   query?: string | null;
   limit?: number;
   offset?: number;
+  /** Request an accurate total count instead of the default partial count. */
+  trackTotalCount?: boolean;
   returnedFields?: string[];
   /** @nullable */
   sort?: OsduSearchInputSort;

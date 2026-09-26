@@ -140,7 +140,7 @@ export function KindsBrowser() {
   const fetchCount = useCallback(async (kind: string) => {
     setCounts((prev) => ({ ...prev, [kind]: "loading" }));
     try {
-      const res = await searchOsduRecords({ kind, limit: 0 });
+      const res = await searchOsduRecords({ kind, limit: 0, trackTotalCount: true });
       setCounts((prev) => ({ ...prev, [kind]: res.totalCount ?? 0 }));
     } catch {
       setCounts((prev) => ({ ...prev, [kind]: "error" }));

@@ -17,7 +17,7 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
     return;
   }
 
-  const { kind, query, limit, offset, returnedFields, sort } = parsed.data;
+  const { kind, query, limit, offset, trackTotalCount, returnedFields, sort } = parsed.data;
 
   const client = getOsduClient(cfg);
   const osduBody: Record<string, unknown> = {
@@ -27,6 +27,7 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
   };
 
   if (query) osduBody.query = query;
+  if (trackTotalCount !== undefined) osduBody.trackTotalCount = trackTotalCount;
   if (returnedFields && returnedFields.length > 0) osduBody.returnedFields = returnedFields;
   if (sort) osduBody.sort = sort;
 

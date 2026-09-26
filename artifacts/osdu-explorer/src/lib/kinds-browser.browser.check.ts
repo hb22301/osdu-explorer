@@ -9,12 +9,13 @@ const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? "/repl/tools/bin/chromium";
 
 const TARGET_KIND = "osdu:wks:master-data--Well:1.0.0";
 const OTHER_KIND = "osdu:wks:master-data--Wellbore:1.0.0";
-const RECORD_COUNT = 42;
+const RECORD_COUNT = 12_345;
 
 declare global {
   interface Window {
     __kindsTest: {
       searchKinds: string[];
+      searchBodies: Array<{ kind: string; trackTotalCount?: boolean }>;
       schemaRequests: string[];
     };
   }
@@ -121,7 +122,7 @@ function mockApiScript(): string {
     (() => {
       const targetKind = ${JSON.stringify(TARGET_KIND)};
       const otherKind = ${JSON.stringify(OTHER_KIND)};
-      window.__kindsTest = { searchKinds: [], schemaRequests: [] };
+      window.__kindsTest = { searchKinds: [], searchBodies: [], schemaRequests: [] };
 
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -136,7 +137,11 @@ function mockApiScript(): string {
           });
         }
         if (method === "POST" && url.includes("/api/osdu/search")) {
-          try { window.__kindsTest.searchKinds.push(JSON.parse(init.body).kind); } catch {}
+          try {
+            const body = JSON.parse(init.body);
+            window.__kindsTest.searchKinds.push(body.kind);
+            window.__kindsTest.searchBodies.push(body);
+          } catch {}
           return new Response(JSON.stringify({ results: [], totalCount: ${RECORD_COUNT} }), {
             headers: { "Content-Type": "application/json" },
           });
@@ -231,13 +236,18 @@ async function runScenario(browser: CdpClient): Promise<void> {
     btn.click();
   }, TARGET_KIND));
   await waitFor(
-    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="kind-row"]')].some((r) => r.textContent?.includes(${JSON.stringify(TARGET_KIND)}) && r.textContent?.includes("${RECORD_COUNT}"))`),
+    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="kind-row"]')].some((r) => r.textContent?.includes(${JSON.stringify(TARGET_KIND)}) && r.textContent?.replace(/,/g, "").includes("${RECORD_COUNT}"))`),
     "the record count to appear",
   );
   assert.equal(
     await evaluate<boolean>(browser, `window.__kindsTest.searchKinds.includes(${JSON.stringify(TARGET_KIND)})`),
     true,
     "the count should be fetched via a Search query for the exact kind",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `window.__kindsTest.searchBodies.some((body) => body.kind === ${JSON.stringify(TARGET_KIND)} && body.trackTotalCount === true)`),
+    true,
+    "the count query should request an accurate total count",
   );
 
   // Jump to the kind's schema definition.

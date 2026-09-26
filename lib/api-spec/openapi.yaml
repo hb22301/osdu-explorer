@@ -400,6 +400,9 @@ components:
         offset:
           type: integer
           default: 0
+        trackTotalCount:
+          type: boolean
+          description: Request an accurate total count instead of the default partial count.
         returnedFields:
           type: array
           items:
