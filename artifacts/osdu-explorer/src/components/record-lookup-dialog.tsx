@@ -18,6 +18,8 @@ interface RecordLookupDialogProps {
   openRequestId?: string | null;
   onOpenRequestHandled?: () => void;
   onRecordDeleted?: () => void;
+  /** Hide the inline trigger buttons and drive the dialog only via openRequestId. */
+  hideTriggers?: boolean;
 }
 
 export function RecordLookupDialog({
@@ -25,6 +27,7 @@ export function RecordLookupDialog({
   openRequestId = null,
   onOpenRequestHandled,
   onRecordDeleted,
+  hideTriggers = false,
 }: RecordLookupDialogProps) {
   const [open, setOpen] = useState(false);
   const [recordId, setRecordId] = useState("");
@@ -80,11 +83,11 @@ export function RecordLookupDialog({
     }
   }, [recordId]);
 
-  const handleOpenChange = useCallback((next: boolean) => {
+  const handleOpenChange = useCallback((next: boolean, seedId?: string) => {
     setOpen(next);
     resetVersionState();
     if (next) {
-      const seed = selectedId.trim();
+      const seed = (seedId ?? selectedId).trim();
       setRecordId(seed);
       setDisplayedTitle("Record from Storage Service");
       setLookupResult(null);
@@ -124,7 +127,9 @@ export function RecordLookupDialog({
 
   useEffect(() => {
     if (!openRequestId) return;
-    handleOpenChange(true);
+    // openRequestId carries the record ID to open, so seed from it directly —
+    // this lets callers look up an arbitrary record without a selected row.
+    handleOpenChange(true, openRequestId);
     onOpenRequestHandled?.();
   }, [openRequestId, handleOpenChange, onOpenRequestHandled]);
 
@@ -165,6 +170,7 @@ export function RecordLookupDialog({
 
   return (
     <>
+      {!hideTriggers && (
       <div className="inline-flex items-center gap-1">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -213,6 +219,7 @@ export function RecordLookupDialog({
           <TooltipContent>Delete Storage record</TooltipContent>
         </Tooltip>
       </div>
+      )}
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent

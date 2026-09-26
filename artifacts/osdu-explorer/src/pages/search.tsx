@@ -8,7 +8,7 @@ import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
+import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw, DatabaseZap } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -629,6 +629,8 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   const [selected, setSelected] = useState<RawRecord | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [storageOpenId, setStorageOpenId] = useState<string | null>(null);
+  const [lookupIdDraft, setLookupIdDraft] = useState("");
+  const [lookupOpenId, setLookupOpenId] = useState<string | null>(null);
   const [selectedStorageVersion, setSelectedStorageVersion] = useState<number | undefined>();
   const [colWidths, setColWidths] = useState<Record<ColKey, number>>(loadColWidths);
   const [colOrder, setColOrder] = useState<ColKey[]>(loadColOrder);
@@ -1139,6 +1141,15 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     setSelectedRowId(row.id !== "—" ? row.id : null);
   }, []);
 
+  // Look up a single record straight from the Storage Service by its ID,
+  // without running a search first.
+  const handleLookupById = useCallback(() => {
+    const id = lookupIdDraft.trim();
+    if (!id) return;
+    trackEvent("record_opened", { source: "id_lookup", mode: "storage_lookup" });
+    setLookupOpenId(id);
+  }, [lookupIdDraft]);
+
   const handleRecordDeleted = useCallback(() => {
     setSelectedRowId(null);
     const sort = dashboardMode ? dashboardSortFor(dashboardSortMode) : undefined;
@@ -1217,7 +1228,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
         >
           {dashboardMode
             ? `Records ${dashboardSortMode === "createTime" ? "created" : "updated"} within the last ${dashboardWindow.value.toLocaleString()} ${dashboardWindow.unit}.`
-            : "Search and explore records in the OSDU data platform."}
+            : "Search records with a Lucene query, or look up a single record directly by its Storage ID."}
         </p>
         {dashboardMode && (
           <div className="ml-auto flex items-center gap-2">
@@ -1283,7 +1294,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
         )}
       </div>
 
-      {!dashboardMode && <div className="glass-card p-3">
+      {!dashboardMode && <div className="glass-card p-3 space-y-3">
         <form
           onSubmit={handleSearch}
           className="grid items-stretch gap-2.5 sm:grid-cols-[minmax(0,1fr)_3rem]"
@@ -1346,7 +1357,47 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
             <TooltipContent side="right">Launch query</TooltipContent>
           </Tooltip>
         </form>
+
+        <div className="space-y-1 border-t border-border/40 pt-2.5">
+          <label htmlFor="storage-record-id" className="text-xs font-medium leading-none">
+            Look up a record by Storage ID
+          </label>
+          <div className="flex min-w-0 gap-1.5">
+            <Input
+              id="storage-record-id"
+              value={lookupIdDraft}
+              onChange={(e) => setLookupIdDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleLookupById(); } }}
+              placeholder="e.g. opendes:work-product-component--Document:8a1b2c3d…"
+              className="min-w-0 flex-1 h-8 font-mono text-xs"
+              aria-label="Storage record ID"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5"
+              onClick={handleLookupById}
+              disabled={!lookupIdDraft.trim()}
+            >
+              <DatabaseZap className="h-3.5 w-3.5" />
+              Look up
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Fetches the record directly from the Storage Service by its ID — no query required.
+          </p>
+        </div>
       </div>}
+
+      {!dashboardMode && (
+        <RecordLookupDialog
+          hideTriggers
+          openRequestId={lookupOpenId}
+          onOpenRequestHandled={() => setLookupOpenId(null)}
+          onRecordDeleted={handleRecordDeleted}
+        />
+      )}
 
       {searchMutation.isError && (
         <Card className="border-error-border/60 bg-error-surface">
