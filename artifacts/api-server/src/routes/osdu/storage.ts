@@ -212,6 +212,51 @@ router.delete("/osdu/records/:id", async (req, res): Promise<void> => {
   }
 });
 
+// Purge specific record versions. OSDU deletes the versions listed in versionIds
+// (comma-separated) but never the latest version; the deletion is permanent.
+router.delete("/osdu/records/:id/versions", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+
+  const params = GetOsduRecordParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const recordId = params.data.id;
+  const versionIds = req.query.versionIds;
+  // versionIds: comma-separated positive integers, excluding the latest version.
+  // OSDU caps a single request at 50 versions.
+  if (typeof versionIds !== "string" || !/^[1-9]\d*(,[1-9]\d*)*$/.test(versionIds)) {
+    res.status(400).json({ error: "versionIds must be a comma-separated list of positive integers." });
+    return;
+  }
+  if (versionIds.split(",").length > 50) {
+    res.status(400).json({ error: "A maximum of 50 versions can be deleted per request." });
+    return;
+  }
+
+  const client = getOsduClient(cfg);
+  try {
+    const { status, data } = await client.fetch(
+      `/api/storage/v2/records/${encodeURIComponent(recordId)}/versions`,
+      { method: "DELETE", params: { versionIds } },
+    );
+    if (status >= 200 && status < 300) {
+      res.status(200).json({ ok: true });
+    } else {
+      req.log.warn({ status, data }, "OSDU delete record versions error");
+      res.status(status >= 400 && status < 600 ? status : 502).json({ error: storageErrorMessage(data, status, "Failed to delete record versions") });
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to delete record versions" });
+  }
+});
+
 router.get("/osdu/kinds", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {

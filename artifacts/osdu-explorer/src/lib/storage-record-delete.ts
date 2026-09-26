@@ -34,3 +34,19 @@ export async function purgeStorageRecord(
   if (!res.ok) return { ok: false, error: await readError(res, "Failed to purge record") };
   return { ok: true };
 }
+
+// Permanently purge specific (non-latest) versions of a record. OSDU never
+// deletes the latest version, so callers must exclude it. DELETE .../{id}/versions.
+export async function deleteStorageRecordVersions(
+  recordId: string,
+  versionIds: number[],
+): Promise<StorageDeleteResult> {
+  if (versionIds.length === 0) return { ok: true };
+  const ids = encodeURIComponent(versionIds.join(","));
+  const res = await fetch(
+    `/api/osdu/records/${encodeURIComponent(recordId)}/versions?versionIds=${ids}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) return { ok: false, error: await readError(res, "Failed to delete record versions") };
+  return { ok: true };
+}

@@ -1968,6 +1968,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
           storageRecordId={selected.id as string | undefined}
           selectedStorageVersion={selectedStorageVersion}
           onStorageVersionSelect={setSelectedStorageVersion}
+          onStorageVersionsDeleted={(deleted) => {
+            // If the purged version is the one on screen, revert to the latest.
+            if (selectedStorageVersion === deleted) setSelectedStorageVersion(undefined);
+          }}
         />
       )}
     </div>

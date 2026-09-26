@@ -125,6 +125,8 @@ interface JsonViewerToolbarProps {
   selectedStorageVersion?: number;
   /** Called when user selects a different version of a Storage record */
   onStorageVersionSelect?: (version: number) => void;
+  /** Called after a Storage record version is purged, with the deleted version */
+  onStorageVersionsDeleted?: (deletedVersion: number) => void;
 }
 
 interface RawMatch {
@@ -1229,6 +1231,7 @@ export function JsonViewerContent({
   storageRecordId,
   selectedStorageVersion,
   onStorageVersionSelect,
+  onStorageVersionsDeleted,
   lookupResult,
   onLookupResult,
   onResponseTypeChange,
@@ -2864,6 +2867,7 @@ export function JsonViewerContent({
                   recordId={storageRecordId}
                   selectedVersion={selectedStorageVersion}
                   onVersionSelect={onStorageVersionSelect}
+                  onVersionsDeleted={onStorageVersionsDeleted}
                 />
               </>
             )}
@@ -3790,7 +3794,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, selectedStorageVersion, onStorageVersionSelect, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, selectedStorageVersion, onStorageVersionSelect, onStorageVersionsDeleted, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -3995,6 +3999,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               storageRecordId={lookupResult ? undefined : storageRecordId}
               selectedStorageVersion={selectedStorageVersion}
               onStorageVersionSelect={onStorageVersionSelect}
+              onStorageVersionsDeleted={onStorageVersionsDeleted}
               lookupResult={lookupResult}
               onLookupResult={handleLookupResult}
               onResponseTypeChange={handleResponseTypeChange}

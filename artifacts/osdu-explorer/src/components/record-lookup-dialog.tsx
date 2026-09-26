@@ -239,6 +239,10 @@ export function RecordLookupDialog({
                   selectedVersion={selectedStorageVersion}
                   onVersionSelect={handleStorageVersionSelect}
                   isVersionLoading={isVersionLoading}
+                  onVersionsDeleted={(deleted) => {
+                    // If the version on screen was purged, fall back to the latest.
+                    if (selectedStorageVersion === deleted) resetVersionState();
+                  }}
                 />
               </div>
             )}
