@@ -11,6 +11,7 @@ declare global {
   interface Window {
     __versionTest: {
       versionRequests: number[];
+      latestMissing: boolean;
     };
   }
 }
@@ -116,6 +117,7 @@ function mockApiScript(): string {
   return `
     (() => {
       const recordId = "tenant:browser-test:master-data--Well(version-record)";
+      const latestMissing = new URLSearchParams(window.location.search).has("latest-missing");
       const baseRecord = {
         id: recordId,
         kind: "osdu:wks:master-data--Well:1.0.0",
@@ -127,7 +129,7 @@ function mockApiScript(): string {
         ancestry: {},
         tags: {},
       };
-      window.__versionTest = { versionRequests: [] };
+      window.__versionTest = { versionRequests: [], latestMissing };
 
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -146,7 +148,7 @@ function mockApiScript(): string {
           }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/versions")) {
-          return new Response(JSON.stringify({ recordId, versions: [1, 2, 3] }), {
+          return new Response(JSON.stringify({ recordId, versions: latestMissing ? [2] : [1, 2, 3] }), {
             headers: { "Content-Type": "application/json" },
           });
         }
@@ -160,6 +162,12 @@ function mockApiScript(): string {
               version,
               data: { FacilityName: "Version demo record", VersionMarker: "marker-v" + version },
             }), { headers: { "Content-Type": "application/json" } });
+          }
+          if (latestMissing) {
+            return new Response(JSON.stringify({ message: "Record not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
           }
           return new Response(JSON.stringify(baseRecord), { headers: { "Content-Type": "application/json" } });
         }
@@ -240,8 +248,10 @@ async function openRecordViewer(browser: CdpClient): Promise<void> {
 }
 
 // Search → open the same record through the Storage API lookup dialog.
-async function openStorageRecordDialog(browser: CdpClient): Promise<void> {
-  await browser.call("Page.navigate", { url: `${APP_URL}/search` });
+async function openStorageRecordDialog(browser: CdpClient, latestMissing = false): Promise<void> {
+  await browser.call("Page.navigate", {
+    url: `${APP_URL}/search${latestMissing ? "?latest-missing=1" : ""}`,
+  });
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
     "Record Search to render for the Storage API dialog",
@@ -282,6 +292,7 @@ async function openStorageRecordDialog(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('Record from Storage Service') ?? false"),
     "the Storage API record dialog",
   );
+  if (latestMissing) return;
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Select record version\"]') !== null"),
     "the Storage API version selector to appear beside the action icons",
@@ -390,6 +401,56 @@ async function runScenario(browser: CdpClient): Promise<void> {
     await evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Select record version\"]')?.textContent?.includes('v1') ?? false"),
     true,
     "the Storage API selector should reflect the chosen version",
+  );
+
+  // A missing latest version should still expose even a single retained version.
+  await openStorageRecordDialog(browser, true);
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-latest-version-not-found\"]') !== null"),
+    "the missing-latest-version recovery state",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-latest-version-not-found\"] button[aria-label=\"Select record version\"]:not(:disabled)') !== null"),
+    "the retained earlier version selector",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-latest-version-not-found\"] button[aria-label=\"Select record version\"]')?.textContent?.includes('Earlier versions') ?? false"),
+    true,
+    "the recovery selector should invite the user to choose an earlier version",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[data-testid="storage-latest-version-not-found"] button[aria-label="Select record version"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The earlier version selector was not found");
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "[...document.querySelectorAll('[role=\"menuitem\"]')].some((item) => item.textContent?.includes('v2')) ?? false"),
+    "the retained version menu item",
+  );
+  assert.equal(
+    await evaluate<number>(browser, "document.querySelectorAll('[role=\"menuitem\"]').length"),
+    1,
+    "the recovery menu should include the single retained version",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const item = [...document.querySelectorAll('[role="menuitem"]')]
+      .find((candidate) => candidate.textContent?.includes("v2"));
+    if (!item) throw new Error("The retained v2 menu item was not found");
+    (item as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "window.__versionTest.versionRequests.at(-1) === 2"),
+    "the retained version fetch to fire",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('marker-v2') ?? false"),
+    "the retained version content to render after the latest-version 404",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"storage-latest-version-not-found\"]') === null"),
+    true,
+    "the 404 recovery message should clear once an earlier version loads",
   );
 }
 

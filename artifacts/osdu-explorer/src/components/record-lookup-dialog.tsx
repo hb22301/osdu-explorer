@@ -6,11 +6,26 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
+import { VersionHistorySelect } from "@/components/version-history-select";
 import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
 const MIN_CONSOLE_HEIGHT = 80;
 const MAX_CONSOLE_HEIGHT = 700;
+
+function isHttpNotFound(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown };
+    message?: unknown;
+  };
+  return candidate.status === 404
+    || candidate.statusCode === 404
+    || candidate.response?.status === 404
+    || (typeof candidate.message === "string" && /\b404\b/.test(candidate.message));
+}
 
 interface RecordLookupDialogProps {
   selectedId?: string;
@@ -81,6 +96,10 @@ export function RecordLookupDialog({
       if (requestId === versionRequestRef.current) setIsVersionLoading(false);
     }
   }, [recordId]);
+
+  const handleStorageVersionsDeleted = useCallback((deleted: number) => {
+    if (selectedStorageVersion === deleted) resetVersionState();
+  }, [resetVersionState, selectedStorageVersion]);
 
   const handleOpenChange = useCallback((next: boolean, seedId?: string) => {
     setOpen(next);
@@ -156,6 +175,8 @@ export function RecordLookupDialog({
 
   const displayedRecord = versionRecord ?? data;
   const json = displayedRecord ? JSON.stringify(displayedRecord, null, 2) : "";
+  const latestStorageVersionUnavailable = isError && isHttpNotFound(error);
+  const hasDisplayedRecord = versionRecord !== null || (!isError && Boolean(data));
   const activeJson = lookupResult?.json ?? json;
   const isReservoirDdmsResponse = Boolean(lookupResult);
   const handleLookupResult = useCallback((result: JsonViewerLookupResult | null) => {
@@ -248,13 +269,41 @@ export function RecordLookupDialog({
               </div>
             )}
             <div className="flex-1 min-h-0">
-            {isError && (
-              <div className="flex items-start gap-2 rounded-lg border border-error-border/60 bg-error-surface p-4 text-sm text-error-text">
-                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                <span className="break-all">
-                  {(error as Error | undefined)?.message ?? "Failed to fetch record."}
-                </span>
-              </div>
+            {isError && versionRecord === null && (
+              latestStorageVersionUnavailable ? (
+                <div
+                  data-testid="storage-latest-version-not-found"
+                  role="alert"
+                  className="flex items-start gap-3 rounded-lg border border-error-border/60 bg-error-surface p-4 text-sm text-error-text"
+                >
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium">Latest version not found</p>
+                    <p className="mt-1 break-all text-xs opacity-80">
+                      {(error as Error | undefined)?.message ?? "HTTP 404: Record not found"}
+                    </p>
+                    <p className="mt-2">
+                      If earlier versions are retained, you can select one to open it.
+                    </p>
+                    <div className="mt-3">
+                      <VersionHistorySelect
+                        recordId={recordId}
+                        selectedVersion={selectedStorageVersion}
+                        onVersionSelect={handleStorageVersionSelect}
+                        isVersionLoading={isVersionLoading}
+                        latestUnavailable
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-2 rounded-lg border border-error-border/60 bg-error-surface p-4 text-sm text-error-text">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span className="break-all">
+                    {(error as Error | undefined)?.message ?? "Failed to fetch record."}
+                  </span>
+                </div>
+              )
             )}
             {!isError && !data && isFetching && (
               <div className="h-full flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -262,7 +311,7 @@ export function RecordLookupDialog({
                 Loading record…
               </div>
             )}
-            {!isError && data && (
+            {hasDisplayedRecord && (
               <JsonViewerContent
                   key={`${recordId}:${selectedStorageVersion ?? "latest"}:${lookupResult?.label ?? "original"}`}
                 json={activeJson}
@@ -272,12 +321,10 @@ export function RecordLookupDialog({
                  searchRecordId={recordId}
                   storageRecordId={lookupResult ? undefined : recordId}
                   isStorageVersionLoading={isVersionLoading}
+                  latestStorageVersionUnavailable={latestStorageVersionUnavailable}
                   selectedStorageVersion={selectedStorageVersion}
                   onStorageVersionSelect={handleStorageVersionSelect}
-                  onStorageVersionsDeleted={(deleted) => {
-                    // If the version on screen was purged, fall back to the latest.
-                    if (selectedStorageVersion === deleted) resetVersionState();
-                  }}
+                  onStorageVersionsDeleted={handleStorageVersionsDeleted}
                  rdmsContext={lookupResult?.rdmsContext}
                  hideStorageLookup={isReservoirDdmsResponse}
                  hideSearchLookup={isReservoirDdmsResponse}

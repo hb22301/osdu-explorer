@@ -113,6 +113,8 @@ interface JsonViewerToolbarProps {
   storageRecordId?: string;
   /** True while a historical Storage version is being fetched. */
   isStorageVersionLoading?: boolean;
+  /** The latest Storage record fetch returned 404; show version choices as recovery. */
+  latestStorageVersionUnavailable?: boolean;
   /** Controlled lookup result used to replace the active viewer payload */
   lookupResult?: JsonViewerLookupResult | null;
   /** Called when a controlled lookup result is opened or closed */
@@ -1232,6 +1234,7 @@ export function JsonViewerContent({
   searchRecordId,
   storageRecordId,
   isStorageVersionLoading,
+  latestStorageVersionUnavailable,
   selectedStorageVersion,
   onStorageVersionSelect,
   onStorageVersionsDeleted,
@@ -2871,6 +2874,7 @@ export function JsonViewerContent({
                   selectedVersion={selectedStorageVersion}
                   onVersionSelect={onStorageVersionSelect}
                   isVersionLoading={isStorageVersionLoading}
+                  latestUnavailable={latestStorageVersionUnavailable}
                   onVersionsDeleted={onStorageVersionsDeleted}
                 />
               </>
@@ -3798,7 +3802,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, isStorageVersionLoading, selectedStorageVersion, onStorageVersionSelect, onStorageVersionsDeleted, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, isStorageVersionLoading, latestStorageVersionUnavailable, selectedStorageVersion, onStorageVersionSelect, onStorageVersionsDeleted, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -3963,6 +3967,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           searchRecordId={lookupResult ? undefined : searchRecordId}
           storageRecordId={lookupResult ? undefined : storageRecordId}
           isStorageVersionLoading={isStorageVersionLoading}
+          latestStorageVersionUnavailable={latestStorageVersionUnavailable}
           selectedStorageVersion={selectedStorageVersion}
           onStorageVersionSelect={onStorageVersionSelect}
           onStorageVersionsDeleted={onStorageVersionsDeleted}
@@ -4004,6 +4009,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               searchRecordId={lookupResult ? undefined : searchRecordId}
               storageRecordId={lookupResult ? undefined : storageRecordId}
               isStorageVersionLoading={isStorageVersionLoading}
+              latestStorageVersionUnavailable={latestStorageVersionUnavailable}
               selectedStorageVersion={selectedStorageVersion}
               onStorageVersionSelect={onStorageVersionSelect}
               onStorageVersionsDeleted={onStorageVersionsDeleted}

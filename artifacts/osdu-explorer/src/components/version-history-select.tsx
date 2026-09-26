@@ -28,6 +28,8 @@ interface VersionHistorySelectProps {
   selectedVersion: number | undefined;
   onVersionSelect: (version: number) => void;
   isVersionLoading?: boolean;
+  /** The unversioned record request returned 404; offer prior versions as recovery. */
+  latestUnavailable?: boolean;
   /** Called after a version is purged, with the deleted version number. */
   onVersionsDeleted?: (deletedVersion: number) => void;
 }
@@ -40,6 +42,7 @@ export function VersionHistorySelect({
   selectedVersion,
   onVersionSelect,
   isVersionLoading = false,
+  latestUnavailable = false,
   onVersionsDeleted,
 }: VersionHistorySelectProps) {
   const queryClient = useQueryClient();
@@ -54,13 +57,32 @@ export function VersionHistorySelect({
   if (!recordId) return null;
 
   const versions = parseVersions(data?.versions);
+  if (!isLoading && !error && versions.length === 0 && latestUnavailable) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 px-2 text-xs"
+        disabled
+        aria-label="No earlier versions available"
+        title="No earlier versions were returned by the Storage Service."
+      >
+        <History className="h-3.5 w-3.5" />
+        <span>No earlier versions</span>
+      </Button>
+    );
+  }
   // Nothing to switch between unless there are at least two versions.
-  if (!isLoading && !error && versions.length < 2) return null;
+  if (!isLoading && !error && versions.length < 2 && !latestUnavailable) return null;
 
   const latest = versions.find((v) => v.isLatest)?.version;
-  const current = selectedVersion ?? latest;
+  const current = selectedVersion ?? (latestUnavailable ? undefined : latest);
   const currentLabel =
-    current !== undefined ? formatVersion(current, current === latest) : "Versions";
+    current !== undefined
+      ? formatVersion(current, !latestUnavailable && current === latest)
+      : latestUnavailable
+        ? "Earlier versions"
+        : "Versions";
 
   const handleConfirmDelete = async () => {
     if (deleteTarget === null || !recordId) return;
@@ -114,9 +136,11 @@ export function VersionHistorySelect({
                   v.version === current ? "opacity-100" : "opacity-0",
                 )}
               />
-              <span className="font-mono flex-1">{formatVersion(v.version, v.isLatest)}</span>
-              {/* The latest version cannot be purged (OSDU always retains it). */}
-              {!v.isLatest && (
+              <span className="font-mono flex-1">
+                {formatVersion(v.version, !latestUnavailable && v.isLatest)}
+              </span>
+              {/* Avoid destructive actions while the current/latest record is missing. */}
+              {!latestUnavailable && !v.isLatest && (
                 <button
                   type="button"
                   className="ml-2 rounded p-0.5 text-muted-foreground hover:bg-destructive/15 hover:text-destructive transition-colors"
