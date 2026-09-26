@@ -1285,10 +1285,12 @@ export function JsonViewerContent({
   const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
   const [resolvedRdmsContext, setResolvedRdmsContext] = useState<JsonViewerToolbarProps["rdmsContext"] | null>(null);
   const activeRdmsContext = lookupResult?.rdmsContext ?? resolvedRdmsContext ?? rdmsContext;
-  const originalResponseType: ResponseType | null = storageRecordId
-    ? "search"
-    : searchRecordId
-      ? "storage"
+  // A Storage lookup can pass both IDs: searchRecordId identifies the source,
+  // while storageRecordId also enables version history in this viewer.
+  const originalResponseType: ResponseType | null = searchRecordId
+    ? "storage"
+    : storageRecordId
+      ? "search"
       : null;
 
   type WdmsResult = {
