@@ -151,9 +151,9 @@ function mockApiScript(): string {
           });
         }
         if (method === "GET" && url.includes("/api/osdu/records/")) {
-          const match = url.match(/[?&]version=(\\d+)/);
-          if (match) {
-            const version = Number(match[1]);
+          const versionSegment = new URL(url, window.location.origin).pathname.split("/").pop();
+          if (versionSegment && /^[1-9][0-9]*$/.test(versionSegment)) {
+            const version = Number(versionSegment);
             window.__versionTest.versionRequests.push(version);
             return new Response(JSON.stringify({
               ...baseRecord,
