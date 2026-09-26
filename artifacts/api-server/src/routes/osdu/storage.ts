@@ -25,8 +25,25 @@ router.get("/osdu/records/:id", async (req, res): Promise<void> => {
   }
 
   const recordId = params.data.id;
+  const requestedVersion = req.query.version;
+  if (
+    requestedVersion !== undefined &&
+    (typeof requestedVersion !== "string" ||
+      !/^[1-9]\d*$/.test(requestedVersion) ||
+      !Number.isSafeInteger(Number(requestedVersion)))
+  ) {
+    res.status(400).json({ error: "Version must be a positive integer." });
+    return;
+  }
+
+  const versionQuery =
+    typeof requestedVersion === "string"
+      ? `?version=${encodeURIComponent(requestedVersion)}`
+      : "";
   const client = getOsduClient(cfg);
-  const { status, data } = await client.fetch(`/api/storage/v2/records/${encodeURIComponent(recordId)}`);
+  const { status, data } = await client.fetch(
+    `/api/storage/v2/records/${encodeURIComponent(recordId)}${versionQuery}`,
+  );
 
   if (status === 404) {
     res.status(404).json({ error: "Record not found" });
