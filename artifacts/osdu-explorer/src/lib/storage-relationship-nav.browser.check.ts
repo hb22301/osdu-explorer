@@ -1,0 +1,335 @@
+import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+
+const APP_PORT = 5188;
+const DEBUG_PORT = 9400 + (process.pid % 100);
+const APP_URL = `http://127.0.0.1:${APP_PORT}`;
+const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? "/repl/tools/bin/chromium";
+
+const WELL_ID = "tenant:browser-test:master-data--Well(rel-nav)";
+const WELLBORE_ID = "tenant:browser-test:master-data--Wellbore(rel-nav)";
+
+declare global {
+  interface Window {
+    __relTest: {
+      recordRequests: string[];
+    };
+  }
+}
+
+interface CdpMessage {
+  id?: number;
+  result?: Record<string, unknown>;
+  error?: { message: string };
+}
+
+interface CdpTarget {
+  type: string;
+  webSocketDebuggerUrl?: string;
+}
+
+class CdpClient {
+  private nextId = 1;
+  private readonly pending = new Map<number, {
+    resolve: (value: Record<string, unknown>) => void;
+    reject: (error: Error) => void;
+  }>();
+
+  private constructor(private readonly socket: WebSocket) {
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data)) as CdpMessage;
+      if (message.id === undefined) return;
+      const request = this.pending.get(message.id);
+      if (!request) return;
+      this.pending.delete(message.id);
+      if (message.error) request.reject(new Error(message.error.message));
+      else request.resolve(message.result ?? {});
+    });
+    socket.addEventListener("error", () => {
+      for (const request of this.pending.values()) {
+        request.reject(new Error("Chrome DevTools connection failed"));
+      }
+      this.pending.clear();
+    });
+  }
+
+  static async connect(url: string): Promise<CdpClient> {
+    const socket = new WebSocket(url);
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("open", () => resolve(), { once: true });
+      socket.addEventListener("error", () => reject(new Error("Could not connect to Chrome DevTools")), { once: true });
+    });
+    return new CdpClient(socket);
+  }
+
+  call(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.socket.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  close(): void {
+    this.socket.close();
+  }
+}
+
+async function waitForUrl(url: string, description: string, timeoutMs = 30_000): Promise<void> {
+  const startedAt = Date.now();
+  let lastError = "not reachable";
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for ${description}: ${lastError}`);
+}
+
+async function waitFor(
+  check: () => Promise<boolean>,
+  description: string,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await check()) return;
+    await delay(100);
+  }
+  throw new Error(`Timed out waiting for ${description}`);
+}
+
+async function getPageTarget(): Promise<CdpTarget> {
+  const response = await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`);
+  const targets = await response.json() as CdpTarget[];
+  const target = targets.find((candidate) => candidate.type === "page" && candidate.webSocketDebuggerUrl);
+  if (!target?.webSocketDebuggerUrl) throw new Error("Chrome did not expose a page target");
+  return target;
+}
+
+// Mock config and Storage record endpoints. The well references a wellbore via
+// data.WellboreID; each record carries a marker proving which one is displayed.
+function mockApiScript(): string {
+  return `
+    (() => {
+      const wellId = ${JSON.stringify(WELL_ID)};
+      const wellboreId = ${JSON.stringify(WELLBORE_ID)};
+      const wellRecord = {
+        id: wellId,
+        kind: "osdu:wks:master-data--Well:1.0.0",
+        version: 1,
+        acl: { owners: [], viewers: [] },
+        legal: {},
+        data: { FacilityName: "Parent well", WellMarker: "well-record-ok", WellboreID: wellboreId + ":" },
+        meta: [],
+        ancestry: {},
+        tags: {},
+      };
+      const wellboreRecord = {
+        id: wellboreId,
+        kind: "osdu:wks:master-data--Wellbore:1.0.0",
+        version: 1,
+        acl: { owners: [], viewers: [] },
+        legal: {},
+        data: { FacilityName: "Child wellbore", WellboreMarker: "wellbore-record-ok" },
+        meta: [],
+        ancestry: {},
+        tags: {},
+      };
+      window.__relTest = { recordRequests: [] };
+
+      const realFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        const method = (init && init.method) || "GET";
+        if (url.includes("/api/osdu/config")) {
+          return new Response(JSON.stringify({ configured: true }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/api/osdu/kinds")) {
+          return new Response(JSON.stringify({ kinds: [] }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (method === "GET" && url.includes("/versions")) {
+          return new Response(JSON.stringify({ recordId: wellId, versions: [1] }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (method === "GET" && url.includes("/api/osdu/records/")) {
+          window.__relTest.recordRequests.push(url);
+          const record = url.includes("Wellbore") ? wellboreRecord : wellRecord;
+          return new Response(JSON.stringify(record), { headers: { "Content-Type": "application/json" } });
+        }
+        return realFetch(input, init);
+      };
+    })();
+  `;
+}
+
+async function evaluate<T>(client: CdpClient, expression: string): Promise<T> {
+  const response = await client.call("Runtime.evaluate", {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  const result = response.result as { value?: T; description?: string; type?: string } | undefined;
+  if (!result) throw new Error("Browser evaluation failed: no result");
+  if (result.type === "undefined") return undefined as T;
+  if (!("value" in result)) throw new Error(`Browser evaluation failed: ${result.description ?? "no value"}`);
+  return result.value as T;
+}
+
+function browserFunction(fn: (...args: any[]) => unknown, ...args: unknown[]): string {
+  return `(${fn.toString()})(${args.map((arg) => JSON.stringify(arg)).join(",")})`;
+}
+
+function terminateProcess(child: ChildProcess | undefined): void {
+  if (!child?.pid) return;
+  try {
+    process.kill(-child.pid, "SIGTERM");
+  } catch {
+    child.kill("SIGTERM");
+  }
+}
+
+// Open the parent well via the direct-lookup input.
+async function openWellRecord(browser: CdpClient): Promise<void> {
+  await browser.call("Page.navigate", { url: `${APP_URL}/search` });
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
+    "Record Search to render",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('input[aria-label=\"Storage record ID\"]') !== null"),
+    "the Storage record ID input",
+  );
+
+  await evaluate<void>(browser, browserFunction((id: string) => {
+    const input = document.querySelector('input[aria-label="Storage record ID"]') as HTMLInputElement | null;
+    if (!input) throw new Error("The Storage record ID input was not found");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setter) throw new Error("The input value setter was not found");
+    setter.call(input, id);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, WELL_ID));
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = [...document.querySelectorAll("button")]
+      .find((candidate) => candidate.textContent?.trim() === "Look up");
+    if (!button) throw new Error("The Look up button was not found");
+    (button as HTMLButtonElement).click();
+  }));
+
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('well-record-ok') ?? false"),
+    "the parent well record content",
+  );
+}
+
+async function openRelatedMenu(browser: CdpClient): Promise<void> {
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Related records"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Related records button was not found");
+    // Radix opens the menu from keydown/pointerdown, not synthetic click().
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"menuitem\"]') !== null"),
+    "the related-records menu",
+  );
+}
+
+async function runScenario(browser: CdpClient): Promise<void> {
+  await openWellRecord(browser);
+
+  // The related-records control lists exactly the one referenced wellbore.
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Related records\"]')?.textContent?.includes('Related (1)') ?? false"),
+    "the Related (1) control",
+  );
+
+  await openRelatedMenu(browser);
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[role="menuitem"][aria-label="Open related record ${WELLBORE_ID}"]') !== null`),
+    true,
+    "the wellbore relationship should be listed",
+  );
+
+  // Follow the reference to the child wellbore.
+  await evaluate<void>(browser, browserFunction((id: string) => {
+    const item = document.querySelector(`[role="menuitem"][aria-label="Open related record ${id}"]`) as HTMLElement | null;
+    if (!item) throw new Error("The wellbore relationship item was not found");
+    item.click();
+  }, WELLBORE_ID));
+
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('wellbore-record-ok') ?? false"),
+    "the child wellbore record content",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `window.__relTest.recordRequests.some((url) => url.includes(encodeURIComponent(${JSON.stringify(WELLBORE_ID)})))`),
+    true,
+    "navigation should fetch the wellbore by its exact ID",
+  );
+
+  // Step back to the parent well.
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Back to previous record\"]') !== null"),
+    "the Back control",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const back = document.querySelector('button[aria-label="Back to previous record"]') as HTMLButtonElement | null;
+    if (!back) throw new Error("The Back control was not found");
+    back.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('well-record-ok') ?? false"),
+    "the parent well record to return",
+  );
+}
+
+async function runBrowserCheck(): Promise<void> {
+  let appServer: ChildProcess | undefined;
+  let chromium: ChildProcess | undefined;
+  let browser: CdpClient | undefined;
+  try {
+    appServer = spawn("pnpm", ["--filter", "@workspace/osdu-explorer", "run", "dev"], {
+      cwd: process.cwd(),
+      env: { ...process.env, BASE_PATH: "/", PORT: String(APP_PORT) },
+      detached: true,
+      stdio: "ignore",
+    });
+    await waitForUrl(`${APP_URL}/search`, "OSDU Explorer dev server for relationship nav check");
+
+    chromium = spawn(CHROMIUM_PATH, [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--remote-allow-origins=*",
+      `--remote-debugging-port=${DEBUG_PORT}`,
+      `--user-data-dir=/tmp/osdu-relationship-nav-${process.pid}`,
+      "about:blank",
+    ], { detached: true, stdio: "ignore" });
+    await waitForUrl(`http://127.0.0.1:${DEBUG_PORT}/json/version`, "Chromium");
+    const target = await getPageTarget();
+    browser = await CdpClient.connect(target.webSocketDebuggerUrl!);
+    await browser.call("Runtime.enable");
+    await browser.call("Page.enable");
+    await browser.call("Page.addScriptToEvaluateOnNewDocument", { source: mockApiScript() });
+    await runScenario(browser);
+    console.log("Storage record relationship navigation browser check passed.");
+  } finally {
+    browser?.close();
+    terminateProcess(chromium);
+    await delay(150);
+    terminateProcess(appServer);
+  }
+}
+
+await runBrowserCheck();

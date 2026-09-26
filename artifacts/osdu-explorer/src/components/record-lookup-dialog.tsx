@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useGetOsduRecord, getGetOsduRecordQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -7,7 +7,9 @@ import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown
 import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
 import { VersionHistorySelect } from "@/components/version-history-select";
+import { RecordRelationshipsNav } from "@/components/record-relationships-nav";
 import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
+import { findRecordRelationships } from "@/lib/storage-record-relationships";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
 const MIN_CONSOLE_HEIGHT = 80;
@@ -54,6 +56,8 @@ export function RecordLookupDialog({
   const [versionFetchError, setVersionFetchError] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
+  // Stack of record ids visited via relationship navigation, for the Back control.
+  const [navHistory, setNavHistory] = useState<string[]>([]);
   const consoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const versionRequestRef = useRef(0);
 
@@ -104,6 +108,7 @@ export function RecordLookupDialog({
   const handleOpenChange = useCallback((next: boolean, seedId?: string) => {
     setOpen(next);
     resetVersionState();
+    setNavHistory([]);
     if (next) {
       const seed = (seedId ?? selectedId).trim();
       setRecordId(seed);
@@ -116,6 +121,31 @@ export function RecordLookupDialog({
       setStorageDeleteRequestId(null);
     }
   }, [resetVersionState, selectedId]);
+
+  // Navigate to a referenced record within the same viewer, remembering the
+  // current record so the user can step back.
+  const handleNavigateToRelated = useCallback((id: string) => {
+    const target = id.trim();
+    if (!target || target === recordId) return;
+    resetVersionState();
+    setLookupResult(null);
+    setDisplayedTitle("Record from Storage Service");
+    setNavHistory((prev) => [...prev, recordId]);
+    setRecordId(target);
+  }, [recordId, resetVersionState]);
+
+  const handleNavigateBack = useCallback(() => {
+    setNavHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const next = prev.slice(0, -1);
+      const back = prev[prev.length - 1];
+      resetVersionState();
+      setLookupResult(null);
+      setDisplayedTitle("Record from Storage Service");
+      setRecordId(back);
+      return next;
+    });
+  }, [resetVersionState]);
 
   const handleStorageDeleteRequest = useCallback(() => {
     const seed = selectedId.trim();
@@ -174,6 +204,16 @@ export function RecordLookupDialog({
   }, [consoleHeight]);
 
   const displayedRecord = versionRecord ?? data;
+  const relationships = useMemo(() => {
+    if (lookupResult) {
+      try {
+        return findRecordRelationships(JSON.parse(lookupResult.json));
+      } catch {
+        return [];
+      }
+    }
+    return findRecordRelationships(displayedRecord);
+  }, [lookupResult, displayedRecord]);
   const json = displayedRecord ? JSON.stringify(displayedRecord, null, 2) : "";
   const latestStorageVersionUnavailable = isError && isHttpNotFound(error);
   const hasDisplayedRecord = versionRecord !== null || (!isError && Boolean(data));
@@ -255,6 +295,14 @@ export function RecordLookupDialog({
           >
             <StorageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-sm font-medium text-foreground shrink-0">{displayedTitle}</span>
+            <div className="ml-auto shrink-0">
+              <RecordRelationshipsNav
+                relationships={relationships}
+                onNavigate={handleNavigateToRelated}
+                canGoBack={navHistory.length > 0}
+                onBack={handleNavigateBack}
+              />
+            </div>
           </div>
 
           {/* Content */}
