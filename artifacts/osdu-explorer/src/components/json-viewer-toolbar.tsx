@@ -111,6 +111,8 @@ interface JsonViewerToolbarProps {
   searchRecordId?: string;
   /** Default record ID to fetch when this viewer is showing a Search response */
   storageRecordId?: string;
+  /** True while a historical Storage version is being fetched. */
+  isStorageVersionLoading?: boolean;
   /** Controlled lookup result used to replace the active viewer payload */
   lookupResult?: JsonViewerLookupResult | null;
   /** Called when a controlled lookup result is opened or closed */
@@ -1229,6 +1231,7 @@ export function JsonViewerContent({
   rdmsContext,
   searchRecordId,
   storageRecordId,
+  isStorageVersionLoading,
   selectedStorageVersion,
   onStorageVersionSelect,
   onStorageVersionsDeleted,
@@ -2417,7 +2420,7 @@ export function JsonViewerContent({
         _isFullscreen
           ? "bg-muted/30"
           : "sticky top-0 z-10 bg-card/95 backdrop-blur-sm",
-      )}>
+      )} data-testid="json-viewer-actions-toolbar">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -2867,6 +2870,7 @@ export function JsonViewerContent({
                   recordId={storageRecordId}
                   selectedVersion={selectedStorageVersion}
                   onVersionSelect={onStorageVersionSelect}
+                  isVersionLoading={isStorageVersionLoading}
                   onVersionsDeleted={onStorageVersionsDeleted}
                 />
               </>
@@ -3794,7 +3798,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, selectedStorageVersion, onStorageVersionSelect, onStorageVersionsDeleted, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, isStorageVersionLoading, selectedStorageVersion, onStorageVersionSelect, onStorageVersionsDeleted, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -3958,8 +3962,10 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           rdmsContext={activeRdmsContext}
           searchRecordId={lookupResult ? undefined : searchRecordId}
           storageRecordId={lookupResult ? undefined : storageRecordId}
+          isStorageVersionLoading={isStorageVersionLoading}
           selectedStorageVersion={selectedStorageVersion}
           onStorageVersionSelect={onStorageVersionSelect}
+          onStorageVersionsDeleted={onStorageVersionsDeleted}
           lookupResult={lookupResult}
           onLookupResult={handleLookupResult}
           onResponseTypeChange={handleResponseTypeChange}
@@ -3997,6 +4003,7 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               rdmsContext={activeRdmsContext}
               searchRecordId={lookupResult ? undefined : searchRecordId}
               storageRecordId={lookupResult ? undefined : storageRecordId}
+              isStorageVersionLoading={isStorageVersionLoading}
               selectedStorageVersion={selectedStorageVersion}
               onStorageVersionSelect={onStorageVersionSelect}
               onStorageVersionsDeleted={onStorageVersionsDeleted}

@@ -6,7 +6,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
-import { VersionHistorySelect } from "@/components/version-history-select";
 import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
@@ -229,23 +228,12 @@ export function RecordLookupDialog({
           <DialogTitle className="sr-only">{displayedTitle}</DialogTitle>
 
           {/* Header: icon + title */}
-          <div className="flex items-center gap-3 border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+          <div
+            data-testid="record-lookup-dialog-header"
+            className="flex items-center gap-3 border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0"
+          >
             <StorageIcon className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="text-sm font-medium text-foreground shrink-0">{displayedTitle}</span>
-            {!lookupResult && recordId && (
-              <div className="ml-auto shrink-0">
-                <VersionHistorySelect
-                  recordId={recordId}
-                  selectedVersion={selectedStorageVersion}
-                  onVersionSelect={handleStorageVersionSelect}
-                  isVersionLoading={isVersionLoading}
-                  onVersionsDeleted={(deleted) => {
-                    // If the version on screen was purged, fall back to the latest.
-                    if (selectedStorageVersion === deleted) resetVersionState();
-                  }}
-                />
-              </div>
-            )}
           </div>
 
           {/* Content */}
@@ -282,6 +270,14 @@ export function RecordLookupDialog({
                 _isFullscreen
                 className="h-full"
                  searchRecordId={recordId}
+                  storageRecordId={lookupResult ? undefined : recordId}
+                  isStorageVersionLoading={isVersionLoading}
+                  selectedStorageVersion={selectedStorageVersion}
+                  onStorageVersionSelect={handleStorageVersionSelect}
+                  onStorageVersionsDeleted={(deleted) => {
+                    // If the version on screen was purged, fall back to the latest.
+                    if (selectedStorageVersion === deleted) resetVersionState();
+                  }}
                  rdmsContext={lookupResult?.rdmsContext}
                  hideStorageLookup={isReservoirDdmsResponse}
                  hideSearchLookup={isReservoirDdmsResponse}

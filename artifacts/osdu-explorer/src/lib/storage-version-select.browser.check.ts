@@ -283,8 +283,13 @@ async function openStorageRecordDialog(browser: CdpClient): Promise<void> {
     "the Storage API record dialog",
   );
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Select record version\"]') !== null"),
-    "the Storage API version selector to appear",
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Select record version\"]') !== null"),
+    "the Storage API version selector to appear beside the action icons",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.querySelector('[data-testid=\"record-lookup-dialog-header\"] button[aria-label=\"Select record version\"]') !== null"),
+    false,
+    "the Storage API version selector should not be in the dialog title row",
   );
 }
 
