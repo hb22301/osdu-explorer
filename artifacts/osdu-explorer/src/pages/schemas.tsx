@@ -17,6 +17,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Search, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, GripVertical, Columns3 } from "lucide-react";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
+import { KindsBrowser } from "@/components/kinds-browser";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -120,6 +121,7 @@ interface FlatRow {
 }
 
 export default function SchemasPage() {
+  const [viewMode, setViewMode] = useState<"schemas" | "kinds">("schemas");
   const [authority, setAuthority]   = useState("");
   const [source, setSource]         = useState("");
   const [entityType, setEntityType] = useState("");
@@ -284,16 +286,47 @@ export default function SchemasPage() {
     <div className="p-8 max-w-full mx-auto space-y-6 isolate">
       {/* Header */}
       <div className="space-y-2">
-        <h1
-          className="text-3xl font-bold tracking-tight text-foreground"
-        >
-          Schema Browser
-        </h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1
+            className="text-3xl font-bold tracking-tight text-foreground"
+          >
+            Schema Browser
+          </h1>
+          {/* Schemas ↔ Kinds toggle */}
+          <div className="inline-flex rounded-md border border-border/60 p-0.5" role="tablist" aria-label="Browse mode">
+            <Button
+              variant={viewMode === "schemas" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              role="tab"
+              aria-selected={viewMode === "schemas"}
+              onClick={() => setViewMode("schemas")}
+            >
+              Schemas
+            </Button>
+            <Button
+              variant={viewMode === "kinds" ? "default" : "ghost"}
+              size="sm"
+              className="h-7 px-3 text-xs"
+              role="tab"
+              aria-selected={viewMode === "kinds"}
+              onClick={() => setViewMode("kinds")}
+            >
+              Kinds
+            </Button>
+          </div>
+        </div>
         <p className="text-muted-foreground pl-3" style={{ borderLeft: "2px solid hsl(var(--neon) / 0.5)" }}>
-          Browse and inspect OSDU data schemas.
+          {viewMode === "schemas"
+            ? "Browse and inspect OSDU data schemas."
+            : "Browse the kinds present in this partition and jump to their schemas."}
         </p>
       </div>
 
+      {viewMode === "kinds" ? (
+        <KindsBrowser />
+      ) : (
+      <>
       {/* Filter form */}
       <div className="glass-card p-6">
         <form onSubmit={handleFilter} className="flex flex-col sm:flex-row gap-4 items-end">
@@ -521,6 +554,8 @@ export default function SchemasPage() {
           defaultFullscreen
           onFullscreenClose={() => setViewingId(null)}
         />
+      )}
+      </>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.4.12",
+  "version": "2.4.13",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,6 +21,7 @@
     "check:storage-version-delete-browser": "tsx src/lib/storage-version-delete.browser.check.ts",
     "check:storage-record-relationships": "tsx src/lib/storage-record-relationships.check.ts",
     "check:storage-relationship-nav-browser": "tsx src/lib/storage-relationship-nav.browser.check.ts",
+    "check:kinds-browser-browser": "tsx src/lib/kinds-browser.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

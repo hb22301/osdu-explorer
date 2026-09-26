@@ -1,0 +1,358 @@
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { listOsduKinds, searchOsduRecords, useGetOsduSchema } from "@workspace/api-client-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Loader2, ArrowUp, ArrowDown, ChevronsUpDown, FileJson2, Hash, AlertCircle, RefreshCw } from "lucide-react";
+import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
+import { cn } from "@/lib/utils";
+
+// How many kinds to request per page while looping the Storage query/kinds cursor,
+// and a safety cap so a runaway cursor can never loop forever.
+const KINDS_PAGE_SIZE = 200;
+const MAX_KIND_PAGES = 50;
+// Concurrency for the optional "load record counts" fan-out across kinds.
+const COUNT_CONCURRENCY = 5;
+
+type SortCol = "kind" | "authority" | "source" | "entity" | "version" | "records";
+type SortDir = "asc" | "desc";
+type CountState = number | "loading" | "error" | undefined;
+
+interface KindRow {
+  kind: string;
+  authority: string;
+  source: string;
+  entity: string;
+  version: string;
+}
+
+// A kind is authority:source:entity:version. Split defensively so malformed
+// kinds still render rather than throwing.
+function parseKind(kind: string): KindRow {
+  const parts = kind.split(":");
+  return {
+    kind,
+    authority: parts[0] ?? "—",
+    source:    parts[1] ?? "—",
+    entity:    parts[2] ?? "—",
+    version:   parts[3] ?? "—",
+  };
+}
+
+function SortIcon({ col, sortCol, sortDir }: { col: SortCol; sortCol: SortCol | null; sortDir: SortDir }) {
+  if (sortCol !== col) return <ChevronsUpDown className="ml-1 h-3 w-3 opacity-40 inline" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="ml-1 h-3 w-3 inline" />
+    : <ArrowDown className="ml-1 h-3 w-3 inline" />;
+}
+
+const HEADERS: { key: SortCol; label: string; className?: string }[] = [
+  { key: "kind",      label: "Kind" },
+  { key: "authority", label: "Authority" },
+  { key: "source",    label: "Source" },
+  { key: "entity",    label: "Entity" },
+  { key: "version",   label: "Version" },
+  { key: "records",   label: "Records", className: "text-right" },
+];
+
+// Browse the kinds that actually have records in the partition (Storage
+// query/kinds), with optional record counts and a jump to each kind's schema.
+export function KindsBrowser() {
+  const [allKinds, setAllKinds]   = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+
+  const [filter, setFilter]   = useState("");
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const [counts, setCounts] = useState<Record<string, CountState>>({});
+  const [countProgress, setCountProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const [viewingKind, setViewingKind] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const activeLoad = useRef(0);
+
+  // ── Load kinds (loop the cursor to get the full set) ─────────────────
+  useEffect(() => {
+    const loadId = ++activeLoad.current;
+    let cancelled = false;
+    setIsLoading(true);
+    setLoadError(null);
+    setTruncated(false);
+
+    (async () => {
+      const collected: string[] = [];
+      let cursor: string | undefined;
+      try {
+        for (let page = 0; page < MAX_KIND_PAGES; page++) {
+          const res = await listOsduKinds({ limit: KINDS_PAGE_SIZE, ...(cursor ? { cursor } : {}) });
+          if (cancelled || loadId !== activeLoad.current) return;
+          collected.push(...(res.kinds ?? []));
+          cursor = res.cursor ?? undefined;
+          if (!cursor) break;
+          if (page === MAX_KIND_PAGES - 1 && cursor) setTruncated(true);
+        }
+        if (cancelled || loadId !== activeLoad.current) return;
+        // Distinct + stable order.
+        setAllKinds([...new Set(collected)].sort((a, b) => a.localeCompare(b)));
+      } catch (err) {
+        if (cancelled || loadId !== activeLoad.current) return;
+        setLoadError(err instanceof Error ? err.message : "Failed to load kinds.");
+      } finally {
+        if (!cancelled && loadId === activeLoad.current) setIsLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [reloadToken]);
+
+  const handleSortClick = (col: SortCol) => {
+    if (sortCol === col) setSortDir((d) => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  };
+
+  const rows = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    const parsed = allKinds
+      .map(parseKind)
+      .filter((r) => !needle || r.kind.toLowerCase().includes(needle));
+
+    if (!sortCol) return parsed;
+    return [...parsed].sort((a, b) => {
+      let cmp: number;
+      if (sortCol === "records") {
+        const av = typeof counts[a.kind] === "number" ? (counts[a.kind] as number) : -1;
+        const bv = typeof counts[b.kind] === "number" ? (counts[b.kind] as number) : -1;
+        cmp = av - bv;
+      } else {
+        cmp = a[sortCol] < b[sortCol] ? -1 : a[sortCol] > b[sortCol] ? 1 : 0;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [allKinds, filter, sortCol, sortDir, counts]);
+
+  // ── Record counts (Search Service, limit:0 → totalCount) ─────────────
+  const fetchCount = useCallback(async (kind: string) => {
+    setCounts((prev) => ({ ...prev, [kind]: "loading" }));
+    try {
+      const res = await searchOsduRecords({ kind, limit: 0 });
+      setCounts((prev) => ({ ...prev, [kind]: res.totalCount ?? 0 }));
+    } catch {
+      setCounts((prev) => ({ ...prev, [kind]: "error" }));
+    }
+  }, []);
+
+  // Fetch counts for every currently-visible kind that has none yet, bounded
+  // by a small concurrency pool so we never storm the Search Service.
+  const loadVisibleCounts = useCallback(async () => {
+    const targets = rows.map((r) => r.kind).filter((k) => counts[k] === undefined);
+    if (targets.length === 0) return;
+    setCountProgress({ done: 0, total: targets.length });
+    let index = 0;
+    let done = 0;
+    const worker = async () => {
+      while (index < targets.length) {
+        const kind = targets[index++];
+        await fetchCount(kind);
+        done++;
+        setCountProgress({ done, total: targets.length });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(COUNT_CONCURRENCY, targets.length) }, worker));
+    setCountProgress(null);
+  }, [rows, counts, fetchCount]);
+
+  // ── Schema view ──────────────────────────────────────────────────────
+  const { data: schemaDetails, isError: schemaError, isFetching: schemaFetching } = useGetOsduSchema(
+    encodeURIComponent(viewingKind ?? ""),
+    { query: { enabled: !!viewingKind, retry: false, queryKey: ["osduSchema", viewingKind] } },
+  );
+
+  const renderCount = (kind: string) => {
+    const state = counts[kind];
+    if (state === "loading") return <Loader2 className="h-3.5 w-3.5 animate-spin inline" />;
+    if (state === "error") {
+      return (
+        <button
+          className="text-xs text-error-text hover:underline"
+          onClick={(e) => { e.stopPropagation(); void fetchCount(kind); }}
+          aria-label={`Retry record count for ${kind}`}
+        >
+          error — retry
+        </button>
+      );
+    }
+    if (typeof state === "number") return <span className="font-mono tabular-nums">{state.toLocaleString()}</span>;
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 px-1.5 text-xs text-muted-foreground"
+        onClick={(e) => { e.stopPropagation(); void fetchCount(kind); }}
+        aria-label={`Load record count for ${kind}`}
+      >
+        <Hash className="h-3 w-3 mr-1" />
+        count
+      </Button>
+    );
+  };
+
+  return (
+    <>
+      {/* Filter + actions */}
+      <div className="glass-card p-6">
+        <div className="flex flex-col sm:flex-row gap-4 items-end">
+          <div className="flex-1 space-y-2">
+            <label className="text-sm font-medium leading-none">Filter kinds</label>
+            <Input
+              placeholder="e.g. master-data--Well"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="Filter kinds"
+            />
+          </div>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() => void loadVisibleCounts()}
+            disabled={isLoading || rows.length === 0 || countProgress !== null}
+            aria-label="Load record counts"
+          >
+            {countProgress
+              ? <><Loader2 className="h-4 w-4 animate-spin" /><span className="ml-2">Counting… {countProgress.done}/{countProgress.total}</span></>
+              : <><Hash className="h-4 w-4" /><span className="ml-2">Load record counts</span></>}
+          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 shrink-0"
+                onClick={() => setReloadToken((t) => t + 1)}
+                disabled={isLoading}
+                aria-label="Reload kinds"
+              >
+                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Reload kinds</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {loadError && (
+        <Card className="border-error-border/60 bg-error-surface">
+          <CardContent className="pt-6">
+            <p className="text-sm text-error-text font-medium">Failed to load kinds</p>
+            <p className="text-xs text-error-text/85 mt-1 font-mono break-all">{loadError}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {viewingKind && schemaError && !schemaFetching && (
+        <Card className="border-error-border/60 bg-error-surface">
+          <CardContent className="pt-6 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-error-text" />
+            <p className="text-sm text-error-text break-all">
+              No registered schema for <span className="font-mono">{viewingKind}</span>.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle>Kinds in partition</CardTitle>
+          <CardDescription>
+            {isLoading
+              ? "Loading…"
+              : allKinds.length > 0
+                ? `${rows.length.toLocaleString()}${filter ? ` of ${allKinds.length.toLocaleString()}` : ""} kinds — click a header to sort, "count" for record totals${truncated ? ` (showing first ${allKinds.length.toLocaleString()}; more exist)` : ""}`
+                : "No kinds found in this partition"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {HEADERS.map((h) => (
+                      <TableHead
+                        key={h.key}
+                        className={cn("select-none whitespace-nowrap cursor-pointer", h.className)}
+                        onClick={() => handleSortClick(h.key)}
+                      >
+                        {h.label}
+                        <SortIcon col={h.key} sortCol={sortCol} sortDir={sortDir} />
+                      </TableHead>
+                    ))}
+                    <TableHead className="w-24 text-right">Schema</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={HEADERS.length + 1} className="text-center py-8 text-muted-foreground">
+                        No kinds found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    rows.map((row) => (
+                      <TableRow key={row.kind} className="hover:bg-muted/40" data-testid="kind-row">
+                        <TableCell className="font-mono text-xs break-all" title={row.kind}>{row.kind}</TableCell>
+                        <TableCell className="truncate">{row.authority}</TableCell>
+                        <TableCell className="truncate">{row.source}</TableCell>
+                        <TableCell className="truncate">
+                          <Badge variant="outline" className="text-xs font-mono">{row.entity}</Badge>
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums truncate">{row.version}</TableCell>
+                        <TableCell className="text-right">{renderCount(row.kind)}</TableCell>
+                        <TableCell className="text-right">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setViewingKind(row.kind)}
+                                aria-label={`View schema for ${row.kind}`}
+                              >
+                                <FileJson2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>View schema</TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Fullscreen schema viewer (only once the schema has loaded) */}
+      {viewingKind !== null && schemaDetails && (
+        <JsonViewerToolbar
+          json={JSON.stringify(schemaDetails, null, 2)}
+          storageKey={viewingKind}
+          title={viewingKind}
+          defaultFullscreen
+          onFullscreenClose={() => setViewingKind(null)}
+        />
+      )}
+    </>
+  );
+}
