@@ -79,6 +79,7 @@ import {
 } from "@/lib/rdms-cascade-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
 import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
+import { VersionHistorySelect } from "@/components/version-history-select";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
 // out of the load path unless a Grid2d surface is actually visualized.
@@ -3772,7 +3773,7 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, selectedStorageVersion, onStorageVersionSelect, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -3954,8 +3955,17 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           }}
         >
           <DialogTitle className="sr-only">{displayedTitle}</DialogTitle>
-          <div className="flex items-center border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
+          <div className="flex items-center gap-3 border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <span className="text-sm font-medium text-foreground">{displayedTitle}</span>
+            {!lookupResult && storageRecordId && onStorageVersionSelect && (
+              <div className="ml-auto">
+                <VersionHistorySelect
+                  recordId={storageRecordId}
+                  selectedVersion={selectedStorageVersion}
+                  onVersionSelect={onStorageVersionSelect}
+                />
+              </div>
+            )}
           </div>
           <div className="flex-1 overflow-hidden min-h-0 p-4">
             <JsonViewerContent

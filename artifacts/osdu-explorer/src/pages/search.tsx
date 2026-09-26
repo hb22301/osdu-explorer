@@ -6,7 +6,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { KindCombobox } from "@/components/kind-combobox";
 import { RecordLookupDialog } from "@/components/record-lookup-dialog";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
-import { VersionHistoryPanel } from "@/components/version-history-panel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
@@ -1131,6 +1130,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     if (id) {
       setStorageOpenId(id);
     } else {
+      setSelectedStorageVersion(undefined);
       setSelected(row._raw);
     }
   }, []);
@@ -1412,7 +1412,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
                       disabled={!selectedRowId}
                       onClick={() => {
                         const row = displayRows.find((r) => r.id === selectedRowId);
-                        if (row) setSelected(row._raw);
+                        if (row) {
+                          setSelectedStorageVersion(undefined);
+                          setSelected(row._raw);
+                        }
                       }}
                       aria-label="Open Search API result"
                     >
@@ -1905,27 +1908,16 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
       )}
 
       {selected !== null && (
-        <div className="flex gap-4 h-full">
-          <div className="flex-1">
-            <JsonViewerToolbar
-              json={JSON.stringify(selected, null, 2)}
-              storageKey={selected.id as string | undefined}
-              title="Record from Search Service"
-              defaultFullscreen
-              onFullscreenClose={() => setSelected(null)}
-              storageRecordId={selected.id as string | undefined}
-              selectedStorageVersion={selectedStorageVersion}
-              onStorageVersionSelect={setSelectedStorageVersion}
-            />
-          </div>
-          <div className="w-56 border-l">
-            <VersionHistoryPanel
-              recordId={selected.id as string | undefined}
-              selectedVersion={selectedStorageVersion ?? 0}
-              onVersionSelect={setSelectedStorageVersion}
-            />
-          </div>
-        </div>
+        <JsonViewerToolbar
+          json={JSON.stringify(selected, null, 2)}
+          storageKey={selected.id as string | undefined}
+          title="Record from Search Service"
+          defaultFullscreen
+          onFullscreenClose={() => setSelected(null)}
+          storageRecordId={selected.id as string | undefined}
+          selectedStorageVersion={selectedStorageVersion}
+          onStorageVersionSelect={setSelectedStorageVersion}
+        />
       )}
     </div>
   );
