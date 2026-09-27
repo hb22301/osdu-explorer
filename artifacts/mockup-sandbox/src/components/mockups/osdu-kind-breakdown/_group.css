@@ -68,7 +68,7 @@
 }
 
 :root {
-  --neon: 190 75% 35%;
+  --neon: 82 34% 27%;
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
 
@@ -77,53 +77,53 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --border: 214 32% 91%;
+  --background: 80 18% 98%;
+  --foreground: 82 25% 12%;
+  --border: 80 12% 86%;
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --card-border: 214 32% 91%;
+  --card-foreground: 82 25% 12%;
+  --card-border: 80 12% 86%;
 
-  --sidebar: 210 40% 96%;
-  --sidebar-foreground: 222 47% 11%;
-  --sidebar-border: 214 32% 91%;
-  --sidebar-primary: 221 83% 53%;
-  --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 210 40% 90%;
-  --sidebar-accent-foreground: 222 47% 11%;
-  --sidebar-ring: 221 83% 53%;
+  --sidebar: 80 18% 95%;
+  --sidebar-foreground: 82 25% 12%;
+  --sidebar-border: 80 12% 86%;
+  --sidebar-primary: 82 34% 27%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 80 18% 90%;
+  --sidebar-accent-foreground: 82 25% 12%;
+  --sidebar-ring: 82 34% 27%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --popover-border: 214 32% 91%;
+  --popover-foreground: 82 25% 12%;
+  --popover-border: 80 12% 86%;
 
-  --primary: 221 83% 53%;
-  --primary-foreground: 210 40% 98%;
+  --primary: 82 34% 27%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
+  --secondary: 80 18% 95%;
+  --secondary-foreground: 82 25% 12%;
 
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
+  --muted: 80 18% 95%;
+  --muted-foreground: 80 8% 41%;
 
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
+  --accent: 80 18% 95%;
+  --accent-foreground: 82 25% 12%;
 
   --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive-foreground: 0 0% 98%;
   --error-surface: 0 86% 97%;
   --error-border: 0 72% 50%;
   --error-text: 0 72% 40%;
 
-  --input: 214 32% 91%;
-  --field-border: 215 20% 55%;
-  --ring: 221 83% 53%;
+  --input: 80 12% 86%;
+  --field-border: 82 10% 46%;
+  --ring: 82 34% 27%;
 
-  --chart-1: 221 83% 53%;
-  --chart-2: 173 58% 39%;
-  --chart-3: 197 37% 24%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+  --chart-1: 82 34% 27%;
+  --chart-2: 90 30% 35%;
+  --chart-3: 42 40% 40%;
+  --chart-4: 44 55% 38%;
+  --chart-5: 24 65% 38%;
 
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
@@ -149,56 +149,56 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 222 47% 7%;
-  --foreground: 210 40% 98%;
-  --border: 217 33% 17%;
+  --background: 80 18% 7%;
+  --foreground: 80 10% 96%;
+  --border: 80 12% 19%;
   
-  --card: 222 47% 9%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 217 33% 17%;
+  --card: 80 18% 9%;
+  --card-foreground: 80 10% 96%;
+  --card-border: 80 12% 19%;
 
-  --sidebar: 222 47% 6%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 217 33% 17%;
-  --sidebar-primary: 221 83% 53%;
-  --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 217 33% 17%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 221 83% 53%;
+  --sidebar: 80 18% 6%;
+  --sidebar-foreground: 80 10% 96%;
+  --sidebar-border: 80 12% 19%;
+  --sidebar-primary: 82 38% 65%;
+  --sidebar-primary-foreground: 80 25% 10%;
+  --sidebar-accent: 80 13% 19%;
+  --sidebar-accent-foreground: 80 10% 96%;
+  --sidebar-ring: 82 38% 65%;
 
-  --popover: 222 47% 9%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 217 33% 17%;
+  --popover: 80 18% 9%;
+  --popover-foreground: 80 10% 96%;
+  --popover-border: 80 12% 19%;
 
-  --primary: 217 91% 60%;
-  --primary-foreground: 222 47% 11%;
+  --primary: 82 38% 65%;
+  --primary-foreground: 80 25% 10%;
 
-  --secondary: 217 33% 17%;
-  --secondary-foreground: 210 40% 98%;
+  --secondary: 80 13% 19%;
+  --secondary-foreground: 80 10% 96%;
 
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
+  --muted: 80 13% 19%;
+  --muted-foreground: 80 10% 70%;
 
-  --accent: 217 33% 17%;
-  --accent-foreground: 210 40% 98%;
+  --accent: 80 13% 19%;
+  --accent-foreground: 80 10% 96%;
 
   --destructive: 0 62% 30%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive-foreground: 0 0% 98%;
   --error-surface: 0 45% 18%;
   --error-border: 0 80% 70%;
   --error-text: 0 100% 80%;
 
-  --input: 217 33% 17%;
-  --field-border: 215 20% 60%;
-  --ring: 224 76% 48%;
+  --input: 80 13% 19%;
+  --field-border: 82 10% 44%;
+  --ring: 82 38% 65%;
 
-  --chart-1: 217 91% 60%;
-  --chart-2: 173 58% 39%;
-  --chart-3: 197 37% 24%;
-  --chart-4: 43 74% 66%;
-  --chart-5: 27 87% 67%;
+  --chart-1: 82 38% 65%;
+  --chart-2: 94 34% 63%;
+  --chart-3: 42 47% 65%;
+  --chart-4: 48 70% 67%;
+  --chart-5: 24 72% 67%;
 
-  --neon: 180 100% 55%;
+  --neon: 82 38% 65%;
 }
 
 /* Tailwind's grouped preview entry does not emit app-specific color utilities. */

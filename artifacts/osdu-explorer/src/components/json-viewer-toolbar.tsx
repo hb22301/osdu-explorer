@@ -913,7 +913,7 @@ function ArrayDataTable({ result }: { result: ArrayDataResult }) {
       <div className="flex flex-col gap-1.5">
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="text-[11px] font-mono text-cyan-500 truncate px-1 cursor-default">…/{shortPath}</div>
+            <div className="text-[11px] font-mono text-neon truncate px-1 cursor-default">…/{shortPath}</div>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-xs font-mono text-[10px] break-all">{result.label}</TooltipContent>
         </Tooltip>
@@ -1028,7 +1028,7 @@ function ArrayDataTable({ result }: { result: ArrayDataResult }) {
       <div className="flex items-center justify-between gap-3 px-1 min-w-0">
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="text-[11px] font-mono text-cyan-500 truncate cursor-default min-w-0">…/{shortPath}</div>
+            <div className="text-[11px] font-mono text-neon truncate cursor-default min-w-0">…/{shortPath}</div>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-sm font-mono text-[10px] break-all">{result.label}</TooltipContent>
         </Tooltip>
@@ -3138,7 +3138,7 @@ export function JsonViewerContent({
       <Dialog open={wdmsOpen} onOpenChange={setWdmsOpen}>
         <DialogContent className="max-w-6xl w-full flex flex-col gap-3" style={{ maxHeight: "90vh" }}>
           <DialogTitle className="flex items-center gap-2">
-            <WellboreDmsIcon className="h-4 w-4 text-cyan-500" />
+              <WellboreDmsIcon className="h-4 w-4 text-neon" />
             Wellbore DDMS Results
             {wdmsResults.length > 0 && (
               <Badge variant="secondary" className="ml-1 text-xs">
@@ -3160,7 +3160,7 @@ export function JsonViewerContent({
                 {wdmsResults.map((result, ri) => (
                   <div key={ri} className="flex flex-col gap-2">
                     {wdmsResults.length > 1 && (
-                      <div className="text-[11px] font-mono text-cyan-500 break-all px-1">
+                      <div className="text-[11px] font-mono text-neon break-all px-1">
                         {result.urn}
                       </div>
                     )}
@@ -3288,7 +3288,7 @@ export function JsonViewerContent({
         <div className="absolute inset-0 z-[70] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <Pencil className="h-4 w-4 text-sky-500" />
+              <Pencil className="h-4 w-4 text-neon" />
               {activeRdmsContext ? "Edit Record — Reservoir DDMS" : "Edit Record — Storage Service"}
               {(activeRdmsContext?.uuid ?? (activeRdmsContext ? undefined : displayedRecordId)) && (
                 <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">
@@ -3764,7 +3764,7 @@ export function JsonViewerContent({
         <div className="absolute inset-0 z-[60] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <Mountain className="h-4 w-4 text-sky-500" />
+              <Mountain className="h-4 w-4 text-neon" />
               Grid2d Surface — 3D
               {grid2dSurface?.title && (
                 <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">

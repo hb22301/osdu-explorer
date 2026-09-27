@@ -166,7 +166,7 @@ function LeafValue({
         activeMatchIndex={activeMatchIndex}
         onActiveRef={onActiveRef}
         onMatchClick={onMatchClick}
-        className="text-blue-400"
+        className="text-neon"
       />
     );
   }

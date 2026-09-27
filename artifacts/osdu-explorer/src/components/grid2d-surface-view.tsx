@@ -307,7 +307,7 @@ function GridOverlay({
   return (
     <group>
       <lineSegments geometry={geometries.grid}>
-        <lineBasicMaterial color="#9fb2c9" transparent opacity={0.55} depthWrite={false} />
+        <lineBasicMaterial color="#b0bc8a" transparent opacity={0.55} depthWrite={false} />
       </lineSegments>
       <lineSegments geometry={geometries.iAxis}>
         <lineBasicMaterial color="#ff5b5b" depthTest={false} depthWrite={false} />
@@ -368,7 +368,7 @@ function makeLabelTexture(text: string, orientation: LabelOrientation): THREE.Ca
   context.textAlign = "center";
   context.textBaseline = "middle";
   drawLabelPill(context, canvas.width, canvas.height);
-  context.fillStyle = "#e6edf5";
+  context.fillStyle = "#f0f3e8";
   lines.forEach((line, k) => {
     const shift = (k - (lines.length - 1) / 2) * lineThickness; // centre the stack
     if (orientation === "vertical") {
@@ -432,7 +432,7 @@ function TickLabel({
 /**
  * Z elevation ruler drawn as a single vertical line at the far (maxX, maxY)
  * corner of the bounding box — away from the origin corner where the X/Y edge
- * labels meet — with world-elevation tick labels (blue). Part of the world CRS
+ * labels meet — with world-elevation tick labels (olive). Part of the world CRS
  * annotations, so it is shown together with the world edge labels.
  */
 function ElevationRuler({
@@ -466,7 +466,7 @@ function ElevationRuler({
   return (
     <group>
       <lineSegments geometry={geometry}>
-        <lineBasicMaterial color="#6ea8fe" depthTest={false} depthWrite={false} />
+        <lineBasicMaterial color="#afc884" depthTest={false} depthWrite={false} />
       </lineSegments>
       {annotations.z.map((tick) => (
         <TickLabel
@@ -671,7 +671,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-md border border-border/40 bg-[#0b0f14]">
+    <div className="relative h-full w-full overflow-hidden rounded-md border border-border/40 bg-[#13150f]">
       <div className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-border/40 bg-background/85 px-2 py-1.5 backdrop-blur-sm">
         <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
           Colormap
@@ -798,7 +798,7 @@ export default function Grid2dSurfaceView({ surface }: { surface: Grid2dSurface 
         dpr={[1, 2]}
         gl={{ antialias: true, preserveDrawingBuffer: true }}
       >
-        <color attach="background" args={["#0b0f14"]} />
+        <color attach="background" args={["#13150f"]} />
         <ambientLight intensity={0.65} />
         <directionalLight position={[1, -1, 2]} intensity={1.1} />
         <directionalLight position={[-1, 1, 0.5]} intensity={0.35} />
