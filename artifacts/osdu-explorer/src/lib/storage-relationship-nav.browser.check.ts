@@ -9,11 +9,14 @@ const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? "/repl/tools/bin/chromium";
 
 const WELL_ID = "tenant:browser-test:master-data--Well(rel-nav)";
 const WELLBORE_ID = "tenant:browser-test:master-data--Wellbore(rel-nav)";
+const SEARCH_WELLBORE_ID = "tenant:browser-test:master-data--Wellbore(search-rel-nav)";
 
 declare global {
   interface Window {
     __relTest: {
       recordRequests: string[];
+      searchRequests: string[];
+      fetchRequests: string[];
     };
   }
 }
@@ -120,6 +123,7 @@ function mockApiScript(): string {
     (() => {
       const wellId = ${JSON.stringify(WELL_ID)};
       const wellboreId = ${JSON.stringify(WELLBORE_ID)};
+      const searchWellboreId = ${JSON.stringify(SEARCH_WELLBORE_ID)};
       const wellRecord = {
         id: wellId,
         kind: "osdu:wks:master-data--Well:1.0.0",
@@ -142,17 +146,41 @@ function mockApiScript(): string {
         ancestry: {},
         tags: {},
       };
-      window.__relTest = { recordRequests: [] };
+      const searchWellRecord = {
+        ...wellRecord,
+        data: { FacilityName: "Search parent well", SearchMarker: "search-well-record-ok", WellboreID: searchWellboreId },
+      };
+      const searchWellboreRecord = {
+        ...wellboreRecord,
+        id: searchWellboreId,
+        data: { FacilityName: "Search child wellbore", SearchMarker: "search-wellbore-record-ok" },
+      };
+      window.__relTest = { recordRequests: [], searchRequests: [], fetchRequests: [] };
 
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input.url;
         const method = (init && init.method) || "GET";
+        window.__relTest.fetchRequests.push(method + " " + url);
         if (url.includes("/api/osdu/config")) {
           return new Response(JSON.stringify({ configured: true }), { headers: { "Content-Type": "application/json" } });
         }
         if (url.includes("/api/osdu/kinds")) {
           return new Response(JSON.stringify({ kinds: [] }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (method === "POST" && url.includes("/api/osdu/search")) {
+          const request = JSON.parse(String(init?.body ?? "{}"));
+          const query = request.query ?? "";
+          window.__relTest.searchRequests.push(query);
+          const result = query.includes(searchWellboreId)
+            ? searchWellboreRecord
+            : query.includes(wellId)
+              ? searchWellRecord
+              : null;
+          return new Response(JSON.stringify({
+            results: result ? [result] : [],
+            totalCount: result ? 1 : 0,
+          }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/versions")) {
           return new Response(JSON.stringify({ recordId: wellId, versions: [1] }), {
@@ -199,10 +227,20 @@ function terminateProcess(child: ChildProcess | undefined): void {
 // Open the parent well via the direct-lookup input.
 async function openWellRecord(browser: CdpClient): Promise<void> {
   await browser.call("Page.navigate", { url: `${APP_URL}/search` });
-  await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
-    "Record Search to render",
-  );
+  try {
+    await waitFor(
+      () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
+      "Record Search to render",
+    );
+  } catch (error) {
+    console.error("Relationship navigation browser state:", await evaluate(browser, `({
+      url: location.href,
+      heading: document.querySelector("h1")?.textContent ?? null,
+      body: document.body.innerText.slice(0, 400),
+      requests: window.__relTest?.fetchRequests ?? null,
+    })`));
+    throw error;
+  }
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('input[aria-label=\"Storage record ID\"]') !== null"),
     "the Storage record ID input",
@@ -241,6 +279,89 @@ async function openRelatedMenu(browser: CdpClient): Promise<void> {
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"menuitem\"]') !== null"),
     "the related-records menu",
+  );
+}
+
+async function openSearchResultViewer(browser: CdpClient): Promise<void> {
+  await browser.call("Page.navigate", { url: `${APP_URL}/search` });
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
+    "Record Search page to render for a Search result",
+  );
+  await evaluate<void>(browser, browserFunction((query: string) => {
+    const editor = document.querySelector('[role="textbox"][contenteditable="true"]') as HTMLElement | null;
+    if (!editor) throw new Error("The Lucene query editor was not found");
+    editor.textContent = query;
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: query }));
+  }, `id:"${WELL_ID}"`));
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Run query"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Run query button was not found");
+    button.click();
+  }));
+  let searchPageState: unknown;
+  try {
+    await waitFor(async () => {
+      const state = await evaluate<{
+        foundRow: boolean;
+        body: string;
+        searches: string[];
+        requests: string[];
+      }>(browser, `({
+        foundRow: Boolean(document.querySelector("tbody tr")),
+        body: document.body.innerText.slice(0, 1000),
+        searches: window.__relTest.searchRequests,
+        requests: window.__relTest.fetchRequests,
+      })`);
+      searchPageState = state;
+      return state.foundRow;
+    }, "the Search result row", 5_000);
+  } catch (error) {
+    console.error("Search result page state:", searchPageState);
+    throw error;
+  }
+  const rowPoint = await evaluate<{ x: number; y: number } | null>(browser, `(() => {
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) => {
+      const rect = candidate.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    if (!row) return null;
+    row.scrollIntoView({ block: "center", inline: "nearest" });
+    const rect = row.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  })()`);
+  if (!rowPoint) throw new Error("The Search result row was not visible");
+  await browser.call("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: rowPoint.x,
+    y: rowPoint.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await browser.call("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: rowPoint.x,
+    y: rowPoint.y,
+    button: "left",
+    clickCount: 1,
+  });
+  await waitFor(
+    () => evaluate<boolean>(browser, `Boolean(document.querySelector('button[aria-label="Open Search Record result"]:not(:disabled)'))`),
+    "the Search Record result action to become available",
+    5_000,
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Open Search Record result"]') as HTMLButtonElement | null;
+    if (!button || button.disabled) throw new Error("The Search Record result button was not enabled");
+    button.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body.textContent?.includes('search-well-record-ok') ?? false"),
+    "the Search Service record viewer",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Related records\"]') !== null"),
+    "Related records control in the Search Service record viewer",
   );
 }
 
@@ -324,6 +445,107 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "Boolean(document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]') && !document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]')?.disabled && document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]')?.disabled)"),
     "enabled Related and disabled Back controls after returning to the parent",
   );
+
+  // Search Service records keep their source when following relationships.
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Search record in Search API"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Search record lookup button was not found");
+    button.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('search-well-record-ok') ?? false"),
+    "the Search Service version of the parent record",
+  );
+  await openRelatedMenu(browser);
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[role="menuitem"][aria-label="Open related record ${SEARCH_WELLBORE_ID}"]') !== null`),
+    true,
+    "Search relationships should be derived from the Search response",
+  );
+  await evaluate<void>(browser, browserFunction((id: string) => {
+    const item = document.querySelector(`[role="menuitem"][aria-label="Open related record ${id}"]`) as HTMLElement | null;
+    if (!item) throw new Error("The Search-related wellbore item was not found");
+    item.click();
+  }, SEARCH_WELLBORE_ID));
+  let relatedSearchState: unknown;
+  try {
+    await waitFor(async () => {
+    const state = await evaluate<{
+      body: string;
+      alerts: string[];
+      searches: string[];
+      requests: string[];
+    }>(browser, `({
+      body: document.querySelector('[role="dialog"]')?.innerText ?? "",
+      alerts: [...document.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? ""),
+      searches: window.__relTest.searchRequests,
+      requests: window.__relTest.fetchRequests,
+    })`);
+    relatedSearchState = state;
+    if (state.alerts.length > 0) {
+      throw new Error(`Related Search navigation failed: ${JSON.stringify(state)}`);
+    }
+    return state.body.includes("search-wellbore-record-ok");
+    }, "the related Search Service wellbore", 5_000);
+  } catch (error) {
+    console.error("Related Search navigation state:", relatedSearchState);
+    throw error;
+  }
+  assert.equal(
+    await evaluate<boolean>(browser, `window.__relTest.searchRequests.includes('id:"${SEARCH_WELLBORE_ID}"')`),
+    true,
+    "following a Search relationship should query the Search API for the target ID",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `!window.__relTest.recordRequests.some((url) => decodeURIComponent(new URL(url, ${JSON.stringify(APP_URL)}).pathname).includes(${JSON.stringify(SEARCH_WELLBORE_ID)}))`),
+    true,
+    "following a Search relationship should not fetch the target from Storage",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const back = document.querySelector('button[aria-label="Back to previous record"]') as HTMLButtonElement | null;
+    if (!back) throw new Error("The Back control was not found for Search navigation");
+    back.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('search-well-record-ok') ?? false"),
+    "Back to the Search Service parent record",
+  );
+
+  await openSearchResultViewer(browser);
+  await openRelatedMenu(browser);
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[role="menuitem"][aria-label="Open related record ${SEARCH_WELLBORE_ID}"]') !== null`),
+    true,
+    "the Search result viewer should expose its own related Search record",
+  );
+  await evaluate<void>(browser, browserFunction((id: string) => {
+    const item = document.querySelector(`[role="menuitem"][aria-label="Open related record ${id}"]`) as HTMLElement | null;
+    if (!item) throw new Error("The Search result relationship item was not found");
+    item.click();
+  }, SEARCH_WELLBORE_ID));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body.textContent?.includes('search-wellbore-record-ok') ?? false"),
+    "the related record opened from a Search result",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `window.__relTest.searchRequests.includes('id:"${SEARCH_WELLBORE_ID}"')`),
+    true,
+    "the Search result viewer should also follow related records through Search",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `!window.__relTest.recordRequests.some((url) => decodeURIComponent(new URL(url, ${JSON.stringify(APP_URL)}).pathname).includes(${JSON.stringify(SEARCH_WELLBORE_ID)}))`),
+    true,
+    "the Search result viewer should not fetch related records from Storage",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const back = document.querySelector('button[aria-label="Back to previous record"]') as HTMLButtonElement | null;
+    if (!back) throw new Error("The Search result Back control was not found");
+    back.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body.textContent?.includes('search-well-record-ok') ?? false"),
+    "Back to the original Search result",
+  );
 }
 
 async function runBrowserCheck(): Promise<void> {
@@ -356,7 +578,7 @@ async function runBrowserCheck(): Promise<void> {
     await browser.call("Page.enable");
     await browser.call("Page.addScriptToEvaluateOnNewDocument", { source: mockApiScript() });
     await runScenario(browser);
-    console.log("Storage record relationship navigation browser check passed.");
+    console.log("Search and Storage record relationship navigation browser check passed.");
   } finally {
     browser?.close();
     terminateProcess(chromium);

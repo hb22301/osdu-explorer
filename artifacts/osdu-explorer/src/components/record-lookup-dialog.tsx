@@ -1,18 +1,27 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useGetOsduRecord, getGetOsduRecordQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { DatabaseZap as StorageIcon, Loader2, AlertCircle, Terminal, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
-import { JsonViewerContent, type JsonViewerLookupResult } from "@/components/json-viewer-toolbar";
+import {
+  JsonViewerContent,
+  type JsonViewerLookupResult,
+  type RelatedRecordNavigationContext,
+} from "@/components/json-viewer-toolbar";
 import { ConsolePanel } from "@/components/console-panel";
 import { VersionHistorySelect } from "@/components/version-history-select";
 import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
-import { findRecordRelationships } from "@/lib/storage-record-relationships";
+import { fetchSearchRecordById } from "@/lib/record-source-fetch";
 
 const DEFAULT_CONSOLE_HEIGHT = 300;
 const MIN_CONSOLE_HEIGHT = 80;
 const MAX_CONSOLE_HEIGHT = 700;
+
+interface RecordNavigationSnapshot {
+  recordId: string;
+  lookupResult: JsonViewerLookupResult | null;
+}
 
 function isHttpNotFound(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -55,14 +64,16 @@ export function RecordLookupDialog({
   const [versionFetchError, setVersionFetchError] = useState<string | null>(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [consoleHeight, setConsoleHeight] = useState(DEFAULT_CONSOLE_HEIGHT);
-  // Stack of record ids visited via relationship navigation, for the Back control.
-  const [navHistory, setNavHistory] = useState<string[]>([]);
+  // Keep the source payload as well as its ID so Back restores the right service.
+  const [navHistory, setNavHistory] = useState<RecordNavigationSnapshot[]>([]);
+  const [isRelatedNavigationLoading, setIsRelatedNavigationLoading] = useState(false);
+  const [relatedNavigationError, setRelatedNavigationError] = useState<string | null>(null);
   const consoleDragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const versionRequestRef = useRef(0);
 
   const { data, isFetching, isError, error } = useGetOsduRecord(recordId, {
     query: {
-      enabled: !!recordId,
+      enabled: !!recordId && lookupResult?.responseType !== "search",
       retry: false,
       queryKey: getGetOsduRecordQueryKey(recordId),
     },
@@ -74,6 +85,7 @@ export function RecordLookupDialog({
     setVersionRecord(null);
     setIsVersionLoading(false);
     setVersionFetchError(null);
+    setRelatedNavigationError(null);
   }, []);
 
   const handleStorageVersionSelect = useCallback(async (version: number) => {
@@ -108,6 +120,8 @@ export function RecordLookupDialog({
     setOpen(next);
     resetVersionState();
     setNavHistory([]);
+    setIsRelatedNavigationLoading(false);
+    setRelatedNavigationError(null);
     if (next) {
       const seed = (seedId ?? selectedId).trim();
       setRecordId(seed);
@@ -121,30 +135,63 @@ export function RecordLookupDialog({
     }
   }, [resetVersionState, selectedId]);
 
-  // Navigate to a referenced record within the same viewer, remembering the
-  // current record so the user can step back.
-  const handleNavigateToRelated = useCallback((id: string) => {
+  // Keep related-record navigation on the service that supplied the active JSON.
+  const handleNavigateToRelated = useCallback(async (
+    id: string,
+    context: RelatedRecordNavigationContext,
+  ) => {
     const target = id.trim();
-    if (!target || target === recordId) return;
-    resetVersionState();
-    setLookupResult(null);
-    setDisplayedTitle("Record from Storage Service");
-    setNavHistory((prev) => [...prev, recordId]);
-    setRecordId(target);
-  }, [recordId, resetVersionState]);
+    if (!target || target === recordId || isRelatedNavigationLoading) return;
+
+    setIsRelatedNavigationLoading(true);
+    setRelatedNavigationError(null);
+    try {
+      let nextLookupResult: JsonViewerLookupResult | null = null;
+      if (context.responseType === "search") {
+        const record = await fetchSearchRecordById(target);
+        nextLookupResult = {
+          responseType: "search",
+          json: JSON.stringify(record, null, 2),
+          label: target,
+        };
+      }
+
+      setNavHistory((prev) => [...prev, { recordId, lookupResult }]);
+      resetVersionState();
+      setRecordId(target);
+      setLookupResult(nextLookupResult);
+      setDisplayedTitle(
+        nextLookupResult ? "Record from Search Service" : "Record from Storage Service",
+      );
+    } catch (navigationError) {
+      setRelatedNavigationError(
+        navigationError instanceof Error
+          ? navigationError.message
+          : "Could not open the related record.",
+      );
+    } finally {
+      setIsRelatedNavigationLoading(false);
+    }
+  }, [isRelatedNavigationLoading, lookupResult, recordId, resetVersionState]);
 
   const handleNavigateBack = useCallback(() => {
-    setNavHistory((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev.slice(0, -1);
-      const back = prev[prev.length - 1];
-      resetVersionState();
-      setLookupResult(null);
-      setDisplayedTitle("Record from Storage Service");
-      setRecordId(back);
-      return next;
-    });
-  }, [resetVersionState]);
+    const previous = navHistory[navHistory.length - 1];
+    if (!previous || isRelatedNavigationLoading) return;
+    setNavHistory((prev) => prev.slice(0, -1));
+    resetVersionState();
+    setRelatedNavigationError(null);
+    setRecordId(previous.recordId);
+    setLookupResult(previous.lookupResult);
+    setDisplayedTitle(
+      previous.lookupResult
+        ? previous.lookupResult.responseType === "search"
+          ? "Record from Search Service"
+          : previous.lookupResult.responseType === "ddms"
+            ? "Record from Reservoir DDMS"
+            : "Record from Storage Service"
+        : "Record from Storage Service",
+    );
+  }, [isRelatedNavigationLoading, navHistory, resetVersionState]);
 
   const handleStorageDeleteRequest = useCallback(() => {
     const seed = selectedId.trim();
@@ -203,27 +250,19 @@ export function RecordLookupDialog({
   }, [consoleHeight]);
 
   const displayedRecord = versionRecord ?? data;
-  const relationships = useMemo(() => {
-    if (lookupResult) {
-      try {
-        return findRecordRelationships(JSON.parse(lookupResult.json));
-      } catch {
-        return [];
-      }
-    }
-    return findRecordRelationships(displayedRecord);
-  }, [lookupResult, displayedRecord]);
   const json = displayedRecord ? JSON.stringify(displayedRecord, null, 2) : "";
   const latestStorageVersionUnavailable = isError && isHttpNotFound(error);
-  const hasDisplayedRecord = versionRecord !== null || (!isError && Boolean(data));
+  const hasDisplayedRecord = Boolean(lookupResult) || versionRecord !== null || (!isError && Boolean(data));
   const activeJson = lookupResult?.json ?? json;
-  const isReservoirDdmsResponse = Boolean(lookupResult);
+  const isReservoirDdmsResponse = lookupResult?.responseType === "ddms";
   const handleLookupResult = useCallback((result: JsonViewerLookupResult | null) => {
     setLookupResult(result);
     setDisplayedTitle(
       result?.responseType === "ddms"
         ? "Record from Reservoir DDMS"
-        : "Record from Storage Service",
+        : result?.responseType === "search"
+          ? "Record from Search Service"
+          : "Record from Storage Service",
     );
   }, []);
 
@@ -308,7 +347,7 @@ export function RecordLookupDialog({
               </div>
             )}
             <div className="flex-1 min-h-0">
-            {isError && versionRecord === null && (
+            {!lookupResult && isError && versionRecord === null && (
               latestStorageVersionUnavailable ? (
                 <div
                   data-testid="storage-latest-version-not-found"
@@ -372,21 +411,22 @@ export function RecordLookupDialog({
                  lookupResult={lookupResult}
                  onLookupResult={handleLookupResult}
                  onResponseTypeChange={handleResponseTypeChange}
-                  relationships={relationships}
                   onNavigateToRelated={handleNavigateToRelated}
                   canNavigateBack={navHistory.length > 0}
                   onNavigateBack={handleNavigateBack}
+                   isRelatedNavigationLoading={isRelatedNavigationLoading}
+                   relatedNavigationError={relatedNavigationError}
                   onRecordDeleted={handleRecordDeleted}
                   openStorageDeleteRequestId={storageDeleteRequestId}
                   onStorageDeleteRequestHandled={handleStorageDeleteRequestHandled}
               />
             )}
-            {!isError && !data && !isFetching && recordId === "" && (
+            {!lookupResult && !isError && !data && !isFetching && recordId === "" && (
               <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
                 No record selected.
               </div>
             )}
-            {!isError && !data && !isFetching && recordId !== "" && (
+            {!lookupResult && !isError && !data && !isFetching && recordId !== "" && (
               <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
                 No record returned for this ID.
               </div>

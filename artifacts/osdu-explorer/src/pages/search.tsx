@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KindCombobox } from "@/components/kind-combobox";
 import { RecordLookupDialog } from "@/components/record-lookup-dialog";
-import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
+import {
+  JsonViewerToolbar,
+  type RelatedRecordNavigationContext,
+} from "@/components/json-viewer-toolbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw, DatabaseZap } from "lucide-react";
@@ -33,6 +36,11 @@ import {
 import type { DashboardKindOption, DashboardRowsProgress } from "@/lib/dashboard-kind-filter";
 import { trackEvent } from "@/lib/analytics";
 import { fetchStorageRecordVersion } from "@/lib/storage-version-fetch";
+import {
+  fetchSearchRecordById,
+  fetchStorageRecordById,
+  type RecordSource,
+} from "@/lib/record-source-fetch";
 
 const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
@@ -627,6 +635,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   const [sortCol, setSortCol] = useState<ColKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<RawRecord | null>(null);
+  const [selectedSource, setSelectedSource] = useState<RecordSource>("search");
+  const [relatedHistory, setRelatedHistory] = useState<Array<{ record: RawRecord; source: RecordSource }>>([]);
+  const [isRelatedNavigationLoading, setIsRelatedNavigationLoading] = useState(false);
+  const [relatedNavigationError, setRelatedNavigationError] = useState<string | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [storageOpenId, setStorageOpenId] = useState<string | null>(null);
   const [lookupIdDraft, setLookupIdDraft] = useState("");
@@ -1123,6 +1135,14 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     rowFilter.trim() || (dashboardMode && dashboardKindFilter.length > 0),
   );
 
+  const handleOpenSearchResult = useCallback((record: RawRecord) => {
+    setSelectedStorageVersion(undefined);
+    setSelectedSource("search");
+    setRelatedHistory([]);
+    setRelatedNavigationError(null);
+    setSelected(record);
+  }, []);
+
   const handleRowDoubleClick = useCallback((row: FlatRow) => {
     const id = row.id !== "—" ? row.id : null;
     trackEvent("record_opened", {
@@ -1132,13 +1152,63 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     if (id) {
       setStorageOpenId(id);
     } else {
-      setSelectedStorageVersion(undefined);
-      setSelected(row._raw);
+      handleOpenSearchResult(row._raw);
     }
-  }, []);
+  }, [handleOpenSearchResult]);
 
   const handleRowClick = useCallback((row: FlatRow) => {
     setSelectedRowId(row.id !== "—" ? row.id : null);
+  }, []);
+
+  const handleNavigateToSelectedRelated = useCallback(async (
+    id: string,
+    context: RelatedRecordNavigationContext,
+  ) => {
+    const target = id.trim();
+    if (!target || target === context.label || isRelatedNavigationLoading) return;
+    const source: RecordSource = context.responseType === "storage" ? "storage" : "search";
+    setIsRelatedNavigationLoading(true);
+    setRelatedNavigationError(null);
+    try {
+      const currentRecord = JSON.parse(context.json) as RawRecord;
+      const nextRecord = source === "search"
+        ? await fetchSearchRecordById(target)
+        : await fetchStorageRecordById(target);
+      setRelatedHistory((previous) => [
+        ...previous,
+        {
+          record: currentRecord,
+          source: context.responseType === "storage" ? "storage" : "search",
+        },
+      ]);
+      setSelected(nextRecord as RawRecord);
+      setSelectedSource(source);
+      setSelectedStorageVersion(undefined);
+    } catch (error) {
+      setRelatedNavigationError(
+        error instanceof Error ? error.message : "Could not open the related record.",
+      );
+    } finally {
+      setIsRelatedNavigationLoading(false);
+    }
+  }, [isRelatedNavigationLoading]);
+
+  const handleNavigateBackFromSelectedRelated = useCallback(() => {
+    const previous = relatedHistory[relatedHistory.length - 1];
+    if (!previous || isRelatedNavigationLoading) return;
+    setRelatedHistory((history) => history.slice(0, -1));
+    setSelected(previous.record);
+    setSelectedSource(previous.source);
+    setSelectedStorageVersion(undefined);
+    setRelatedNavigationError(null);
+  }, [isRelatedNavigationLoading, relatedHistory]);
+
+  const handleSelectedViewerClose = useCallback(() => {
+    setSelected(null);
+    setSelectedSource("search");
+    setRelatedHistory([]);
+    setRelatedNavigationError(null);
+    setSelectedStorageVersion(undefined);
   }, []);
 
   // Look up a single record straight from the Storage Service by its ID,
@@ -1209,6 +1279,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     fetchStorageRecordVersion(recordId, selectedStorageVersion)
       .then((versionData) => {
         setSelected(versionData as RawRecord);
+        setSelectedSource("storage");
       })
       .catch((err) => {
         console.error("Failed to fetch version:", err);
@@ -1464,8 +1535,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
                       onClick={() => {
                         const row = displayRows.find((r) => r.id === selectedRowId);
                         if (row) {
-                          setSelectedStorageVersion(undefined);
-                          setSelected(row._raw);
+                          handleOpenSearchResult(row._raw);
                         }
                       }}
                       aria-label="Open Search API result"
@@ -1962,10 +2032,16 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
         <JsonViewerToolbar
           json={JSON.stringify(selected, null, 2)}
           storageKey={selected.id as string | undefined}
-          title="Record from Search Service"
           defaultFullscreen
-          onFullscreenClose={() => setSelected(null)}
+          title={selectedSource === "search" ? "Record from Search Service" : "Record from Storage Service"}
+          onFullscreenClose={handleSelectedViewerClose}
+          searchRecordId={selectedSource === "storage" ? selected.id as string | undefined : undefined}
           storageRecordId={selected.id as string | undefined}
+          onNavigateToRelated={handleNavigateToSelectedRelated}
+          canNavigateBack={relatedHistory.length > 0}
+          onNavigateBack={handleNavigateBackFromSelectedRelated}
+          isRelatedNavigationLoading={isRelatedNavigationLoading}
+          relatedNavigationError={relatedNavigationError}
           selectedStorageVersion={selectedStorageVersion}
           onStorageVersionSelect={setSelectedStorageVersion}
           onStorageVersionsDeleted={(deleted) => {
@@ -1974,6 +2050,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
           }}
         />
       )}
+
     </div>
   );
 }

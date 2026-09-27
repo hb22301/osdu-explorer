@@ -26,3 +26,9 @@ For responsiveness checks, distinguish browser long-task duration from total tim
 **Why:** Host scheduling can inflate wall-clock samples without representing sustained JavaScript work, while a genuine UI freeze appears as a long main-thread task.
 
 **How to apply:** Keep a generous evaluation timeout for hung pages, but fail on a clearly sustained long task rather than on every slow frame-delivery sample.
+
+For table row selection, scroll a visible row into view and use CDP mouse input rather than clicking a DOM row directly.
+
+**Why:** The Search page renders responsive table variants; a programmatic click on the first matched row did not update the selected-row state.
+
+**How to apply:** Locate a row with a nonzero client rect, call `scrollIntoView`, recalculate its center, dispatch CDP press/release events, and assert that the row action becomes enabled.

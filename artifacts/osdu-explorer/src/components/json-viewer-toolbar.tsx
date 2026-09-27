@@ -81,7 +81,7 @@ import { saveStorageRecord } from "@/lib/storage-record-save";
 import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
 import { VersionHistorySelect } from "@/components/version-history-select";
 import { RecordRelationshipsNav } from "@/components/record-relationships-nav";
-import type { RecordRelationship } from "@/lib/storage-record-relationships";
+import { findRecordRelationships } from "@/lib/storage-record-relationships";
 
 // Lazy-loaded so three.js / @react-three/fiber stay out of the main bundle and
 // out of the load path unless a Grid2d surface is actually visualized.
@@ -133,6 +133,11 @@ interface JsonViewerToolbarProps {
   onStorageVersionSelect?: (version: number) => void;
   /** Called after a Storage record version is purged, with the deleted version */
   onStorageVersionsDeleted?: (deletedVersion: number) => void;
+  onNavigateToRelated?: (id: string, context: RelatedRecordNavigationContext) => void;
+  canNavigateBack?: boolean;
+  onNavigateBack?: () => void;
+  isRelatedNavigationLoading?: boolean;
+  relatedNavigationError?: string | null;
 }
 
 interface RawMatch {
@@ -158,7 +163,13 @@ function buildRawSegments(text: string, matches: RawMatch[], activeIndex: number
 }
 
 type ViewMode = "tree" | "raw";
-type ResponseType = "search" | "storage" | "ddms";
+export type ResponseType = "search" | "storage" | "ddms";
+
+export interface RelatedRecordNavigationContext {
+  responseType: ResponseType;
+  json: string;
+  label: string;
+}
 
 export interface JsonViewerLookupResult {
   responseType: ResponseType;
@@ -1248,10 +1259,11 @@ export function JsonViewerContent({
   onStorageDeleteRequestHandled,
   openRdmsDeleteRequestId,
   onRdmsDeleteRequestHandled,
-  relationships,
   onNavigateToRelated,
   canNavigateBack,
   onNavigateBack,
+  isRelatedNavigationLoading,
+  relatedNavigationError,
 }: JsonViewerToolbarProps & {
   onMaximize?: () => void;
   onPopOut?: () => void;
@@ -1260,10 +1272,6 @@ export function JsonViewerContent({
   onResponseTypeChange?: (type: ResponseType) => void;
   openStorageDeleteRequestId?: string | null;
   onStorageDeleteRequestHandled?: () => void;
-  relationships?: RecordRelationship[];
-  onNavigateToRelated?: (id: string) => void;
-  canNavigateBack?: boolean;
-  onNavigateBack?: () => void;
 }) {
   const { startActivity } = useActivityProgress();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1293,6 +1301,7 @@ export function JsonViewerContent({
   const errorDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overlayJson, setOverlayJson] = useState<string | null>(null);
   const [overlayLabel, setOverlayLabel] = useState<string | null>(null);
+  const [overlayResponseType, setOverlayResponseType] = useState<ResponseType | null>(null);
   const [resolvedRdmsContext, setResolvedRdmsContext] = useState<JsonViewerToolbarProps["rdmsContext"] | null>(null);
   const activeRdmsContext = lookupResult?.rdmsContext ?? resolvedRdmsContext ?? rdmsContext;
   // A Storage lookup can pass both IDs: searchRecordId identifies the source,
@@ -1414,6 +1423,14 @@ export function JsonViewerContent({
   }, [displayJson]);
 
   const showTree = viewMode === "tree" && parsedJson !== null;
+  const activeResponseType =
+    lookupResult?.responseType ??
+    (overlayJson ? overlayResponseType : originalResponseType) ??
+    "storage";
+  const relationships = useMemo(
+    () => findRecordRelationships(parsedJson),
+    [parsedJson],
+  );
   const displayedRecordId = useMemo(() => {
     const rootId = getRootField<string>(parsedJson, "id")?.trim();
     return rootId || storageRecordId?.trim() || searchRecordId?.trim() || null;
@@ -1677,8 +1694,22 @@ export function JsonViewerContent({
       if (res.status === 404) { setLookupError("Record not found"); return; }
       if (!res.ok) { setLookupError("Failed to fetch record"); return; }
       const data: unknown = await res.json();
-      setOverlayJson(JSON.stringify(data, null, 2));
-      setOverlayLabel(lookupId);
+      const result: JsonViewerLookupResult = {
+        responseType: "storage",
+        json: JSON.stringify(data, null, 2),
+        label: lookupId,
+        storageKey: lookupId,
+      };
+      if (onLookupResult) {
+        setOverlayJson(null);
+        setOverlayLabel(null);
+        setOverlayResponseType(null);
+        onLookupResult(result);
+      } else {
+        setOverlayJson(result.json);
+        setOverlayLabel(lookupId);
+        setOverlayResponseType("storage");
+      }
       onResponseTypeChange?.("storage");
     } catch (error) {
       if (isAbortError(error)) return;
@@ -1687,7 +1718,7 @@ export function JsonViewerContent({
       if (lookupAbortControllerRef.current === controller) lookupAbortControllerRef.current = null;
       setLookupLoading(null);
     }
-  }, [selectedText, displayedRecordId, lookupLoading, onResponseTypeChange]);
+  }, [selectedText, displayedRecordId, lookupLoading, onLookupResult, onResponseTypeChange]);
 
   const handleSearchLookup = useCallback(async () => {
     const selectedSearchId = extractFirstOsduId(selectedText);
@@ -1707,8 +1738,21 @@ export function JsonViewerContent({
       if (!res.ok) { setLookupError("Search failed"); return; }
       const data = await res.json() as { results: unknown[]; totalCount: number };
       if (data.totalCount === 0 || data.results.length === 0) { setLookupError("No results found"); return; }
-      setOverlayJson(JSON.stringify(data.results[0], null, 2));
-      setOverlayLabel(lookupId);
+      const result: JsonViewerLookupResult = {
+        responseType: "search",
+        json: JSON.stringify(data.results[0], null, 2),
+        label: lookupId,
+      };
+      if (onLookupResult) {
+        setOverlayJson(null);
+        setOverlayLabel(null);
+        setOverlayResponseType(null);
+        onLookupResult(result);
+      } else {
+        setOverlayJson(result.json);
+        setOverlayLabel(lookupId);
+        setOverlayResponseType("search");
+      }
       onResponseTypeChange?.("search");
     } catch (error) {
       if (isAbortError(error)) return;
@@ -1717,7 +1761,7 @@ export function JsonViewerContent({
       if (lookupAbortControllerRef.current === controller) lookupAbortControllerRef.current = null;
       setLookupLoading(null);
     }
-  }, [selectedText, displayedRecordId, lookupLoading, onResponseTypeChange]);
+  }, [selectedText, displayedRecordId, lookupLoading, onLookupResult, onResponseTypeChange]);
 
   const handleDdmsLookup = useCallback(async () => {
     if (!ddmsTarget || lookupLoading) return;
@@ -1753,6 +1797,7 @@ export function JsonViewerContent({
       } else {
         setOverlayJson(result.json);
         setOverlayLabel(result.label);
+        setOverlayResponseType("ddms");
         setResolvedRdmsContext(result.rdmsContext ?? null);
       }
       onResponseTypeChange?.("ddms");
@@ -1772,6 +1817,7 @@ export function JsonViewerContent({
     if (overlayJson) {
       setOverlayJson(null);
       setOverlayLabel(null);
+      setOverlayResponseType(null);
       setResolvedRdmsContext(null);
     }
     if (originalResponseType) onResponseTypeChange?.(originalResponseType);
@@ -2430,6 +2476,11 @@ export function JsonViewerContent({
           </button>
         </div>
       )}
+      {_isFullscreen && relatedNavigationError && (
+        <div role="alert" className="rounded-md border border-error-border/60 bg-error-surface px-3 py-1.5 text-xs text-error-text">
+          {relatedNavigationError}
+        </div>
+      )}
       <div className={cn(
         "flex items-center gap-1 rounded-t-md border border-border/40 px-2 py-1",
         _isFullscreen
@@ -2538,14 +2589,19 @@ export function JsonViewerContent({
           </div>
         )}
 
-        {relationships && onNavigateToRelated && onNavigateBack && (
+        {onNavigateToRelated && onNavigateBack && (
           <>
             <div className="mx-0.5 h-4 w-px shrink-0 bg-border/60" />
             <RecordRelationshipsNav
               relationships={relationships}
-              onNavigate={onNavigateToRelated}
+              onNavigate={(id) => onNavigateToRelated(id, {
+                responseType: activeResponseType,
+                json: displayJson,
+                label: lookupResult?.label ?? overlayLabel ?? displayedRecordId ?? id,
+              })}
               canGoBack={Boolean(canNavigateBack)}
               onBack={onNavigateBack}
+              isNavigating={isRelatedNavigationLoading}
             />
           </>
         )}
@@ -3826,7 +3882,34 @@ const FS_CONSOLE_DEFAULT = 300;
 const FS_CONSOLE_MIN = 80;
 const FS_CONSOLE_MAX = 700;
 
-export function JsonViewerToolbar({ json, className, storageKey, title, defaultFullscreen = false, onFullscreenClose, hideStorageLookup, hideSearchLookup, hideDdmsLookup, hideWdmsLookup, rdmsContext, searchRecordId, storageRecordId, isStorageVersionLoading, latestStorageVersionUnavailable, selectedStorageVersion, onStorageVersionSelect, onStorageVersionsDeleted, onRecordDeleted, openRdmsDeleteRequestId, onRdmsDeleteRequestHandled }: JsonViewerToolbarProps) {
+export function JsonViewerToolbar({
+  json,
+  className,
+  storageKey,
+  title,
+  defaultFullscreen = false,
+  onFullscreenClose,
+  hideStorageLookup,
+  hideSearchLookup,
+  hideDdmsLookup,
+  hideWdmsLookup,
+  rdmsContext,
+  searchRecordId,
+  storageRecordId,
+  isStorageVersionLoading,
+  latestStorageVersionUnavailable,
+  selectedStorageVersion,
+  onStorageVersionSelect,
+  onStorageVersionsDeleted,
+  onRecordDeleted,
+  openRdmsDeleteRequestId,
+  onRdmsDeleteRequestHandled,
+  onNavigateToRelated,
+  canNavigateBack,
+  onNavigateBack,
+  isRelatedNavigationLoading,
+  relatedNavigationError,
+}: JsonViewerToolbarProps) {
   const [fullscreenOpen, setFullscreenOpen] = useState(defaultFullscreen);
   const [fsConsoleOpen, setFsConsoleOpen] = useState(false);
   const [fsConsoleHeight, setFsConsoleHeight] = useState(FS_CONSOLE_DEFAULT);
@@ -3835,10 +3918,10 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
   const activeJson = lookupResult?.json ?? json;
   const activeStorageKey = lookupResult?.storageKey ?? storageKey;
   const activeRdmsContext = lookupResult?.rdmsContext ?? rdmsContext;
-  const defaultResponseTitle = storageRecordId
-    ? RESPONSE_TITLES.search
-    : searchRecordId
-      ? RESPONSE_TITLES.storage
+  const defaultResponseTitle = searchRecordId
+    ? RESPONSE_TITLES.storage
+    : storageRecordId
+      ? RESPONSE_TITLES.search
       : (title ?? "JSON");
   const [displayedTitle, setDisplayedTitle] = useState(defaultResponseTitle);
 
@@ -3983,10 +4066,10 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           onPopOut={handlePopOut}
           sharedTreeState={sharedTreeState}
           sharedViewerState={sharedViewerState}
-          hideStorageLookup={hideStorageLookup || Boolean(lookupResult)}
-          hideSearchLookup={hideSearchLookup || Boolean(lookupResult)}
-          hideDdmsLookup={hideDdmsLookup || Boolean(lookupResult)}
-          hideWdmsLookup={hideWdmsLookup || Boolean(lookupResult)}
+          hideStorageLookup={hideStorageLookup || lookupResult?.responseType === "ddms"}
+          hideSearchLookup={hideSearchLookup || lookupResult?.responseType === "ddms"}
+          hideDdmsLookup={hideDdmsLookup || lookupResult?.responseType === "ddms"}
+          hideWdmsLookup={hideWdmsLookup || lookupResult?.responseType === "ddms"}
           rdmsContext={activeRdmsContext}
           searchRecordId={lookupResult ? undefined : searchRecordId}
           storageRecordId={lookupResult ? undefined : storageRecordId}
@@ -4001,6 +4084,11 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
           onRecordDeleted={onRecordDeleted}
           openRdmsDeleteRequestId={openRdmsDeleteRequestId}
           onRdmsDeleteRequestHandled={onRdmsDeleteRequestHandled}
+          onNavigateToRelated={onNavigateToRelated}
+          canNavigateBack={canNavigateBack}
+          onNavigateBack={onNavigateBack}
+          isRelatedNavigationLoading={isRelatedNavigationLoading}
+          relatedNavigationError={relatedNavigationError}
         />
       )}
 
@@ -4025,10 +4113,10 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               className="h-full"
               sharedTreeState={sharedTreeState}
               sharedViewerState={sharedViewerState}
-              hideStorageLookup={hideStorageLookup || Boolean(lookupResult)}
-              hideSearchLookup={hideSearchLookup || Boolean(lookupResult)}
-              hideDdmsLookup={hideDdmsLookup || Boolean(lookupResult)}
-              hideWdmsLookup={hideWdmsLookup || Boolean(lookupResult)}
+              hideStorageLookup={hideStorageLookup || lookupResult?.responseType === "ddms"}
+              hideSearchLookup={hideSearchLookup || lookupResult?.responseType === "ddms"}
+              hideDdmsLookup={hideDdmsLookup || lookupResult?.responseType === "ddms"}
+              hideWdmsLookup={hideWdmsLookup || lookupResult?.responseType === "ddms"}
               rdmsContext={activeRdmsContext}
               searchRecordId={lookupResult ? undefined : searchRecordId}
               storageRecordId={lookupResult ? undefined : storageRecordId}
@@ -4043,6 +4131,11 @@ export function JsonViewerToolbar({ json, className, storageKey, title, defaultF
               onRecordDeleted={onRecordDeleted}
               openRdmsDeleteRequestId={openRdmsDeleteRequestId}
               onRdmsDeleteRequestHandled={onRdmsDeleteRequestHandled}
+              onNavigateToRelated={onNavigateToRelated}
+              canNavigateBack={canNavigateBack}
+              onNavigateBack={onNavigateBack}
+              isRelatedNavigationLoading={isRelatedNavigationLoading}
+              relatedNavigationError={relatedNavigationError}
             />
           </div>
           {fsConsoleOpen && (

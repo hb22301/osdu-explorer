@@ -16,6 +16,7 @@ interface RecordRelationshipsNavProps {
   onNavigate: (id: string) => void;
   canGoBack: boolean;
   onBack: () => void;
+  isNavigating?: boolean;
 }
 
 // Lets the user follow references from the displayed record to related records
@@ -25,6 +26,7 @@ export function RecordRelationshipsNav({
   onNavigate,
   canGoBack,
   onBack,
+  isNavigating = false,
 }: RecordRelationshipsNavProps) {
   const hasRelationships = relationships.length > 0;
 
@@ -41,7 +43,7 @@ export function RecordRelationshipsNav({
               variant="ghost"
               size="icon"
               className={`h-7 w-7 ${canGoBack ? "text-primary hover:text-primary" : "text-muted-foreground disabled:text-muted-foreground disabled:opacity-100"}`}
-              disabled={!canGoBack}
+              disabled={!canGoBack || isNavigating}
               onClick={onBack}
               aria-label="Back to previous record"
               aria-description={!canGoBack ? "No previous record in navigation history" : undefined}
@@ -68,7 +70,7 @@ export function RecordRelationshipsNav({
                   variant="ghost"
                   size="icon"
                   className={`relative h-7 w-7 ${hasRelationships ? "text-primary hover:text-primary" : "text-muted-foreground disabled:text-muted-foreground disabled:opacity-100"}`}
-                  disabled={!hasRelationships}
+                  disabled={!hasRelationships || isNavigating}
                   aria-label="Related records"
                   aria-description={`${relationships.length} related record${relationships.length === 1 ? "" : "s"}`}
                   data-testid="record-relationships-related"
