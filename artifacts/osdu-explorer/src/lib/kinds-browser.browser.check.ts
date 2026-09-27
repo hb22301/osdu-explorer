@@ -10,6 +10,32 @@ const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? "/repl/tools/bin/chromium";
 const TARGET_KIND = "osdu:wks:master-data--Well:1.0.0";
 const OTHER_KIND = "osdu:wks:master-data--Wellbore:1.0.0";
 const RECORD_COUNT = 12_345;
+const SCHEMA_TEST_ROWS = [
+  {
+    kind: TARGET_KIND,
+    status: "PUBLISHED",
+    scope: "SHARED",
+    dateCreated: "2025-03-27T05:42:00Z",
+    createdBy: "ServiceAdminUser",
+    dateUpdated: null,
+  },
+  {
+    kind: OTHER_KIND,
+    status: "PUBLISHED",
+    scope: "SHARED",
+    dateCreated: "2025-03-28T08:15:00Z",
+    createdBy: "Data Steward",
+    dateUpdated: "2025-04-02T13:30:00Z",
+  },
+  {
+    kind: "example:well:Inspection:2.0.0",
+    status: "DEPRECATED",
+    scope: "PRIVATE",
+    dateCreated: "2025-04-10T10:00:00Z",
+    createdBy: "Registry Admin",
+    dateUpdated: null,
+  },
+];
 
 declare global {
   interface Window {
@@ -173,7 +199,12 @@ function mockApiScript(): string {
           }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/api/osdu/schemas")) {
-          return new Response(JSON.stringify({ schemaInfos: [], offset: 0, count: 0, totalCount: 0 }), {
+          return new Response(JSON.stringify({
+            schemaInfos: ${JSON.stringify(SCHEMA_TEST_ROWS)},
+            offset: 0,
+            count: ${SCHEMA_TEST_ROWS.length},
+            totalCount: ${SCHEMA_TEST_ROWS.length},
+          }), {
             headers: { "Content-Type": "application/json" },
           });
         }
@@ -219,6 +250,25 @@ async function clearKindsFilter(browser: CdpClient): Promise<void> {
   }));
 }
 
+async function setSchemaTableFilter(browser: CdpClient, value: string): Promise<void> {
+  await evaluate<void>(browser, browserFunction((nextValue: string) => {
+    const input = document.querySelector('input[aria-label="Filter schema table"]') as HTMLInputElement | null;
+    if (!input) throw new Error("The schema table filter input was not found");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setValue) throw new Error("The native input value setter was not found");
+    setValue.call(input, nextValue);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, value));
+}
+
+async function clearSchemaTableFilter(browser: CdpClient): Promise<void> {
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Clear schema table filter"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The clear schema filter button was not found");
+    button.click();
+  }));
+}
+
 function terminateProcess(child: ChildProcess | undefined): void {
   if (!child?.pid) return;
   try {
@@ -233,6 +283,39 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Schema Browser'"),
     "the Schema Browser page",
+  );
+
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelectorAll('[data-testid="schema-row"]').length === ${SCHEMA_TEST_ROWS.length}`),
+    "the schema table rows",
+  );
+  await setSchemaTableFilter(browser, "data steward");
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const rows = [...document.querySelectorAll('[data-testid="schema-row"]')];
+      return rows.length === 1 && rows[0].textContent?.includes(${JSON.stringify(OTHER_KIND)});
+    })()`),
+    "the schema table filter to match a creator name",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.body.textContent?.includes('Showing 1 of 3 on this page (3 total)') ?? false"),
+    true,
+    "the schema filter should show its matching row count",
+  );
+  await clearSchemaTableFilter(browser);
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelectorAll('[data-testid="schema-row"]').length === ${SCHEMA_TEST_ROWS.length}`),
+    "the schema table clear button to restore all rows",
+  );
+  await setSchemaTableFilter(browser, "no-such-schema");
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelectorAll('[data-testid=\"schema-row\"]').length === 0 && document.body.textContent?.includes('No rows match the current filter')"),
+    "the schema table to show a no-matches state",
+  );
+  await clearSchemaTableFilter(browser);
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelectorAll('[data-testid="schema-row"]').length === ${SCHEMA_TEST_ROWS.length}`),
+    "the schema table clear button to restore rows after no matches",
   );
 
   // Switch to the Kinds view.

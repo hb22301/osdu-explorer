@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Search, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, GripVertical, Columns3 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, GripVertical, Columns3, Filter, X } from "lucide-react";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { KindsBrowser } from "@/components/kinds-browser";
 import { format } from "date-fns";
@@ -125,6 +125,8 @@ export default function SchemasPage() {
   const [authority, setAuthority]   = useState("");
   const [source, setSource]         = useState("");
   const [entityType, setEntityType] = useState("");
+  const [tableFilter, setTableFilter] = useState("");
+  const hasTableFilter = tableFilter.trim().length > 0;
   const [params, setParams] = useState({ authority: "", source: "", entityType: "" });
   const [offset, setOffset] = useState(0);
   const [limit, setLimit]   = useState<number>(() => {
@@ -272,6 +274,15 @@ export default function SchemasPage() {
     });
   }, [schemasData?.schemaInfos, sortCol, sortDir]);
 
+  const filteredRows = useMemo(() => {
+    const needle = tableFilter.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((row) =>
+      [row.id, row.status, row.scope, row.dateCreated, row.createdBy, row.dateUpdated]
+        .some((value) => value.toLowerCase().includes(needle)),
+    );
+  }, [rows, tableFilter]);
+
   const orderedCols = useMemo(
     () => colOrder.filter((k) => colVisible[k]).map((k) => COLUMNS.find((c) => c.key === k)!),
     [colOrder, colVisible],
@@ -374,7 +385,9 @@ export default function SchemasPage() {
               {isLoading
                 ? "Loading…"
                 : total > 0
-                  ? `${pageStart}–${pageEnd} of ${total.toLocaleString()} — click to select, double-click for full JSON; drag column edges to resize`
+                  ? `${hasTableFilter
+                    ? `Showing ${filteredRows.length.toLocaleString()} of ${rows.length.toLocaleString()} on this page (${total.toLocaleString()} total)`
+                    : `${pageStart}–${pageEnd} of ${total.toLocaleString()}`} — click to select, double-click for full JSON; drag column edges to resize`
                   : schemasData
                     ? "No schemas found"
                     : "Enter filters above and click Search"}
@@ -456,6 +469,31 @@ export default function SchemasPage() {
         </CardHeader>
 
         <CardContent className="p-0">
+          {!isLoading && schemasData && (
+            <div className="px-3 py-1.5 border-t border-border flex items-center gap-2">
+              <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+              <Input
+                placeholder="Filter by ID, status, scope, creator, or date…"
+                value={tableFilter}
+                onChange={(e) => setTableFilter(e.target.value)}
+                aria-label="Filter schema table"
+                className="h-7 min-w-0 flex-1 text-xs py-0 border-0 shadow-none focus-visible:ring-0 bg-transparent placeholder:text-muted-foreground/60"
+              />
+              {hasTableFilter && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => setTableFilter("")}
+                  title="Clear filter"
+                  aria-label="Clear schema table filter"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+          )}
           {isLoading ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -495,16 +533,17 @@ export default function SchemasPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rows.length === 0 ? (
+                  {filteredRows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={orderedCols.length} className="text-center py-8 text-muted-foreground">
-                        No schemas found
+                        {hasTableFilter ? "No rows match the current filter" : "No schemas found"}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    rows.map((row) => (
+                    filteredRows.map((row) => (
                       <TableRow
                         key={row.id}
+                        data-testid="schema-row"
                         className={cn(
                           "cursor-pointer transition-colors",
                           selectedId === row.id
