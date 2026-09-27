@@ -91,9 +91,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { label: "Dashboard", href: "/dashboard", icon: Activity },
-    { label: "Core APIs", href: "/search", icon: Boxes },
+    { label: "Core Services", href: "/search", icon: Boxes },
     { label: "Reservoir DDMS", href: "/reservoir-dms", icon: ReservoirDdmsIcon },
-    { label: "Schemas", href: "/schemas", icon: ScrollText },
+    { label: "Schemas & Kinds", href: "/schemas", icon: ScrollText },
     { label: "Legal Tags", href: "/legal-tags", icon: Tags },
   ];
 
