@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Loader2, ArrowUp, ArrowDown, ChevronsUpDown, FileJson2, Hash, AlertCircle, RefreshCw } from "lucide-react";
+import { Loader2, ArrowUp, ArrowDown, ChevronsUpDown, FileJson2, Hash, AlertCircle, RefreshCw, Filter, X } from "lucide-react";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
 import { cn } from "@/lib/utils";
 
@@ -67,6 +67,7 @@ export function KindsBrowser() {
   const [truncated, setTruncated] = useState(false);
 
   const [filter, setFilter]   = useState("");
+  const hasFilter = filter.trim().length > 0;
   const [sortCol, setSortCol] = useState<SortCol | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -120,7 +121,21 @@ export function KindsBrowser() {
     const needle = filter.trim().toLowerCase();
     const parsed = allKinds
       .map(parseKind)
-      .filter((r) => !needle || r.kind.toLowerCase().includes(needle));
+      .filter((r) => {
+        if (!needle) return true;
+
+        const count = counts[r.kind];
+        const countText = typeof count === "number"
+          ? `${count} ${count.toLocaleString()}`
+          : count === "error"
+            ? "error retry"
+            : count === "loading"
+              ? "loading"
+              : "";
+
+        return [r.kind, r.authority, r.source, r.entity, r.version, countText]
+          .some((value) => value.toLowerCase().includes(needle));
+      });
 
     if (!sortCol) return parsed;
     return [...parsed].sort((a, b) => {
@@ -204,47 +219,6 @@ export function KindsBrowser() {
 
   return (
     <>
-      {/* Filter + actions */}
-      <div className="glass-card p-6">
-        <div className="flex flex-col sm:flex-row gap-4 items-end">
-          <div className="flex-1 space-y-2">
-            <label className="text-sm font-medium leading-none">Filter kinds</label>
-            <Input
-              placeholder="e.g. master-data--Well"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              aria-label="Filter kinds"
-            />
-          </div>
-          <Button
-            variant="outline"
-            className="shrink-0"
-            onClick={() => void loadVisibleCounts()}
-            disabled={isLoading || rows.length === 0 || countProgress !== null}
-            aria-label="Load record counts"
-          >
-            {countProgress
-              ? <><Loader2 className="h-4 w-4 animate-spin" /><span className="ml-2">Counting… {countProgress.done}/{countProgress.total}</span></>
-              : <><Hash className="h-4 w-4" /><span className="ml-2">Load record counts</span></>}
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 shrink-0"
-                onClick={() => setReloadToken((t) => t + 1)}
-                disabled={isLoading}
-                aria-label="Reload kinds"
-              >
-                <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Reload kinds</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-
       {loadError && (
         <Card className="border-error-border/60 bg-error-surface">
           <CardContent className="pt-6">
@@ -272,7 +246,7 @@ export function KindsBrowser() {
             {isLoading
               ? "Loading…"
               : allKinds.length > 0
-                ? `${rows.length.toLocaleString()}${filter ? ` of ${allKinds.length.toLocaleString()}` : ""} kinds — click a header to sort, "count" for record totals${truncated ? ` (showing first ${allKinds.length.toLocaleString()}; more exist)` : ""}`
+                ? `${hasFilter ? `Showing ${rows.length.toLocaleString()} of ` : ""}${hasFilter ? allKinds.length.toLocaleString() : rows.length.toLocaleString()} kinds — click a header to sort, "count" for record totals${truncated ? ` (showing first ${allKinds.length.toLocaleString()}; more exist)` : ""}`
                 : "No kinds found in this partition"}
           </CardDescription>
         </CardHeader>
@@ -282,8 +256,59 @@ export function KindsBrowser() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
+            <>
+              <div className="px-3 py-1.5 border-t border-border flex flex-wrap items-center gap-2">
+                <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden="true" />
+                <Input
+                  placeholder="Filter by kind, authority, source, entity, version, or records…"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  aria-label="Search all table fields"
+                  className="h-7 min-w-[12rem] flex-1 text-xs py-0 border-0 shadow-none focus-visible:ring-0 bg-transparent placeholder:text-muted-foreground/60"
+                />
+                {hasFilter && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => setFilter("")}
+                    title="Clear filter"
+                    aria-label="Clear kinds filter"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 text-xs"
+                  onClick={() => void loadVisibleCounts()}
+                  disabled={isLoading || rows.length === 0 || countProgress !== null}
+                  aria-label="Load record counts"
+                >
+                  {countProgress
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span className="ml-1.5">Counting… {countProgress.done}/{countProgress.total}</span></>
+                    : <><Hash className="h-3.5 w-3.5" /><span className="ml-1.5">Load counts</span></>}
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={() => setReloadToken((t) => t + 1)}
+                      disabled={isLoading}
+                      aria-label="Reload kinds"
+                    >
+                      <RefreshCw className={cn("h-3.5 w-3.5", isLoading && "animate-spin")} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reload kinds</TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
                 <TableHeader>
                   <TableRow>
                     {HEADERS.map((h) => (
@@ -303,7 +328,7 @@ export function KindsBrowser() {
                   {rows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={HEADERS.length + 1} className="text-center py-8 text-muted-foreground">
-                        No kinds found
+                        {hasFilter ? "No rows match the current filters" : "No kinds found"}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -337,8 +362,9 @@ export function KindsBrowser() {
                     ))
                   )}
                 </TableBody>
-              </Table>
-            </div>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

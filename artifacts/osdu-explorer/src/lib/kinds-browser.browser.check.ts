@@ -200,6 +200,25 @@ function browserFunction(fn: (...args: any[]) => unknown, ...args: unknown[]): s
   return `(${fn.toString()})(${args.map((arg) => JSON.stringify(arg)).join(",")})`;
 }
 
+async function setKindsFilter(browser: CdpClient, value: string): Promise<void> {
+  await evaluate<void>(browser, browserFunction((nextValue: string) => {
+    const input = document.querySelector('input[aria-label="Search all table fields"]') as HTMLInputElement | null;
+    if (!input) throw new Error("The table filter input was not found");
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    if (!setValue) throw new Error("The native input value setter was not found");
+    setValue.call(input, nextValue);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, value));
+}
+
+async function clearKindsFilter(browser: CdpClient): Promise<void> {
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Clear kinds filter"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The clear filter button was not found");
+    button.click();
+  }));
+}
+
 function terminateProcess(child: ChildProcess | undefined): void {
   if (!child?.pid) return;
   try {
@@ -248,6 +267,47 @@ async function runScenario(browser: CdpClient): Promise<void> {
     await evaluate<boolean>(browser, `window.__kindsTest.searchBodies.some((body) => body.kind === ${JSON.stringify(TARGET_KIND)} && body.trackTotalCount === true)`),
     true,
     "the count query should request an accurate total count",
+  );
+
+  // The same search box should match a loaded value in the Records column.
+  await setKindsFilter(browser, RECORD_COUNT.toLocaleString());
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const rows = [...document.querySelectorAll('[data-testid="kind-row"]')];
+      return rows.length === 1 && rows[0].textContent?.includes(${JSON.stringify(TARGET_KIND)});
+    })()`),
+    "the table search to match the formatted record count",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, "document.body.textContent?.includes('Showing 1 of 2 kinds') ?? false"),
+    true,
+    "the filtered result count should be shown",
+  );
+
+  await clearKindsFilter(browser);
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelectorAll('[data-testid="kind-row"]').length === 2`),
+    "the clear filter button to restore all kinds",
+  );
+
+  await setKindsFilter(browser, "Wellbore");
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const rows = [...document.querySelectorAll('[data-testid="kind-row"]')];
+      return rows.length === 1 && rows[0].textContent?.includes(${JSON.stringify(OTHER_KIND)});
+    })()`),
+    "the table filter to match a kind name",
+  );
+
+  await setKindsFilter(browser, "no-such-kind");
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelectorAll('[data-testid="kind-row"]').length === 0 && document.body.textContent?.includes('No rows match the current filters')`),
+    "the table to show a no-matches state",
+  );
+  await clearKindsFilter(browser);
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelectorAll('[data-testid="kind-row"]').length === 2`),
+    "the clear filter button to restore rows after a no-matches state",
   );
 
   // Jump to the kind's schema definition.
