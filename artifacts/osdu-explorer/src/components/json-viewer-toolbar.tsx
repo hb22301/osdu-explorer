@@ -23,6 +23,7 @@ import {
   Grid3x3,
   Mountain,
   Pencil,
+  CopyPlus,
   Download,
   Trash2,
   AlertTriangle,
@@ -78,6 +79,7 @@ import {
   type RdmsReferencer,
 } from "@/lib/rdms-cascade-delete";
 import { saveStorageRecord } from "@/lib/storage-record-save";
+import { prepareRecordClone, createStorageRecords } from "@/lib/storage-record-clone";
 import { softDeleteStorageRecord, purgeStorageRecord } from "@/lib/storage-record-delete";
 import { VersionHistorySelect } from "@/components/version-history-select";
 import { RecordRelationshipsNav } from "@/components/record-relationships-nav";
@@ -1277,6 +1279,11 @@ export function JsonViewerContent({
   const [editSaving, setEditSaving] = useState(false);
   const [editSaveStep, setEditSaveStep] = useState<string | null>(null);
   const [editSaveError, setEditSaveError] = useState<string | null>(null);
+  // The edit dialog doubles as a create dialog: in "clone" mode it seeds a
+  // stripped copy and PUTs it as a new record. cloneCreatedIds holds the ids
+  // OSDU returns once a clone is created (null until then).
+  const [editMode, setEditMode] = useState<"edit" | "clone">("edit");
+  const [cloneCreatedIds, setCloneCreatedIds] = useState<string[] | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -2023,10 +2030,30 @@ export function JsonViewerContent({
   );
 
   const openEdit = useCallback(() => {
+    setEditMode("edit");
+    setCloneCreatedIds(null);
     setEditDraft(displayJson);
     setEditParseError(null);
     setEditSaveError(null);
     setEditSaveStep(null);
+    setEditOpen(true);
+  }, [displayJson]);
+
+  // Opens the same dialog seeded with a stripped copy of the record, so saving
+  // creates a brand-new record instead of a new version of the original.
+  const openClone = useCallback(() => {
+    const prepared = prepareRecordClone(displayJson);
+    setEditMode("clone");
+    setCloneCreatedIds(null);
+    setEditSaveError(null);
+    setEditSaveStep(null);
+    if (prepared.ok) {
+      setEditDraft(prepared.value);
+      setEditParseError(null);
+    } else {
+      setEditDraft(displayJson);
+      setEditParseError(prepared.error);
+    }
     setEditOpen(true);
   }, [displayJson]);
 
@@ -2056,6 +2083,19 @@ export function JsonViewerContent({
     const records = Array.isArray(parsed) ? parsed : [parsed];
     setEditSaving(true);
     setEditSaveError(null);
+    // Clone mode creates a new record and keeps the dialog open to show its id;
+    // edit mode updates in place and closes on success.
+    if (editMode === "clone") {
+      const result = await createStorageRecords(records, setEditSaveStep);
+      setEditSaving(false);
+      setEditSaveStep(null);
+      if (result.ok) {
+        setCloneCreatedIds(result.recordIds);
+      } else {
+        setEditSaveError(result.error);
+      }
+      return;
+    }
     const result = activeRdmsContext?.dataspace
       ? await saveRdmsRecord(activeRdmsContext.dataspace, records, setEditSaveStep)
       : await saveStorageRecord(records, setEditSaveStep);
@@ -2066,7 +2106,7 @@ export function JsonViewerContent({
     } else {
       setEditSaveError(result.error);
     }
-  }, [activeRdmsContext, canEditStorage, editDraft]);
+  }, [activeRdmsContext, canEditStorage, editDraft, editMode]);
 
   const openDeleteConfirm = useCallback(async () => {
     setDeleteError(null);
@@ -2873,6 +2913,22 @@ export function JsonViewerContent({
                   </TooltipTrigger>
                   <TooltipContent>Edit &amp; save record in Storage Service</TooltipContent>
                 </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn("h-7 w-7", iconStateClass(!editSaving))}
+                      onClick={openClone}
+                      aria-label="Clone record as a new Storage Service record"
+                      data-testid="button-clone-record"
+                      disabled={editSaving}
+                    >
+                      <CopyPlus className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Clone as a new record in Storage Service</TooltipContent>
+                </Tooltip>
                 {displayedRecordId && (
                   <>
                     <Tooltip>
@@ -3298,12 +3354,24 @@ export function JsonViewerContent({
         <div className="absolute inset-0 z-[70] bg-background flex flex-col rounded-lg overflow-hidden border border-border/40">
           <div className="flex items-center justify-between border-b border-border/40 bg-muted/20 px-4 py-2 shrink-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <Pencil className="h-4 w-4 text-neon" />
-              {activeRdmsContext ? "Edit Record — Reservoir DDMS" : "Edit Record — Storage Service"}
-              {(activeRdmsContext?.uuid ?? (activeRdmsContext ? undefined : displayedRecordId)) && (
-                <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">
-                  {activeRdmsContext?.uuid ?? displayedRecordId}
-                </Badge>
+              {editMode === "clone" ? (
+                <CopyPlus className="h-4 w-4 text-neon" />
+              ) : (
+                <Pencil className="h-4 w-4 text-neon" />
+              )}
+              {editMode === "clone"
+                ? "Clone Record — Storage Service"
+                : activeRdmsContext
+                  ? "Edit Record — Reservoir DDMS"
+                  : "Edit Record — Storage Service"}
+              {editMode === "clone" ? (
+                <Badge variant="secondary" className="ml-1 text-xs font-normal">New record</Badge>
+              ) : (
+                (activeRdmsContext?.uuid ?? (activeRdmsContext ? undefined : displayedRecordId)) && (
+                  <Badge variant="secondary" className="ml-1 text-xs font-mono font-normal max-w-[280px] truncate">
+                    {activeRdmsContext?.uuid ?? displayedRecordId}
+                  </Badge>
+                )
               )}
             </div>
             <Tooltip>
@@ -3344,6 +3412,17 @@ export function JsonViewerContent({
                 <CopyErrorButton error={editSaveError} />
               </div>
             )}
+            {cloneCreatedIds && (
+              <div
+                role="status"
+                data-testid="clone-success"
+                className="shrink-0 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 break-all"
+              >
+                {cloneCreatedIds.length > 0
+                  ? `Created new record: ${cloneCreatedIds.join(", ")}`
+                  : "New record created."}
+              </div>
+            )}
             <div className="shrink-0 flex items-center justify-end gap-2">
               {editSaving && editSaveStep && (
                 <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -3352,15 +3431,20 @@ export function JsonViewerContent({
                 </span>
               )}
               <Button variant="ghost" size="sm" onClick={() => setEditOpen(false)} disabled={editSaving}>
-                Cancel
+                {cloneCreatedIds ? "Close" : "Cancel"}
               </Button>
-              <Button
-                size="sm"
-                onClick={() => { void saveEdit(); }}
-                disabled={editSaving || editParseError !== null}
-              >
-                {editSaving ? "Saving…" : "Save"}
-              </Button>
+              {!cloneCreatedIds && (
+                <Button
+                  size="sm"
+                  onClick={() => { void saveEdit(); }}
+                  disabled={editSaving || editParseError !== null}
+                  data-testid="button-save-record"
+                >
+                  {editMode === "clone"
+                    ? editSaving ? "Creating…" : "Create record"
+                    : editSaving ? "Saving…" : "Save"}
+                </Button>
+              )}
             </div>
           </div>
         </div>
