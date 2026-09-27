@@ -48,6 +48,11 @@ function isArray(v: JsonValue): v is JsonValue[] {
   return Array.isArray(v);
 }
 
+function isIdentifierFieldPath(path: string): boolean {
+  const fieldName = path.slice(path.lastIndexOf(".") + 1);
+  return /(?:^|[_-])id$/i.test(fieldName) || /(?:Id|ID)$/.test(fieldName);
+}
+
 function HighlightText({
   text,
   matches,
@@ -166,6 +171,19 @@ function LeafValue({
     );
   }
   if (typeof value === "string") {
+    const renderedValue = (
+      <HighlightText
+        text={`"${value}"`}
+        matches={matches}
+        activeMatchIndex={activeMatchIndex}
+        onActiveRef={onActiveRef}
+        onMatchClick={onMatchClick}
+        className="text-amber-400/90 break-all"
+      />
+    );
+
+    if (isIdentifierFieldPath(path)) return renderedValue;
+
     return (
       <span
         onClick={(e) => {
@@ -211,14 +229,7 @@ function LeafValue({
           sel?.addRange(range);
         }}
       >
-        <HighlightText
-          text={`"${value}"`}
-          matches={matches}
-          activeMatchIndex={activeMatchIndex}
-          onActiveRef={onActiveRef}
-          onMatchClick={onMatchClick}
-          className="text-amber-400/90 break-all"
-        />
+        {renderedValue}
       </span>
     );
   }

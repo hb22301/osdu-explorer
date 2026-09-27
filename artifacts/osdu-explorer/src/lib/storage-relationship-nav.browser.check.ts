@@ -266,6 +266,66 @@ async function openWellRecord(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('well-record-ok') ?? false"),
     "the parent well record content",
   );
+  await assertRecordIdDoesNotAutoSelect(browser, WELL_ID, "Storage");
+}
+
+async function assertRecordIdDoesNotAutoSelect(
+  browser: CdpClient,
+  recordId: string,
+  source: "Search" | "Storage",
+): Promise<void> {
+  await evaluate<void>(browser, browserFunction((mode) => {
+    const button = document.querySelector(`button[aria-label="${mode} view"]`);
+    if (!(button instanceof HTMLButtonElement)) throw new Error(`${mode} view toggle was not found`);
+    button.click();
+  }, "Tree"));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-json-content]') !== null"),
+    `${source} record tree view`,
+  );
+  const treeSelection = await evaluate<string>(browser, browserFunction((id) => {
+    const value = [...document.querySelectorAll("[data-json-content] span")]
+      .find((element) => element.textContent === `"${id}"`);
+    if (!(value instanceof HTMLElement)) throw new Error("The record ID value was not found in Tree view");
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    value.click();
+    return selection?.toString() ?? "";
+  }, recordId));
+  assert.equal(treeSelection, "", `Clicking the ${source} record ID in Tree view should not select it`);
+
+  await evaluate<void>(browser, browserFunction((mode) => {
+    const button = document.querySelector(`button[aria-label="${mode} view"]`);
+    if (!(button instanceof HTMLButtonElement)) throw new Error(`${mode} view toggle was not found`);
+    button.click();
+  }, "Raw"));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('pre') !== null"),
+    `${source} record raw view`,
+  );
+  const rawSelection = await evaluate<string>(browser, browserFunction((id) => {
+    const pre = document.querySelector("pre");
+    if (!pre) throw new Error("The JSON raw view was not found");
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent ?? "";
+      const idIndex = text.indexOf(id);
+      if (idIndex < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, idIndex + Math.floor(id.length / 2));
+      range.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      pre.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      const selectedText = selection?.toString() ?? "";
+      selection?.removeAllRanges();
+      return selectedText;
+    }
+    throw new Error("The record ID text was not found in Raw view");
+  }, recordId));
+  assert.equal(rawSelection, "", `Clicking the ${source} record ID in Raw view should not select it`);
 }
 
 async function openRelatedMenu(browser: CdpClient): Promise<void> {
@@ -363,6 +423,7 @@ async function openSearchResultViewer(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Related records\"]') !== null"),
     "Related records control in the Search Service record viewer",
   );
+  await assertRecordIdDoesNotAutoSelect(browser, WELL_ID, "Search");
 }
 
 async function runScenario(browser: CdpClient): Promise<void> {

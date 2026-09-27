@@ -200,7 +200,6 @@ interface SharedViewerState {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OSDU_ID_EXTRACT_RE = /[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:[^\s"'\[\]{},\n\\]+/g;
-const OSDU_ID_RE = /^[a-zA-Z0-9][\w-]*:(?:master-data|reference-data|work-product-component|work-product)(?:--[\w.-]+)?:.+$/;
 
 function extractFirstOsduId(text: string): string | null {
   return text.match(OSDU_ID_EXTRACT_RE)?.[0]?.replace(/:+$/, "") ?? null;
@@ -219,66 +218,6 @@ function selectionCoversTarget(selection: Selection | null, target: HTMLElement 
     selectionRange.compareBoundaryPoints(Range.START_TO_START, targetRange) === 0 &&
     selectionRange.compareBoundaryPoints(Range.END_TO_END, targetRange) === 0
   );
-}
-
-function getTextOffset(root: HTMLElement, node: Node, offset: number): number | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let cursor = 0;
-  let current: Node | null;
-  while ((current = walker.nextNode())) {
-    const length = current.textContent?.length ?? 0;
-    if (current === node) return cursor + Math.min(offset, length);
-    cursor += length;
-  }
-  return null;
-}
-
-function findQuotedLookupRange(text: string, offset: number): { start: number; end: number } | null {
-  let quoteStart = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === "\\") {
-      i++;
-      continue;
-    }
-    if (text[i] !== '"') continue;
-    if (quoteStart === -1) {
-      quoteStart = i;
-      continue;
-    }
-
-    const value = text.slice(quoteStart + 1, i).replace(/\\"/g, '"');
-    if (offset >= quoteStart && offset <= i && (UUID_RE.test(value) || OSDU_ID_RE.test(value))) {
-      return { start: quoteStart + 1, end: i };
-    }
-    quoteStart = -1;
-  }
-  return null;
-}
-
-function createTextRange(root: HTMLElement, start: number, end: number): Range | null {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const textNodes: Text[] = [];
-  let current: Node | null;
-  while ((current = walker.nextNode())) textNodes.push(current as Text);
-
-  const locate = (position: number): [Text, number] | null => {
-    let cursor = 0;
-    for (const node of textNodes) {
-      const length = node.textContent?.length ?? 0;
-      if (position <= cursor + length) return [node, position - cursor];
-      cursor += length;
-    }
-    const last = textNodes.at(-1);
-    return last ? [last, last.textContent?.length ?? 0] : null;
-  };
-
-  const startPoint = locate(start);
-  const endPoint = locate(end);
-  if (!startPoint || !endPoint) return null;
-  const range = document.createRange();
-  range.setStart(startPoint[0], startPoint[1]);
-  range.setEnd(endPoint[0], endPoint[1]);
-  return range;
 }
 
 function findObjectTypeForUuid(node: JsonValue, uuid: string): string | null {
@@ -1606,24 +1545,6 @@ export function JsonViewerContent({
     activeTreeMatchRef.current = el;
   }, [viewMode]);
 
-  // Auto-select the full OSDU record ID when clicking anywhere inside its quoted value.
-  const handleContainerClick = useCallback(() => {
-    if (showTree) return;
-    const sel = window.getSelection();
-    if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    const target = preRef.current;
-    if (!target) return;
-    const offset = getTextOffset(target, range.startContainer, range.startOffset);
-    if (offset === null) return;
-    const quotedRange = findQuotedLookupRange(target.textContent ?? "", offset);
-    if (!quotedRange) return;
-    const newRange = createTextRange(target, quotedRange.start, quotedRange.end);
-    if (!newRange) return;
-    sel.removeAllRanges();
-    sel.addRange(newRange);
-  }, [showTree]);
-
   // Track text selection within the viewer and whether the JSON content is fully selected.
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -2463,7 +2384,7 @@ export function JsonViewerContent({
   const matchNavigationDisabled = totalMatches === 0;
 
   return (
-    <div ref={containerRef} className={cn("relative flex flex-col gap-1", _isFullscreen && "h-full", className)} onClick={handleContainerClick}>
+    <div ref={containerRef} className={cn("relative flex flex-col gap-1", _isFullscreen && "h-full", className)}>
       {_isFullscreen && lookupError && (
         <div className="flex items-center gap-2 rounded-md border border-error-border/60 bg-error-surface px-3 py-1.5 text-xs text-error-text animate-in fade-in slide-in-from-top-1 duration-150">
           <span className="flex-1">{lookupError}</span>
