@@ -57,9 +57,11 @@ import { cn } from "@/lib/utils";
 import {
   buildDataspacePayload,
   createDataspace,
+  parseCommaSeparatedValues,
   validateDataspaceName,
   type DataspaceMetadataDraft,
 } from "@/lib/rdms-dataspace-create";
+import { DataspaceMetadataLookups } from "@/components/dataspace-metadata-lookups";
 
 interface Resource {
   name: string;
@@ -1420,8 +1422,8 @@ export default function ReservoirDmsPage() {
             </DialogTitle>
             <DialogDescription>
               Register a new Reservoir DDMS dataspace. The entered name is used for both
-              DataspaceId and Path. Use comma-separated custom data values valid for the
-              active data partition.
+              DataspaceId and Path. Search the custom-data lookups or add values valid
+              for the active data partition.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1455,70 +1457,20 @@ export default function ReservoirDmsPage() {
                 Legal tags, countries, and owners are required. Viewers are optional.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label htmlFor="new-dataspace-legal-tags" className="text-xs font-medium">Legal tags</label>
-                <Input
-                  id="new-dataspace-legal-tags"
-                  value={newDataspaceMetadata.legalTags}
-                  placeholder="valid-legal-tag, another-tag"
-                  className="h-8 font-mono text-xs"
-                  data-testid="input-new-dataspace-legal-tags"
-                  disabled={creatingDataspace}
-                  onChange={(event) => {
-                    setNewDataspaceMetadata((current) => ({ ...current, legalTags: event.target.value }));
-                    if (createDataspaceError) setCreateDataspaceError(null);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="new-dataspace-countries" className="text-xs font-medium">
-                  Other relevant data countries
-                </label>
-                <Input
-                  id="new-dataspace-countries"
-                  value={newDataspaceMetadata.countries}
-                  placeholder="US, NO"
-                  className="h-8 font-mono text-xs"
-                  data-testid="input-new-dataspace-countries"
-                  disabled={creatingDataspace}
-                  onChange={(event) => {
-                    setNewDataspaceMetadata((current) => ({ ...current, countries: event.target.value }));
-                    if (createDataspaceError) setCreateDataspaceError(null);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="new-dataspace-owners" className="text-xs font-medium">Owner groups</label>
-                <Input
-                  id="new-dataspace-owners"
-                  value={newDataspaceMetadata.owners}
-                  placeholder="data.default.owners@partition.dataservices.energy"
-                  className="h-8 font-mono text-xs"
-                  data-testid="input-new-dataspace-owners"
-                  disabled={creatingDataspace}
-                  onChange={(event) => {
-                    setNewDataspaceMetadata((current) => ({ ...current, owners: event.target.value }));
-                    if (createDataspaceError) setCreateDataspaceError(null);
-                  }}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="new-dataspace-viewers" className="text-xs font-medium">Viewer groups</label>
-                <Input
-                  id="new-dataspace-viewers"
-                  value={newDataspaceMetadata.viewers}
-                  placeholder="data.default.viewers@partition.dataservices.energy"
-                  className="h-8 font-mono text-xs"
-                  data-testid="input-new-dataspace-viewers"
-                  disabled={creatingDataspace}
-                  onChange={(event) => {
-                    setNewDataspaceMetadata((current) => ({ ...current, viewers: event.target.value }));
-                    if (createDataspaceError) setCreateDataspaceError(null);
-                  }}
-                />
-              </div>
-            </div>
+            <DataspaceMetadataLookups
+              enabled={createDialogOpen}
+              disabled={creatingDataspace}
+              values={{
+                legalTags: parseCommaSeparatedValues(newDataspaceMetadata.legalTags),
+                countries: parseCommaSeparatedValues(newDataspaceMetadata.countries),
+                owners: parseCommaSeparatedValues(newDataspaceMetadata.owners),
+                viewers: parseCommaSeparatedValues(newDataspaceMetadata.viewers),
+              }}
+              onChange={(field, values) => {
+                setNewDataspaceMetadata((current) => ({ ...current, [field]: values.join(", ") }));
+                if (createDataspaceError) setCreateDataspaceError(null);
+              }}
+            />
             <div className="flex items-center justify-between rounded-md border px-3 py-2">
               <div>
                 <p className="text-xs font-medium">Read-only dataspace</p>

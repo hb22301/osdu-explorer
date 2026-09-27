@@ -104,11 +104,33 @@ async function getPageTarget(): Promise<CdpTarget> {
 function mockApiScript(): string {
   return `
     (() => {
-      window.__dsTest = { dataspaces: ["browser/dataspace"], requests: [] };
+      window.__dsTest = { dataspaces: ["browser/dataspace"], requests: [], lookups: [] };
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input.url;
         const method = (init && init.method) || "GET";
+        if (url.includes("/api/osdu/legal-tags")) {
+          window.__dsTest.lookups.push(url);
+          return new Response(JSON.stringify({ legalTags: [
+            { name: "browser-test-tag", description: "Browser test legal tag" },
+            { name: "unused-browser-tag", description: "Not selected by this check" },
+          ] }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (url.endsWith("/api/osdu/entitlements/groups")) {
+          window.__dsTest.lookups.push(url);
+          return new Response(JSON.stringify({ groups: [
+            {
+              name: "Browser Owners",
+              email: "data.default.owners@browser.dataservices.energy",
+              description: "Owner lookup fixture",
+            },
+            {
+              name: "Browser Viewers",
+              email: "data.default.viewers@browser.dataservices.energy",
+              description: "Viewer lookup fixture",
+            },
+          ] }), { headers: { "Content-Type": "application/json" } });
+        }
         if (url.includes("/api/osdu/config")) {
           return new Response(JSON.stringify({ configured: true }), { headers: { "Content-Type": "application/json" } });
         }
@@ -170,10 +192,47 @@ function setInput(client: CdpClient, testId: string, value: string): Promise<voi
   return evaluate<void>(client, `(() => {
     const el = document.querySelector('[data-testid="${testId}"]');
     if (!el) throw new Error("input not found: ${testId}");
+    el.focus();
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
     setter.call(el, ${JSON.stringify(value)});
     el.dispatchEvent(new Event("input", { bubbles: true }));
   })()`);
+}
+
+async function chooseSuggestion(client: CdpClient, testId: string, text: string): Promise<void> {
+  try {
+    await waitFor(
+      () => evaluate<boolean>(client, `(() => {
+        const list = document.querySelector('[data-testid="suggestions-${testId}"]');
+        return Array.from(list?.querySelectorAll("button") ?? [])
+          .some((button) => button.textContent?.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}));
+      })()`),
+      `the ${text} suggestion for ${testId}`,
+      8_000,
+    );
+  } catch (error) {
+    const diagnostic = await evaluate<string>(client, `JSON.stringify({
+      lookupCalls: window.__dsTest.lookups,
+      inputValue: document.querySelector('[data-testid="${testId}"]')?.value,
+      inputFocused: document.activeElement === document.querySelector('[data-testid="${testId}"]'),
+      ariaExpanded: document.querySelector('[data-testid="${testId}"]')?.getAttribute("aria-expanded"),
+      inputHtml: document.querySelector('[data-testid="${testId}"]')?.outerHTML,
+      suggestionText: document.querySelector('[data-testid="suggestions-${testId}"]')?.textContent,
+    })`);
+    throw new Error(`${error instanceof Error ? error.message : String(error)}; lookup diagnostics: ${diagnostic}`);
+  }
+  await evaluate<void>(client, `(() => {
+    const list = document.querySelector('[data-testid="suggestions-${testId}"]');
+    const option = Array.from(list?.querySelectorAll("button") ?? [])
+      .find((button) => button.textContent?.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}));
+    if (!option) throw new Error("suggestion not found: ${text}");
+    option.click();
+  })()`);
+}
+
+async function addManualValue(client: CdpClient, testId: string, value: string): Promise<void> {
+  await setInput(client, testId, value);
+  await clickTestId(client, `button-add-${testId}`);
 }
 
 async function runScenario(browser: CdpClient): Promise<void> {
@@ -205,12 +264,29 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "an invalid name must not reach the backend",
   );
 
-  // A valid name is created with the exact Reservoir DDMS collection contract.
+  // Invalid country codes are rejected instead of being added as metadata.
+  await addManualValue(browser, "input-new-dataspace-countries", "ZZZ");
+  await waitFor(
+    () => evaluate<boolean>(browser, `Array.from(document.querySelectorAll('[role="alert"]'))
+      .some((node) => node.textContent?.includes("valid ISO alpha-2 code"))`),
+    "the invalid country code to be rejected",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[data-testid="chips-input-new-dataspace-countries"] [data-value="ZZZ"]') !== null`),
+    false,
+    "an invalid country code must not become a selected chip",
+  );
+
+  // Selecting each lookup suggestion creates the exact Reservoir DDMS contract.
   await setInput(browser, "input-new-dataspace-name", "browser/new-space");
-  await setInput(browser, "input-new-dataspace-legal-tags", "browser-test-tag");
-  await setInput(browser, "input-new-dataspace-countries", "us");
-  await setInput(browser, "input-new-dataspace-owners", "data.default.owners@browser.dataservices.energy");
-  await setInput(browser, "input-new-dataspace-viewers", "data.default.viewers@browser.dataservices.energy");
+  await setInput(browser, "input-new-dataspace-legal-tags", "browser test");
+  await chooseSuggestion(browser, "input-new-dataspace-legal-tags", "browser-test-tag");
+  await setInput(browser, "input-new-dataspace-countries", "canada");
+  await chooseSuggestion(browser, "input-new-dataspace-countries", "Canada");
+  await setInput(browser, "input-new-dataspace-owners", "Browser Owners");
+  await chooseSuggestion(browser, "input-new-dataspace-owners", "Browser Owners");
+  await setInput(browser, "input-new-dataspace-viewers", "Browser Viewers");
+  await chooseSuggestion(browser, "input-new-dataspace-viewers", "Browser Viewers");
   await clickTestId(browser, "button-create-dataspace");
   await waitFor(
     () => evaluate<boolean>(browser, "window.__dsTest.requests.length === 1"),
@@ -227,7 +303,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     Path: "browser/new-space",
     CustomData: {
       legaltags: ["browser-test-tag"],
-      otherRelevantDataCountries: ["US"],
+        otherRelevantDataCountries: ["CA"],
       owners: ["data.default.owners@browser.dataservices.energy"],
       viewers: ["data.default.viewers@browser.dataservices.energy"],
       "read-only": "false",
@@ -245,10 +321,9 @@ async function runScenario(browser: CdpClient): Promise<void> {
   // A Reservoir DDMS failure is shown in the still-open dialog.
   await clickTestId(browser, "button-new-dataspace");
   await setInput(browser, "input-new-dataspace-name", "browser/failed-space");
-  await setInput(browser, "input-new-dataspace-legal-tags", "browser-test-tag");
-  await setInput(browser, "input-new-dataspace-countries", "US");
-  await setInput(browser, "input-new-dataspace-owners", "data.default.owners@browser.dataservices.energy");
-  await setInput(browser, "input-new-dataspace-viewers", "");
+  await addManualValue(browser, "input-new-dataspace-legal-tags", "manual-browser-tag");
+  await addManualValue(browser, "input-new-dataspace-countries", "us");
+  await addManualValue(browser, "input-new-dataspace-owners", "data.manual.owners@browser.dataservices.energy");
   await clickTestId(browser, "button-create-dataspace");
   await waitFor(
     () => evaluate<boolean>(browser, `document.querySelector('[data-testid="new-dataspace-error"]')?.textContent?.includes("invalid legal tag") ?? false`),
