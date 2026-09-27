@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -11,6 +11,7 @@ import {
   FlaskConical,
   FolderPlus,
   GripVertical,
+  Info,
   Loader2,
   Maximize2,
   Minimize2,
@@ -45,6 +46,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -62,6 +64,13 @@ import {
   type DataspaceMetadataDraft,
 } from "@/lib/rdms-dataspace-create";
 import { DataspaceMetadataLookups } from "@/components/dataspace-metadata-lookups";
+import {
+  customDataEntries,
+  hasDisplayableMetadata,
+  isMeaningfulTimestamp,
+  parseDataspaceList,
+  type DataspaceInfo,
+} from "@/lib/dataspace-metadata";
 
 interface Resource {
   name: string;
@@ -208,40 +217,9 @@ function RecordSortIcon({
     : <ArrowDown className="ml-1 h-3 w-3 inline" />;
 }
 
-function extractDataspaceName(raw: string): string {
-  const m = raw.match(/dataspace\('([^']+)'\)/);
-  return m ? m[1] : raw;
-}
-
 function parseUuidFromUri(uri: string): string {
   const m = uri.match(/\(([^)]+)\)\s*$/);
   return m ? m[1] : uri;
-}
-
-function parseDataspaces(data: unknown): string[] {
-  let items: unknown[] = [];
-  if (Array.isArray(data)) {
-    items = data;
-  } else if (data && typeof data === "object") {
-    const d = data as Record<string, unknown>;
-    items = Array.isArray(d.data) ? d.data : Array.isArray(d.dataspaces) ? d.dataspaces : [];
-  }
-  return items.map((it) => {
-    const raw =
-      typeof it === "string"
-        ? it
-        : it && typeof it === "object"
-          ? (() => {
-              const o = it as Record<string, unknown>;
-              return typeof o.name === "string"
-                ? o.name
-                : typeof o.id === "string"
-                  ? o.id
-                  : JSON.stringify(it);
-            })()
-          : String(it);
-    return extractDataspaceName(raw);
-  });
 }
 
 function parseResources(data: unknown): Resource[] {
@@ -328,6 +306,7 @@ function formatDate(iso: string): string {
 
 export default function ReservoirDmsPage() {
   const [dataspaces, setDataspaces] = useState<string[]>([]);
+  const [dataspaceMeta, setDataspaceMeta] = useState<Record<string, DataspaceInfo>>({});
   const [dataspaceError, setDataspaceError] = useState<string | null>(null);
   const [selectedDataspace, setSelectedDataspace] = useState<string>("");
   const [rdmsMode, setRdmsMode] = useState<"rest" | "etp">("rest");
@@ -386,8 +365,10 @@ export default function ReservoirDmsPage() {
         return;
       }
       const data = await res.json() as unknown;
-      const names = parseDataspaces(data);
+      const infos = parseDataspaceList(data);
+      const names = infos.map((info) => info.name);
       setDataspaces(names);
+      setDataspaceMeta(Object.fromEntries(infos.map((info) => [info.name, info])));
       if (names.length > 0 && !selectedDataspace) {
         setSelectedDataspace(names[0]);
       }
@@ -925,6 +906,8 @@ export default function ReservoirDmsPage() {
     </div>
   );
 
+  const selectedInfo = selectedDataspace ? dataspaceMeta[selectedDataspace] : undefined;
+
   return (
     <div className="flex flex-col h-full">
       {/* Top bar */}
@@ -947,6 +930,56 @@ export default function ReservoirDmsPage() {
               ))}
             </SelectContent>
           </Select>
+        )}
+        {selectedInfo && hasDisplayableMetadata(selectedInfo) && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 shrink-0"
+                aria-label="Dataspace metadata"
+                title="Dataspace metadata"
+                data-testid="button-dataspace-metadata"
+              >
+                <Info className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-80" data-testid="dataspace-metadata-panel">
+              <div className="space-y-2 text-xs">
+                <p className="font-mono font-semibold break-all">{selectedInfo.name}</p>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                  <dt className="text-muted-foreground">Created</dt>
+                  <dd data-testid="dataspace-meta-created">
+                    {isMeaningfulTimestamp(selectedInfo.storeCreated) ? formatDate(selectedInfo.storeCreated!) : "—"}
+                  </dd>
+                  <dt className="text-muted-foreground">Last write</dt>
+                  <dd data-testid="dataspace-meta-last-write">
+                    {isMeaningfulTimestamp(selectedInfo.storeLastWrite) ? formatDate(selectedInfo.storeLastWrite!) : "—"}
+                  </dd>
+                  {selectedInfo.path && (
+                    <>
+                      <dt className="text-muted-foreground">Path</dt>
+                      <dd className="font-mono break-all">{selectedInfo.path}</dd>
+                    </>
+                  )}
+                </dl>
+                {customDataEntries(selectedInfo.customData).length > 0 && (
+                  <div className="space-y-1 border-t border-border pt-2" data-testid="dataspace-meta-custom">
+                    <p className="text-muted-foreground">Custom data</p>
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                      {customDataEntries(selectedInfo.customData).map(([key, value]) => (
+                        <Fragment key={key}>
+                          <dt className="font-mono text-muted-foreground break-all">{key}</dt>
+                          <dd className="font-mono break-all">{value}</dd>
+                        </Fragment>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
         <Button
           size="sm"

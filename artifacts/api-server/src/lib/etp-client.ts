@@ -158,7 +158,19 @@ export async function etpGetDataspaces(sessionId: string, cfg: OsduConfig): Prom
   const dataspaces = asArray(await client.getDataspaces()).map((entry) => {
     if (typeof entry === "string") return entry;
     const record = entry as Record<string, unknown>;
-    return String(record?.path ?? record?.uri ?? record?.name ?? "");
+    // Preserve the metadata the store returns (path/uri, timestamps, custom
+    // data) instead of collapsing the entry to a bare name; the frontend keeps
+    // accepting bare strings, so a name-only fallback stays valid.
+    const name = String(record?.path ?? record?.uri ?? record?.name ?? "");
+    if (!record || typeof record !== "object") return name;
+    return {
+      name,
+      path: record.path,
+      uri: record.uri,
+      storeCreated: record.storeCreated,
+      storeLastWrite: record.storeLastWrite,
+      customData: record.customData,
+    };
   });
   return { dataspaces };
 }
