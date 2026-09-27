@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.6.6",
+  "version": "2.6.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -28,6 +28,8 @@
     "check:kinds-browser-browser": "tsx src/lib/kinds-browser.browser.check.ts",
     "check:search-aggregations": "tsx src/lib/search-aggregations.check.ts",
     "check:dashboard-aggregations-browser": "tsx src/lib/dashboard-aggregations.browser.check.ts",
+    "check:rdms-dataspace-create": "tsx src/lib/rdms-dataspace-create.check.ts",
+    "check:rdms-dataspace-create-browser": "tsx src/lib/rdms-dataspace-create.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

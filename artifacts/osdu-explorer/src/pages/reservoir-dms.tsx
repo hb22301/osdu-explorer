@@ -9,6 +9,7 @@ import {
   DatabaseZap,
   Filter,
   FlaskConical,
+  FolderPlus,
   GripVertical,
   Loader2,
   Maximize2,
@@ -47,9 +48,13 @@ import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { validateDataspaceName, createDataspace } from "@/lib/rdms-dataspace-create";
 
 interface Resource {
   name: string;
@@ -324,6 +329,11 @@ export default function ReservoirDmsPage() {
   const [etpAvailable, setEtpAvailable] = useState<boolean | null>(null);
   const [etpUnavailableReason, setEtpUnavailableReason] = useState<string | null>(null);
 
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newDataspaceName, setNewDataspaceName] = useState("");
+  const [creatingDataspace, setCreatingDataspace] = useState(false);
+  const [createDataspaceError, setCreateDataspaceError] = useState<string | null>(null);
+
   const [resources, setResources] = useState<Resource[] | null>(null);
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourcesError, setResourcesError] = useState<string | null>(null);
@@ -413,6 +423,32 @@ export default function ReservoirDmsPage() {
       setModeSwitching(false);
     }
   }, [loadDataspaces]);
+
+  const handleCreateDataspace = useCallback(async () => {
+    const validation = validateDataspaceName(newDataspaceName, dataspaces);
+    if (!validation.ok) {
+      setCreateDataspaceError(validation.error);
+      return;
+    }
+    setCreatingDataspace(true);
+    setCreateDataspaceError(null);
+    const result = await createDataspace(validation.value);
+    setCreatingDataspace(false);
+    if (!result.ok) {
+      setCreateDataspaceError(result.error);
+      return;
+    }
+    setCreateDialogOpen(false);
+    setNewDataspaceName("");
+    await loadDataspaces();
+    setSelectedDataspace(validation.value);
+  }, [newDataspaceName, dataspaces, loadDataspaces]);
+
+  const openCreateDialog = useCallback(() => {
+    setNewDataspaceName("");
+    setCreateDataspaceError(null);
+    setCreateDialogOpen(true);
+  }, []);
 
   useEffect(() => {
     countAbortRef.current?.abort();
@@ -885,6 +921,18 @@ export default function ReservoirDmsPage() {
           {resourcesLoading && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
           Fetch Resources
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-xs gap-1.5"
+          disabled={rdmsMode === "etp"}
+          onClick={openCreateDialog}
+          data-testid="button-new-dataspace"
+          title={rdmsMode === "etp" ? "Creating a dataspace is only available in REST mode" : "Create a new dataspace"}
+        >
+          <FolderPlus className="h-3.5 w-3.5" />
+          New dataspace
+        </Button>
         <div className="ml-auto flex items-center gap-2">
           {modeError && (
             <span className={cn("text-xs", RESERVOIR_ERROR_TEXT_CLASS)} role="alert">{modeError}</span>
@@ -1321,6 +1369,74 @@ export default function ReservoirDmsPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <Dialog
+        open={createDialogOpen}
+        onOpenChange={(open) => {
+          if (creatingDataspace) return;
+          setCreateDialogOpen(open);
+          if (!open) setCreateDataspaceError(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" data-testid="dialog-new-dataspace">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FolderPlus className="h-4 w-4 text-emerald-500" />
+              New dataspace
+            </DialogTitle>
+            <DialogDescription>
+              Register a new Reservoir DDMS dataspace. Use a name or a path such as
+              {" "}<span className="font-mono">PDS-Preview/Agentic_CWP</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              autoFocus
+              value={newDataspaceName}
+              placeholder="dataspace name…"
+              className="h-9 font-mono text-sm"
+              data-testid="input-new-dataspace-name"
+              disabled={creatingDataspace}
+              onChange={(e) => {
+                setNewDataspaceName(e.target.value);
+                if (createDataspaceError) setCreateDataspaceError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleCreateDataspace();
+                }
+              }}
+            />
+            {createDataspaceError && (
+              <p className={cn("text-xs", RESERVOIR_ERROR_TEXT_CLASS)} role="alert" data-testid="new-dataspace-error">
+                {createDataspaceError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              disabled={creatingDataspace}
+              onClick={() => setCreateDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              disabled={creatingDataspace || !newDataspaceName.trim()}
+              onClick={() => { void handleCreateDataspace(); }}
+              data-testid="button-create-dataspace"
+            >
+              {creatingDataspace && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+              Create dataspace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {detailRecord && (
         <JsonViewerToolbar

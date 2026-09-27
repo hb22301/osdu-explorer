@@ -203,6 +203,48 @@ router.get("/osdu/rdms/dataspaces", async (req, res): Promise<void> => {
   }
 });
 
+// Create (register) a dataspace. RDDMS uses an idempotent PUT keyed on the
+// dataspace name; an empty body lets the server apply its defaults. ETP has no
+// create-dataspace operation wired up here, so that mode is refused with a clear
+// message rather than silently proxied.
+router.put("/osdu/rdms/dataspaces/:dataspace", async (req, res): Promise<void> => {
+  const cfg = req.session.osduConfig;
+  if (!cfg) {
+    res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
+    return;
+  }
+  const { dataspace } = req.params;
+  if (!dataspace) {
+    res.status(400).json({ error: "Dataspace parameter is required." });
+    return;
+  }
+  if (rdmsMode(req) === "etp") {
+    res.status(400).json({
+      error: "Creating a dataspace is only available in REST mode. Switch to REST and try again.",
+    });
+    return;
+  }
+  const client = getOsduClient(cfg);
+  try {
+    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}`;
+    const { status, data } = await client.fetch(path, {
+      method: "PUT",
+      body: req.body && typeof req.body === "object" ? req.body : {},
+      headers: { Accept: "application/json" },
+    });
+    if (status >= 200 && status < 300) {
+      res.status(status).json(data ?? null);
+    } else {
+      const detail = extractErrorDetail(data);
+      res.status(status).json({
+        error: detail ? `Reservoir DDMS: ${detail}` : `HTTP ${status} from Reservoir DDMS`,
+      });
+    }
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : "Failed to create dataspace" });
+  }
+});
+
 router.get("/osdu/rdms/dataspaces/:dataspace/resources", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {
