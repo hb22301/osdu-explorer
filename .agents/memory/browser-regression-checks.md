@@ -32,3 +32,9 @@ For table row selection, scroll a visible row into view and use CDP mouse input 
 **Why:** The Search page renders responsive table variants; a programmatic click on the first matched row did not update the selected-row state.
 
 **How to apply:** Locate a row with a nonzero client rect, call `scrollIntoView`, recalculate its center, dispatch CDP press/release events, and assert that the row action becomes enabled.
+
+When a browser check fails before reaching the feature under test, verify its setup flow against the current UI before attributing the failure to application behavior.
+
+**Why:** Stale accessible labels or navigation assumptions can stop a check before it exercises the changed path.
+
+**How to apply:** Confirm each setup selector still matches the live control and assert the test has reached the target screen before diagnosing the feature itself.

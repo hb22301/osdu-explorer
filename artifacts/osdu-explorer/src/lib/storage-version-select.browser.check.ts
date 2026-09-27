@@ -237,8 +237,8 @@ async function openRecordViewer(browser: CdpClient): Promise<void> {
   );
 
   await evaluate<void>(browser, browserFunction(() => {
-    const open = document.querySelector('button[aria-label="Open Search API result"]') as HTMLButtonElement | null;
-    if (!open) throw new Error("The Open Search API result button was not found");
+    const open = document.querySelector('button[aria-label="Open Search Record result"]') as HTMLButtonElement | null;
+    if (!open) throw new Error("The Open Search Record result button was not found");
     open.click();
   }));
   await waitFor(
@@ -283,8 +283,8 @@ async function openStorageRecordDialog(browser: CdpClient, latestMissing = false
   );
 
   await evaluate<void>(browser, browserFunction(() => {
-    const open = document.querySelector('button[aria-label="Open record in Storage API"]') as HTMLButtonElement | null;
-    if (!open) throw new Error("The Open record in Storage API button was not found");
+    const open = document.querySelector('button[aria-label="Open Storage Record"]') as HTMLButtonElement | null;
+    if (!open) throw new Error("The Open Storage Record button was not found");
     if (open.disabled) throw new Error("The Open record in Storage API button is disabled");
     open.click();
   }));
@@ -318,6 +318,71 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the selector should default to the latest version",
   );
 
+  // A Storage API lookup inside the Search viewer must keep version history
+  // available and tied to the looked-up Storage record.
+  await evaluate<void>(browser, browserFunction(() => {
+    const open = document.querySelector('button[aria-label="Open record in Storage API"]') as HTMLButtonElement | null;
+    if (!open) throw new Error("The Storage API lookup button was not found");
+    open.click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.textContent?.includes('marker-v3') ?? false"),
+    "the Storage API lookup result to render",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Select record version\"]') !== null"),
+    "the version selector to remain visible after Storage lookup",
+  );
+  const overlayCompareRequestCount = await evaluate<number>(
+    browser,
+    "window.__versionTest.versionRequests.length",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('button[aria-label="Select record version"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Storage lookup version selector was not found");
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+  }));
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      "[...document.querySelectorAll('[role=\"menuitem\"]')].some((item) => item.getAttribute('aria-label') === 'Compare versions')",
+    ),
+    "the Storage lookup Compare versions menu item",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const item = [...document.querySelectorAll('[role="menuitem"]')]
+      .find((candidate) => candidate.getAttribute("aria-label") === "Compare versions");
+    if (!item) throw new Error("The Storage lookup Compare versions menu item was not found");
+    (item as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      "[...document.querySelectorAll('[role=\"dialog\"]')].some((dialog) => dialog.textContent?.includes('Compare versions'))",
+    ),
+    "the Storage lookup compare dialog to open",
+  );
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      `(() => {
+        const requests = window.__versionTest.versionRequests.slice(${overlayCompareRequestCount});
+        return requests.includes(2) && requests.includes(3);
+      })()`,
+    ),
+    "the Storage lookup comparison versions to load",
+  );
+  await browser.call("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+  await browser.call("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      "![...document.querySelectorAll('[role=\"dialog\"]')].some((dialog) => dialog.textContent?.includes('Compare versions'))",
+    ),
+    "the Storage lookup compare dialog to close",
+  );
+
   // Open the dropdown and switch to version 1.
   await evaluate<void>(browser, browserFunction(() => {
     const button = document.querySelector('button[aria-label="Select record version"]') as HTMLButtonElement | null;
@@ -332,9 +397,12 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the version menu items",
   );
   assert.equal(
-    await evaluate<number>(browser, "document.querySelectorAll('[role=\"menuitem\"]').length"),
+    await evaluate<number>(
+      browser,
+      "[...document.querySelectorAll('[role=\"menuitem\"]')].filter((item) => item.textContent?.trim().startsWith('v')).length",
+    ),
     3,
-    "the menu should list all three versions",
+    "the menu should list all three versions separately from Compare versions",
   );
   await evaluate<void>(browser, browserFunction(() => {
     const item = [...document.querySelectorAll('[role="menuitem"]')]
@@ -365,6 +433,55 @@ async function runScenario(browser: CdpClient): Promise<void> {
     await evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Select record version\"]')?.textContent?.includes('v3 (latest)') ?? false"),
     true,
     "the Storage API selector should default to the latest version",
+  );
+  const compareRequestCount = await evaluate<number>(
+    browser,
+    "window.__versionTest.versionRequests.length",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const button = document.querySelector('[role="dialog"] button[aria-label="Select record version"]') as HTMLButtonElement | null;
+    if (!button) throw new Error("The Storage API version selector button was not found");
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", code: "ArrowDown", bubbles: true }));
+  }));
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      "[...document.querySelectorAll('[role=\"menuitem\"]')].some((item) => item.getAttribute('aria-label') === 'Compare versions')",
+    ),
+    "the Storage API Compare versions menu item",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const item = [...document.querySelectorAll('[role="menuitem"]')]
+      .find((candidate) => candidate.getAttribute("aria-label") === "Compare versions");
+    if (!item) throw new Error("The Storage API Compare versions menu item was not found");
+    (item as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      "[...document.querySelectorAll('[role=\"dialog\"]')].some((dialog) => dialog.textContent?.includes('Compare versions'))",
+    ),
+    "the Storage API compare dialog to open",
+  );
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      `(() => {
+        const requests = window.__versionTest.versionRequests.slice(${compareRequestCount});
+        return requests.includes(2) && requests.includes(3);
+      })()`,
+    ),
+    "the Storage API comparison versions to load",
+  );
+  await browser.call("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+  await browser.call("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+  await waitFor(
+    () => evaluate<boolean>(
+      browser,
+      "![...document.querySelectorAll('[role=\"dialog\"]')].some((dialog) => dialog.textContent?.includes('Compare versions'))",
+    ),
+    "the Storage API compare dialog to close",
   );
   const previousVersionRequestCount = await evaluate<number>(
     browser,

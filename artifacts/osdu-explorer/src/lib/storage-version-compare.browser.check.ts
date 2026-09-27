@@ -232,8 +232,8 @@ async function openRecordViewer(browser: CdpClient): Promise<void> {
   );
 
   await evaluate<void>(browser, browserFunction(() => {
-    const open = document.querySelector('button[aria-label="Open Search API result"]') as HTMLButtonElement | null;
-    if (!open) throw new Error("The Open Search API result button was not found");
+    const open = document.querySelector('button[aria-label="Open Search Record result"]') as HTMLButtonElement | null;
+    if (!open) throw new Error("The Open Search Record result button was not found");
     open.click();
   }));
   await waitFor(

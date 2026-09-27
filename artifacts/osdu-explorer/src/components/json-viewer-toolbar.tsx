@@ -1374,6 +1374,16 @@ export function JsonViewerContent({
     const rootId = getRootField<string>(parsedJson, "id")?.trim();
     return rootId || storageRecordId?.trim() || searchRecordId?.trim() || null;
   }, [parsedJson, storageRecordId, searchRecordId]);
+  const versionHistoryRecordId =
+    lookupResult?.responseType === "storage"
+      ? lookupResult.storageKey?.trim() ||
+        lookupResult.label?.trim() ||
+        displayedRecordId ||
+        storageRecordId?.trim() ||
+        undefined
+      : lookupResult
+        ? undefined
+        : storageRecordId?.trim() || undefined;
   const storageDdmsScan = useMemo(
     () => parsedJson ? findReservoirDdmsTargets(parsedJson) : { targets: [], unresolvedCount: 0 },
     [parsedJson],
@@ -2889,13 +2899,13 @@ export function JsonViewerContent({
               </>
             )}
 
-            {!lookupResult && storageRecordId && onStorageVersionSelect && (
+            {versionHistoryRecordId && onStorageVersionSelect && (
               <>
                 {canEditStorage && displayedRecordId && (
                   <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />
                 )}
                 <VersionHistorySelect
-                  recordId={storageRecordId}
+                  recordId={versionHistoryRecordId}
                   selectedVersion={selectedStorageVersion}
                   onVersionSelect={onStorageVersionSelect}
                   isVersionLoading={isStorageVersionLoading}

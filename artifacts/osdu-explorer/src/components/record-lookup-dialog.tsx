@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useGetOsduRecord, getGetOsduRecordQueryKey } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -89,7 +89,11 @@ export function RecordLookupDialog({
   }, []);
 
   const handleStorageVersionSelect = useCallback(async (version: number) => {
-    const currentRecordId = recordId.trim();
+    const currentRecordId = (
+      lookupResult?.responseType === "storage"
+        ? lookupResult.storageKey?.trim() || lookupResult.label?.trim() || recordId.trim()
+        : recordId.trim()
+    );
     if (!currentRecordId) return;
 
     const requestId = ++versionRequestRef.current;
@@ -110,7 +114,7 @@ export function RecordLookupDialog({
     } finally {
       if (requestId === versionRequestRef.current) setIsVersionLoading(false);
     }
-  }, [recordId]);
+  }, [lookupResult, recordId]);
 
   const handleStorageVersionsDeleted = useCallback((deleted: number) => {
     if (selectedStorageVersion === deleted) resetVersionState();
@@ -253,9 +257,14 @@ export function RecordLookupDialog({
   const json = displayedRecord ? JSON.stringify(displayedRecord, null, 2) : "";
   const latestStorageVersionUnavailable = isError && isHttpNotFound(error);
   const hasDisplayedRecord = Boolean(lookupResult) || versionRecord !== null || (!isError && Boolean(data));
-  const activeJson = lookupResult?.json ?? json;
+  const activeJson = versionRecord !== null ? json : lookupResult?.json ?? json;
+  const viewerLookupResult = useMemo(() => {
+    if (versionRecord === null || lookupResult?.responseType !== "storage") return lookupResult;
+    return { ...lookupResult, json };
+  }, [json, lookupResult, versionRecord]);
   const isReservoirDdmsResponse = lookupResult?.responseType === "ddms";
   const handleLookupResult = useCallback((result: JsonViewerLookupResult | null) => {
+    resetVersionState();
     setLookupResult(result);
     setDisplayedTitle(
       result?.responseType === "ddms"
@@ -264,7 +273,7 @@ export function RecordLookupDialog({
           ? "Record from Search Service"
           : "Record from Storage Service",
     );
-  }, []);
+  }, [resetVersionState]);
 
   return (
     <>
@@ -275,7 +284,7 @@ export function RecordLookupDialog({
             <span
               className="inline-flex"
               tabIndex={!selectedId ? 0 : undefined}
-              aria-label={!selectedId ? "Storage API unavailable until a row is selected" : undefined}
+              aria-label={!selectedId ? "Storage Record unavailable until a row is selected" : undefined}
             >
               <Button
                 variant="outline"
@@ -283,14 +292,14 @@ export function RecordLookupDialog({
                 className={`h-8 w-8 ${selectedId ? "text-primary hover:text-primary" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
                 disabled={!selectedId}
                 onClick={() => handleOpenChange(true)}
-                aria-label="Open record in Storage API"
+                aria-label="Open Storage Record"
               >
                 <StorageIcon className="h-4 w-4" />
-                <span className="sr-only">Storage API</span>
+                <span className="sr-only">Storage Record</span>
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>Storage API</TooltipContent>
+          <TooltipContent>Storage Record</TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -393,7 +402,7 @@ export function RecordLookupDialog({
               <JsonViewerContent
                   key={`${recordId}:${selectedStorageVersion ?? "latest"}:${lookupResult?.label ?? "original"}`}
                 json={activeJson}
-                storageKey={lookupResult?.storageKey ?? (recordId || undefined)}
+                storageKey={viewerLookupResult?.storageKey ?? (recordId || undefined)}
                 _isFullscreen
                 className="h-full"
                  searchRecordId={recordId}
@@ -408,7 +417,7 @@ export function RecordLookupDialog({
                  hideSearchLookup={isReservoirDdmsResponse}
                  hideDdmsLookup={isReservoirDdmsResponse}
                  hideWdmsLookup={isReservoirDdmsResponse}
-                 lookupResult={lookupResult}
+                 lookupResult={viewerLookupResult}
                  onLookupResult={handleLookupResult}
                  onResponseTypeChange={handleResponseTypeChange}
                   onNavigateToRelated={handleNavigateToRelated}
