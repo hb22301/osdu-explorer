@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.7.2",
+  "version": "2.7.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -34,6 +34,8 @@
     "check:dataspace-metadata-browser": "tsx src/lib/dataspace-metadata.browser.check.ts",
     "check:storage-record-clone": "tsx src/lib/storage-record-clone.check.ts",
     "check:storage-record-clone-browser": "tsx src/lib/storage-record-clone.browser.check.ts",
+    "check:storage-record-new": "tsx src/lib/storage-record-new.check.ts",
+    "check:storage-record-new-browser": "tsx src/lib/storage-record-new.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
