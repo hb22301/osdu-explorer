@@ -2,15 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getListOsduLegalTagsQueryKey,
   useListOsduLegalTags,
-} from "@workspace/api-client-react";
+} from "./lookup-fixtures";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ISO_COUNTRY_OPTIONS,
   isIsoAlpha2CountryCode,
   normalizeIsoCountryCode,
-} from "@/lib/iso-countries";
-import { isValidGroup } from "@/lib/record-acl";
+} from "./iso-countries";
+import { isValidGroup } from "./record-acl";
 import { Loader2, Plus, X } from "lucide-react";
 
 type DataspaceMetadataField = "legalTags" | "countries" | "owners" | "viewers";
@@ -25,6 +25,7 @@ interface DataspaceMetadataLookupsProps {
   disabled: boolean;
   values: Record<DataspaceMetadataField, string[]>;
   onChange: (field: DataspaceMetadataField, values: string[]) => void;
+  compact?: boolean;
 }
 
 interface LookupFieldProps {
@@ -39,6 +40,7 @@ interface LookupFieldProps {
   disabled: boolean;
   normalizeValue?: (value: string) => string | null;
   invalidValueMessage?: string;
+  compact?: boolean;
   popoverSide?: "left" | "right";
   onChange: (values: string[]) => void;
 }
@@ -72,6 +74,7 @@ function LookupField({
   disabled,
   normalizeValue,
   invalidValueMessage,
+  compact = false,
   popoverSide = "left",
   onChange,
 }: LookupFieldProps) {
@@ -109,42 +112,45 @@ function LookupField({
   };
 
   return (
-    <div className={`relative min-w-0 space-y-1 ${focused && !disabled ? "z-30" : ""}`}>
-      <div className="flex min-h-4 items-center justify-between gap-2">
-        <label htmlFor={testId} className="shrink-0 text-xs font-medium">{label}</label>
-        <div
-          className="flex min-w-0 max-w-[62%] items-center gap-1 overflow-x-auto whitespace-nowrap"
-          data-testid={`chips-${testId}`}
-        >
-          {values.map((value) => (
-            <span
-              key={value}
-              className="inline-flex shrink-0 items-center rounded-full border bg-secondary/60 pl-2 text-[10px]"
-              data-testid={`chip-${testId}`}
-              data-value={value}
-              title={value}
-            >
-              {value}
-              <button
-                type="button"
-                className="ml-1 rounded-full p-1 hover:bg-accent disabled:opacity-50"
-                aria-label={`Remove ${label} ${value}`}
-                data-testid={`remove-${testId}`}
-                disabled={disabled}
-                onClick={() => onChange(values.filter((selected) => selected !== value))}
+    <div className={compact
+      ? `relative min-w-0 space-y-1 ${focused && !disabled ? "z-30" : ""}`
+      : "min-w-0 space-y-1.5"}>
+      {compact ? (
+        <div className="flex min-h-4 items-center justify-between gap-2">
+          <label htmlFor={testId} className="shrink-0 text-xs font-medium">{label}</label>
+          <div className="flex min-w-0 max-w-[62%] items-center gap-1 overflow-x-auto whitespace-nowrap">
+            {values.map((value) => (
+              <span
+                key={value}
+                className="inline-flex shrink-0 items-center rounded-full border bg-secondary/60 pl-2 text-[10px]"
+                data-testid={`chip-${testId}`}
+                data-value={value}
+                title={value}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+                {value}
+                <button
+                  type="button"
+                  className="ml-1 rounded-full p-1 hover:bg-accent disabled:opacity-50"
+                  aria-label={`Remove ${label} ${value}`}
+                  data-testid={`remove-${testId}`}
+                  disabled={disabled}
+                  onClick={() => onChange(values.filter((selected) => selected !== value))}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="relative flex gap-1">
+      ) : (
+        <label htmlFor={testId} className="text-xs font-medium">{label}</label>
+      )}
+      <div className={compact ? "relative flex gap-1" : "flex gap-1"}>
         <Input
           id={testId}
           value={draft}
           placeholder={placeholder}
-          className="h-8 min-w-0 font-mono text-xs"
+          className={`h-8 min-w-0 font-mono text-xs ${compact ? "pr-2" : ""}`}
           data-testid={testId}
           disabled={disabled}
           autoComplete="off"
@@ -178,38 +184,41 @@ function LookupField({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 w-8 shrink-0 p-0"
+          className={compact ? "h-8 w-8 shrink-0 p-0" : "h-8 shrink-0 px-2"}
           aria-label={`Add ${label}`}
           title={`Add ${label}`}
           data-testid={`button-add-${testId}`}
           disabled={disabled || !draft.trim()}
           onClick={() => addValue(draft)}
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className={compact ? "h-3.5 w-3.5" : "mr-1 h-3.5 w-3.5"} />
+          {!compact && "Add"}
         </Button>
-
         {focused && !disabled && (
           <div
             id={`suggestions-${testId}`}
-            className={`absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-lg sm:w-[calc(200%+0.75rem)] ${popoverSide === "right" ? "sm:left-auto sm:right-0" : "sm:right-auto"}`}
+            className={compact
+              ? `absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-lg sm:w-[calc(200%+0.75rem)] ${popoverSide === "right" ? "sm:left-auto sm:right-0" : "sm:right-auto"}`
+              : "max-h-28 overflow-y-auto rounded-md border bg-popover p-1 shadow-sm"}
             data-testid={`suggestions-${testId}`}
           >
             {suggestions.length > 0 ? (
               <div className="space-y-0.5">
                 {suggestions.map((option) => {
-                  const [primaryLabel, secondaryLabel] = option.label.split(" — ", 2);
+                  const [primaryLabel, secondaryLabel] = compact
+                    ? option.label.split(" — ", 2)
+                    : [option.label, ""];
                   return (
                     <button
                       key={option.value}
                       type="button"
-                      title={option.label}
                       className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent focus-visible:bg-accent"
                       data-testid={`suggestion-${testId}`}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => addValue(option.value)}
                     >
                       <span className="min-w-0 flex-1 truncate">{primaryLabel}</span>
-                      {secondaryLabel ? (
+                      {compact && secondaryLabel ? (
                         <span className="max-w-[45%] shrink-0 truncate text-[10px] text-muted-foreground">
                           {secondaryLabel}
                         </span>
@@ -237,7 +246,9 @@ function LookupField({
         )}
       </div>
 
-      <p id={`description-${testId}`} className="sr-only">{description}</p>
+      <p id={`description-${testId}`} className={compact ? "sr-only" : "text-[10px] text-muted-foreground"}>
+        {description}
+      </p>
       {loading && !focused && (
         <p role="status" className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -251,6 +262,32 @@ function LookupField({
         <p role="alert" className="text-[10px] text-destructive">{validationMessage}</p>
       )}
 
+      {!compact && (
+        <div className="flex min-h-5 flex-wrap gap-1" data-testid={`chips-${testId}`}>
+          {values.length === 0 ? (
+            <span className="text-[10px] text-muted-foreground">None selected.</span>
+          ) : values.map((value) => (
+          <span
+            key={value}
+            className="inline-flex items-center rounded-full border bg-secondary/60 pl-2 text-[10px]"
+            data-testid={`chip-${testId}`}
+            data-value={value}
+          >
+            {value}
+            <button
+              type="button"
+              className="ml-1 rounded-full p-1 hover:bg-accent disabled:opacity-50"
+              aria-label={`Remove ${label} ${value}`}
+              data-testid={`remove-${testId}`}
+              disabled={disabled}
+              onClick={() => onChange(values.filter((selected) => selected !== value))}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -259,6 +296,7 @@ export function DataspaceMetadataLookups({
   enabled,
   disabled,
   values,
+  compact = false,
   onChange,
 }: DataspaceMetadataLookupsProps) {
   const legalTagsQuery = useListOsduLegalTags(
@@ -340,10 +378,7 @@ export function DataspaceMetadataLookups({
       : undefined;
 
   return (
-    <div
-      className="relative grid gap-x-3 gap-y-2 sm:grid-cols-2"
-      data-testid="dataspace-lookups-grid"
-    >
+    <div className={compact ? "relative grid gap-x-3 gap-y-2 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-2"}>
       <LookupField
         label="Legal tags"
         description="Search available tags or enter a known legal tag."
@@ -354,6 +389,7 @@ export function DataspaceMetadataLookups({
         loading={enabled && legalTagsQuery.isLoading}
         lookupMessage={legalTagLookupMessage}
         disabled={disabled}
+        compact={compact}
         popoverSide="left"
         onChange={updateField("legalTags")}
       />
@@ -365,6 +401,7 @@ export function DataspaceMetadataLookups({
         values={values.countries}
         options={COUNTRY_OPTIONS}
         disabled={disabled}
+        compact={compact}
         popoverSide="right"
         normalizeValue={(value) => {
           const normalized = normalizeIsoCountryCode(value);
@@ -383,6 +420,7 @@ export function DataspaceMetadataLookups({
         loading={enabled && groupsLoading}
         lookupMessage={groupLookupMessage}
         disabled={disabled}
+        compact={compact}
         popoverSide="left"
         normalizeValue={(value) => isValidGroup(value) ? value : null}
         invalidValueMessage="Enter a valid entitlements group email or choose a group from the list."
@@ -398,6 +436,7 @@ export function DataspaceMetadataLookups({
         loading={enabled && groupsLoading}
         lookupMessage={groupLookupMessage}
         disabled={disabled}
+        compact={compact}
         popoverSide="right"
         normalizeValue={(value) => isValidGroup(value) ? value : null}
         invalidValueMessage="Enter a valid entitlements group email or choose a group from the list."

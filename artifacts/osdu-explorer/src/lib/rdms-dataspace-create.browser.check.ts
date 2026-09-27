@@ -284,6 +284,26 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await setInput(browser, "input-new-dataspace-countries", "canada");
   await chooseSuggestion(browser, "input-new-dataspace-countries", "Canada");
   await setInput(browser, "input-new-dataspace-owners", "Browser Owners");
+  const ownerLookupWidths = await evaluate<{
+    menuWidth: number;
+    gridWidth: number;
+    inputWidth: number;
+  }>(browser, `(() => {
+    const menu = document.querySelector('[data-testid="suggestions-input-new-dataspace-owners"]');
+    const grid = document.querySelector('[data-testid="dataspace-lookups-grid"]');
+    const input = document.querySelector('[data-testid="input-new-dataspace-owners"]');
+    if (!menu || !grid || !input) throw new Error("The owner lookup layout is incomplete");
+    return {
+      menuWidth: menu.getBoundingClientRect().width,
+      gridWidth: grid.getBoundingClientRect().width,
+      inputWidth: input.getBoundingClientRect().width,
+    };
+  })()`);
+  assert.ok(
+    ownerLookupWidths.menuWidth >= ownerLookupWidths.gridWidth - 4
+      && ownerLookupWidths.menuWidth > ownerLookupWidths.inputWidth * 1.8,
+    "the fetched owner suggestions must use the full lookup-grid width",
+  );
   await chooseSuggestion(browser, "input-new-dataspace-owners", "Browser Owners");
   await setInput(browser, "input-new-dataspace-viewers", "Browser Viewers");
   await chooseSuggestion(browser, "input-new-dataspace-viewers", "Browser Viewers");
