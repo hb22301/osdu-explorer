@@ -282,7 +282,7 @@ function terminateProcess(child: ChildProcess | undefined): void {
   }
 }
 
-// Drive the search → Storage API viewer flow until the storage Delete button is visible.
+// Open a Storage Service record from a search result and verify its viewer actions.
 async function openStorageViewer(browser: CdpClient): Promise<void> {
   await browser.call("Page.navigate", { url: `${APP_URL}/search` });
   try {
@@ -324,9 +324,8 @@ async function openStorageViewer(browser: CdpClient): Promise<void> {
   );
 
   await evaluate<void>(browser, browserFunction(() => {
-    const storage = [...document.querySelectorAll("button")]
-      .find((candidate) => candidate.textContent?.trim() === "Storage API");
-    if (!storage) throw new Error("The Storage API lookup button was not found");
+    const storage = document.querySelector('button[aria-label="Open Storage Record"]');
+    if (!storage) throw new Error("The Open Storage Record button was not found");
     (storage as HTMLElement).click();
   }));
   await waitFor(
@@ -334,7 +333,7 @@ async function openStorageViewer(browser: CdpClient): Promise<void> {
     "the storage record dialog",
   );
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Delete record in Storage Service\"]') !== null"),
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Delete record in Storage Service\"]') !== null"),
     "the storage Delete button to appear",
   );
 }
@@ -359,6 +358,40 @@ async function openDashboardDeleteConfirm(browser: CdpClient): Promise<void> {
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('tbody tr[data-state=\"selected\"]') !== null"),
     "the Dashboard record row to become selected",
+  );
+
+  await evaluate<void>(browser, browserFunction(() => {
+    const storage = document.querySelector('button[aria-label="Open Storage Record"]');
+    if (!storage) throw new Error("The Dashboard Open Storage Record button was not found");
+    (storage as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('Record from Storage Service') ?? false"),
+    "the Dashboard Storage record viewer",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"] button[aria-label=\"Delete record in Storage Service\"]') !== null"),
+    "the Dashboard viewer's Storage Delete button",
+  );
+
+  await browser.call("Page.navigate", { url: `${APP_URL}/dashboard` });
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Dashboard'"),
+    "Dashboard to render again",
+  );
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.body?.innerText.includes('uuid-store') ?? false"),
+    "the mocked Dashboard record to reload",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) =>
+      candidate.textContent?.includes("uuid-store"));
+    if (!row) throw new Error("The Dashboard record row was not found after reload");
+    (row as HTMLElement).click();
+  }));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('tbody tr[data-state=\"selected\"]') !== null"),
+    "the Dashboard record row to become selected again",
   );
   await evaluate<void>(browser, "window.__storageDeleteTest.failPreviewUuid = 'linked-ddms-1'");
   await evaluate<void>(browser, browserFunction(() => {

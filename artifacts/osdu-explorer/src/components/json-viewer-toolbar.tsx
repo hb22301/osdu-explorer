@@ -2009,7 +2009,7 @@ export function JsonViewerContent({
   );
 
   const canEditStorage = Boolean(
-    originalResponseType === "storage" && !activeRdmsContext && !overlayJson && !lookupResult,
+    activeResponseType === "storage" && !activeRdmsContext && !overlayJson,
   );
 
   const openEdit = useCallback(() => {
