@@ -40,6 +40,8 @@ interface LookupFieldProps {
   normalizeValue?: (value: string) => string | null;
   invalidValueMessage?: string;
   popoverSide?: "left" | "right";
+  fullWidth?: boolean;
+  showSelectionsBelow?: boolean;
   onChange: (values: string[]) => void;
 }
 
@@ -73,6 +75,8 @@ function LookupField({
   normalizeValue,
   invalidValueMessage,
   popoverSide = "left",
+  fullWidth = false,
+  showSelectionsBelow = false,
   onChange,
 }: LookupFieldProps) {
   const [draft, setDraft] = useState("");
@@ -90,6 +94,28 @@ function LookupField({
       .slice(0, 8);
   }, [draft, options, values]);
 
+  const selectionChips = values.map((value) => (
+    <span
+      key={value}
+      className={`inline-flex items-center rounded-full border bg-secondary/60 pl-2 text-[10px] ${showSelectionsBelow ? "max-w-full min-w-0" : "shrink-0"}`}
+      data-testid={`chip-${testId}`}
+      data-value={value}
+      title={value}
+    >
+      <span className={showSelectionsBelow ? "min-w-0 break-all" : ""}>{value}</span>
+      <button
+        type="button"
+        className="ml-1 shrink-0 rounded-full p-1 hover:bg-accent disabled:opacity-50"
+        aria-label={`Remove ${label} ${value}`}
+        data-testid={`remove-${testId}`}
+        disabled={disabled}
+        onClick={() => onChange(values.filter((selected) => selected !== value))}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  ));
+
   const addValue = (rawValue: string) => {
     const trimmed = rawValue.trim();
     if (!trimmed) return;
@@ -101,43 +127,34 @@ function LookupField({
     if (values.some((selected) => selected.toLowerCase() === normalized.toLowerCase())) {
       setDraft("");
       setValidationMessage(null);
+      if (showSelectionsBelow) setFocused(false);
       return;
     }
     onChange([...values, normalized]);
     setDraft("");
     setValidationMessage(null);
+    if (showSelectionsBelow) setFocused(false);
   };
 
   return (
-    <div className={`relative min-w-0 space-y-1 ${focused && !disabled ? "z-30" : ""}`}>
+    <div
+      data-testid={`field-${testId}`}
+      className={`relative min-w-0 space-y-1 ${fullWidth ? "sm:col-span-2" : ""} ${focused && !disabled ? "z-30" : ""}`}
+    >
       <div className="flex min-h-4 items-center justify-between gap-2">
         <label htmlFor={testId} className="shrink-0 text-xs font-medium">{label}</label>
-        <div
-          className="flex min-w-0 max-w-[62%] items-center gap-1 overflow-x-auto whitespace-nowrap"
-          data-testid={`chips-${testId}`}
-        >
-          {values.map((value) => (
-            <span
-              key={value}
-              className="inline-flex shrink-0 items-center rounded-full border bg-secondary/60 pl-2 text-[10px]"
-              data-testid={`chip-${testId}`}
-              data-value={value}
-              title={value}
-            >
-              {value}
-              <button
-                type="button"
-                className="ml-1 rounded-full p-1 hover:bg-accent disabled:opacity-50"
-                aria-label={`Remove ${label} ${value}`}
-                data-testid={`remove-${testId}`}
-                disabled={disabled}
-                onClick={() => onChange(values.filter((selected) => selected !== value))}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
+        {showSelectionsBelow && values.length > 0 ? (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {values.length} selected
+          </span>
+        ) : !showSelectionsBelow && (
+          <div
+            className="flex min-w-0 max-w-[62%] items-center gap-1 overflow-x-auto whitespace-nowrap"
+            data-testid={`chips-${testId}`}
+          >
+            {selectionChips}
+          </div>
+        )}
       </div>
       <div className="relative flex gap-1">
         <Input
@@ -191,7 +208,7 @@ function LookupField({
         {focused && !disabled && (
           <div
             id={`suggestions-${testId}`}
-            className={`absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-lg sm:w-[calc(200%+0.75rem)] ${popoverSide === "right" ? "sm:left-auto sm:right-0" : "sm:right-auto"}`}
+            className={`absolute left-0 top-full z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-lg ${fullWidth ? "" : "sm:w-[calc(200%+0.75rem)]"} ${!fullWidth && popoverSide === "right" ? "sm:left-auto sm:right-0" : ""}`}
             data-testid={`suggestions-${testId}`}
           >
             {suggestions.length > 0 ? (
@@ -210,7 +227,7 @@ function LookupField({
                     >
                       <span className="min-w-0 flex-1 truncate">{primaryLabel}</span>
                       {secondaryLabel ? (
-                        <span className="max-w-[45%] shrink-0 truncate text-[10px] text-muted-foreground">
+                        <span className={`${fullWidth ? "max-w-[65%]" : "max-w-[45%]"} shrink-0 truncate text-[10px] text-muted-foreground`}>
                           {secondaryLabel}
                         </span>
                       ) : option.value !== primaryLabel && (
@@ -236,6 +253,15 @@ function LookupField({
           </div>
         )}
       </div>
+
+      {showSelectionsBelow && (
+        <div
+          className="flex min-w-0 flex-wrap gap-1"
+          data-testid={`chips-${testId}`}
+        >
+          {selectionChips}
+        </div>
+      )}
 
       <p id={`description-${testId}`} className="sr-only">{description}</p>
       {loading && !focused && (
@@ -383,6 +409,8 @@ export function DataspaceMetadataLookups({
         loading={enabled && groupsLoading}
         lookupMessage={groupLookupMessage}
         disabled={disabled}
+        fullWidth
+        showSelectionsBelow
         popoverSide="left"
         normalizeValue={(value) => isValidGroup(value) ? value : null}
         invalidValueMessage="Enter a valid entitlements group email or choose a group from the list."
@@ -398,6 +426,8 @@ export function DataspaceMetadataLookups({
         loading={enabled && groupsLoading}
         lookupMessage={groupLookupMessage}
         disabled={disabled}
+        fullWidth
+        showSelectionsBelow
         popoverSide="right"
         normalizeValue={(value) => isValidGroup(value) ? value : null}
         invalidValueMessage="Enter a valid entitlements group email or choose a group from the list."

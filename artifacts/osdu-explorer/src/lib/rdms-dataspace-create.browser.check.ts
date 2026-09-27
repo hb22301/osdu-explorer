@@ -287,24 +287,49 @@ async function runScenario(browser: CdpClient): Promise<void> {
   const ownerLookupWidths = await evaluate<{
     menuWidth: number;
     gridWidth: number;
-    inputWidth: number;
+    fieldWidth: number;
   }>(browser, `(() => {
     const menu = document.querySelector('[data-testid="suggestions-input-new-dataspace-owners"]');
     const grid = document.querySelector('[data-testid="dataspace-lookups-grid"]');
-    const input = document.querySelector('[data-testid="input-new-dataspace-owners"]');
-    if (!menu || !grid || !input) throw new Error("The owner lookup layout is incomplete");
+    const field = document.querySelector('[data-testid="field-input-new-dataspace-owners"]');
+    if (!menu || !grid || !field) throw new Error("The owner lookup layout is incomplete");
     return {
       menuWidth: menu.getBoundingClientRect().width,
       gridWidth: grid.getBoundingClientRect().width,
-      inputWidth: input.getBoundingClientRect().width,
+      fieldWidth: field.getBoundingClientRect().width,
     };
   })()`);
   assert.ok(
-    ownerLookupWidths.menuWidth >= ownerLookupWidths.gridWidth - 4
-      && ownerLookupWidths.menuWidth > ownerLookupWidths.inputWidth * 1.8,
-    "the fetched owner suggestions must use the full lookup-grid width",
+    ownerLookupWidths.fieldWidth >= ownerLookupWidths.gridWidth - 4
+      && ownerLookupWidths.menuWidth >= ownerLookupWidths.fieldWidth - 4,
+    "owner group fields and suggestions must use the full lookup-grid width",
   );
   await chooseSuggestion(browser, "input-new-dataspace-owners", "Browser Owners");
+  const ownerSelectionLayout = await evaluate<{
+    selectedCount: number;
+    flexWrap: string;
+    wordBreak: string;
+    chipRowHeight: number;
+    suggestionsOpen: boolean;
+  }>(browser, `(() => {
+    const field = document.querySelector('[data-testid="field-input-new-dataspace-owners"]');
+    const row = document.querySelector('[data-testid="chips-input-new-dataspace-owners"]');
+    const chip = row?.querySelector('[data-testid="chip-input-new-dataspace-owners"]');
+    const value = chip?.querySelector('span');
+    if (!field || !row || !chip || !value) throw new Error("The selected owner group layout is incomplete");
+    return {
+      selectedCount: row.querySelectorAll('[data-testid="chip-input-new-dataspace-owners"]').length,
+      flexWrap: getComputedStyle(row).flexWrap,
+      wordBreak: getComputedStyle(value).wordBreak,
+      chipRowHeight: row.getBoundingClientRect().height,
+      suggestionsOpen: document.querySelector('[data-testid="suggestions-input-new-dataspace-owners"]') !== null,
+    };
+  })()`);
+  assert.equal(ownerSelectionLayout.selectedCount, 1, "the selected owner group must appear below its input");
+  assert.equal(ownerSelectionLayout.flexWrap, "wrap", "selected group chips must wrap instead of scrolling horizontally");
+  assert.equal(ownerSelectionLayout.wordBreak, "break-all", "long group emails must remain readable in narrow dialogs");
+  assert.ok(ownerSelectionLayout.chipRowHeight > 0, "selected group details must be visible after selection");
+  assert.equal(ownerSelectionLayout.suggestionsOpen, false, "the suggestion list must not cover selected group details");
   await setInput(browser, "input-new-dataspace-viewers", "Browser Viewers");
   await chooseSuggestion(browser, "input-new-dataspace-viewers", "Browser Viewers");
   await clickTestId(browser, "button-create-dataspace");
