@@ -105,23 +105,25 @@ async function getPageTarget(): Promise<CdpTarget> {
 }
 
 // Mock config/kinds, plain search (small result set), and — when the request
-// body carries `aggregateBy` — a kind aggregation of 10 buckets so the panel
-// exercises both the top-N bars and the collapsed "Other" row.
+// body carries `aggregateBy` — a 70-kind aggregation that exercises the dense
+// grid and the collapsed "Other" summary.
 function mockApiScript(): string {
   return `
     (() => {
       window.__aggTest = { aggregateByRequests: [] };
       const buckets = [
-        { key: "osdu:wks:master-data--Well:1.0.0", count: 100 },
-        { key: "osdu:wks:master-data--Wellbore:1.0.0", count: 90 },
-        { key: "osdu:wks:dataset--File.Generic:1.0.0", count: 80 },
-        { key: "osdu:wks:work-product-component--WellLog:1.0.0", count: 70 },
-        { key: "osdu:wks:master-data--Field:1.0.0", count: 60 },
-        { key: "osdu:wks:master-data--GeoPoliticalEntity:1.0.0", count: 50 },
-        { key: "osdu:wks:master-data--Organisation:1.0.0", count: 40 },
-        { key: "osdu:wks:reference-data--UnitOfMeasure:1.0.0", count: 30 },
-        { key: "osdu:wks:master-data--Basin:1.0.0", count: 20 },
-        { key: "osdu:wks:work-product-component--Document:1.0.0", count: 10 },
+        { key: "osdu:wks:reference-data--DataQuality:1.0.0", count: 338 },
+        { key: "osdu:wks:master-data--Well:1.0.0", count: 322 },
+        { key: "osdu:wks:master-data--Wellbore:1.0.0", count: 32 },
+        { key: "osdu:wks:reference-data--OsduDomain:1.0.0", count: 31 },
+        { key: "osdu:wks:reference-data--IndexableElement:1.0.0", count: 28 },
+        { key: "osdu:wks:reference-data--OSDUJsonExtensions:1.0.0", count: 20 },
+        { key: "osdu:wks:reference-data--BitReasonPulled:1.0.0", count: 19 },
+        { key: "osdu:wks:reference-data--WeatherType:1.0.0", count: 16 },
+        ...Array.from({ length: 62 }, (_, index) => ({
+          key: "osdu:wks:reference-data--SampleKind" + String(index + 1).padStart(2, "0") + ":1.0.0",
+          count: index < 29 ? 5 : 4,
+        })),
       ];
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -137,12 +139,18 @@ function mockApiScript(): string {
           const body = init && init.body ? JSON.parse(init.body) : {};
           if (typeof body.aggregateBy === "string") {
             window.__aggTest.aggregateByRequests.push(body.aggregateBy);
-            return new Response(JSON.stringify({ results: [], totalCount: 550, aggregations: buckets }), {
+            return new Response(JSON.stringify({ results: [], totalCount: 1083, aggregations: buckets }), {
               headers: { "Content-Type": "application/json" },
             });
           }
           return new Response(JSON.stringify({
-            results: [{ id: "tenant:agg:master-data--Well(row)", kind: "osdu:wks:master-data--Well:1.0.0", data: { Name: "Row" } }],
+            results: [{
+              id: "tenant:agg:master-data--Well(row)",
+              kind: "osdu:wks:master-data--Well:1.0.0",
+              createTime: "2026-06-01T12:34:00.000Z",
+              modifyTime: "2026-06-02T13:45:00.000Z",
+              data: { Name: "Row" },
+            }],
             totalCount: 1,
             aggregations: null,
           }), { headers: { "Content-Type": "application/json" } });
@@ -186,39 +194,65 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "an aggregateBy=kind search request",
   );
 
-  // Top-N bars render (8 of the 10 kinds), with the highest-count kind first.
+  // The compact grid renders 36 of the 70 kinds, with the highest count first.
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelectorAll('[data-testid=\"agg-bucket\"]').length === 8"),
-    "the eight top-kind bars",
+    () => evaluate<boolean>(browser, "document.querySelectorAll('[data-testid=\"agg-bucket\"]').length === 36"),
+    "the 36 visible kind rows",
   );
   assert.equal(
     await evaluate<boolean>(browser, `(() => {
       const first = document.querySelector('[data-testid="agg-bucket"]');
-      return !!first && first.textContent.includes("Well") && first.textContent.includes("100");
+      return !!first && first.textContent.includes("DataQuality") && first.textContent.includes("338");
     })()`),
     true,
-    "the top bar should be Well with count 100",
+    "the first grid item should be DataQuality with count 338",
   );
 
-  // The tail collapses into an "Other" row (2 remaining kinds, count 30).
+  // The remaining 34 kinds collapse into an "Other" summary (count 137).
   assert.equal(
     await evaluate<boolean>(browser, `(() => {
       const other = document.querySelector('[data-testid="agg-other"]');
-      return !!other && other.textContent.includes("Other (2 kinds)") && other.textContent.includes("30");
+      return !!other && other.textContent.includes("Other") && other.textContent.includes("34") && other.textContent.includes("137");
     })()`),
     true,
-    "the Other row should tally the remaining 2 kinds",
+    "the Other summary should tally the remaining 34 kinds",
   );
 
   // The total badge reports both the record total and the distinct kind count.
   assert.equal(
     await evaluate<boolean>(browser, `(() => {
       const total = document.querySelector('[data-testid="agg-total"]');
-      return !!total && total.textContent.includes("550") && total.textContent.includes("10 kinds");
+      return !!total && total.textContent.includes("1,083") && total.textContent.includes("70 kinds");
     })()`),
     true,
-    "the total badge should show 550 records and 10 kinds",
+    "the total badge should show 1083 records and 70 kinds",
   );
+
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const table = [...document.querySelectorAll("table")].find((candidate) =>
+        [...candidate.querySelectorAll("thead th")].some((header) => header.textContent?.includes("Create Time"))
+      );
+      return !!table && !!table.querySelector("tbody tr td");
+    })()`),
+    "the dashboard table row",
+  );
+  const displayedTimestamps = await evaluate<{ createTime: string; modifyTime: string }>(browser, `(() => {
+    const table = [...document.querySelectorAll("table")].find((candidate) =>
+      [...candidate.querySelectorAll("thead th")].some((header) => header.textContent?.includes("Create Time"))
+    );
+    if (!table) return { createTime: "", modifyTime: "" };
+    const headers = [...table.querySelectorAll("thead th")].map((header) => header.textContent ?? "");
+    const createIndex = headers.findIndex((header) => header.includes("Create Time"));
+    const modifyIndex = headers.findIndex((header) => header.includes("Update Time"));
+    const row = table.querySelector("tbody tr");
+    return {
+      createTime: row?.children[createIndex]?.textContent?.trim() ?? "",
+      modifyTime: row?.children[modifyIndex]?.textContent?.trim() ?? "",
+    };
+  })()`);
+  assert.match(displayedTimestamps.createTime, /^2026-06-01/, "the table should display the record create time");
+  assert.match(displayedTimestamps.modifyTime, /^2026-06-02/, "the table should display the record update time");
 }
 
 async function runBrowserCheck(): Promise<void> {

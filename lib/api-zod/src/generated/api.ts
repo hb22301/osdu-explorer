@@ -88,6 +88,8 @@ export const SearchOsduRecordsResponse = zod.object({
   "id": zod.string().optional(),
   "kind": zod.string().optional(),
   "version": zod.number().nullish(),
+  "createTime": zod.string().optional().describe('Record creation timestamp returned by OSDU Search.'),
+  "modifyTime": zod.string().optional().describe('Record update timestamp returned by OSDU Search.'),
   "acl": zod.object({
 
 }).passthrough().optional(),
@@ -125,6 +127,8 @@ export const GetOsduRecordResponse = zod.object({
   "id": zod.string().optional(),
   "kind": zod.string().optional(),
   "version": zod.number().nullish(),
+  "createTime": zod.string().optional().describe('Record creation timestamp returned by OSDU Search.'),
+  "modifyTime": zod.string().optional().describe('Record update timestamp returned by OSDU Search.'),
   "acl": zod.object({
 
 }).passthrough().optional(),

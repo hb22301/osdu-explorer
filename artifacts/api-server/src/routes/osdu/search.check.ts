@@ -37,7 +37,16 @@ globalThis.fetch = async (input, init) => {
   }
   if (url === `${config.baseUrl}/api/search/v2/query`) {
     forwardedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    return new Response(JSON.stringify({ results: [], totalCount: 12_345 }), {
+    return new Response(JSON.stringify({
+      results: [{
+        id: "tenant:search-check:master-data--Well:test",
+        kind: "osdu:wks:master-data--Well:1.0.0",
+        createTime: "2026-06-01T12:34:00.000Z",
+        modifyTime: "2026-06-02T13:45:00.000Z",
+        data: { Name: "Timestamp fixture" },
+      }],
+      totalCount: 12_345,
+    }), {
       headers: { "Content-Type": "application/json" },
     });
   }
@@ -55,6 +64,9 @@ try {
   assert.equal(response.status, 200, "the search route should accept accurate-count requests");
   assert.equal(forwardedBody?.trackTotalCount, true, "the route should forward the accurate-count option to OSDU");
   assert.equal(forwardedBody?.limit, 0, "the route should preserve the zero-result count query");
+  const result = await response.json() as { results?: Array<Record<string, unknown>> };
+  assert.equal(result.results?.[0]?.createTime, "2026-06-01T12:34:00.000Z", "the route should preserve createTime through response validation");
+  assert.equal(result.results?.[0]?.modifyTime, "2026-06-02T13:45:00.000Z", "the route should preserve modifyTime through response validation");
   console.log("OSDU search route forwards accurate-count requests.");
 } finally {
   globalThis.fetch = originalFetch;

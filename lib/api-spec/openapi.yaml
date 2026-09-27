@@ -428,6 +428,12 @@ components:
           type: string
         version:
           type: ["integer", "null"]
+        createTime:
+          type: string
+          description: Record creation timestamp returned by OSDU Search.
+        modifyTime:
+          type: string
+          description: Record update timestamp returned by OSDU Search.
         acl:
           type: object
         legal:
