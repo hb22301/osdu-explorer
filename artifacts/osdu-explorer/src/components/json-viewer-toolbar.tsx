@@ -2374,10 +2374,16 @@ export function JsonViewerContent({
   const selectedStorageId = extractFirstOsduId(selectedText);
   const selectedSearchId = extractFirstOsduId(selectedText);
   const hasRecordResponse = Boolean(displayedRecordId);
-  const storageLookupDisabled = hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading;
+  const storageLookupUnavailableForSource = hasRecordResponse && activeResponseType === "storage";
+  const searchLookupUnavailableForSource =
+    hasRecordResponse && activeResponseType === "search" && !activeRdmsContext;
+  const storageLookupDisabled =
+    storageLookupUnavailableForSource ||
+    (hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading);
   const searchLookupDisabled = activeRdmsContext
     ? !selectedUuid || !!lookupLoading
-    : hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading;
+    : searchLookupUnavailableForSource ||
+      (hasRecordResponse ? !!lookupLoading : !selectedText || !!lookupLoading);
   const ddmsLookupDisabled = !ddmsTarget || !!lookupLoading;
   const wdmsLookupDisabled = wdmsUrns.length === 0 || !!wdmsLoading;
   const arrayDataDisabled = !!arrayLoading;
@@ -2638,7 +2644,13 @@ export function JsonViewerContent({
                   <span
                     className="inline-flex"
                     tabIndex={storageLookupDisabled ? 0 : undefined}
-                    aria-label={storageLookupDisabled ? "Storage lookup unavailable until a record ID is available" : undefined}
+                    aria-label={
+                      storageLookupDisabled
+                        ? storageLookupUnavailableForSource
+                          ? "Storage lookup disabled because this record is already from Storage"
+                          : "Storage lookup unavailable until a record ID is available"
+                        : undefined
+                    }
                   >
                     <Button
                       variant="ghost"
@@ -2657,7 +2669,9 @@ export function JsonViewerContent({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {selectedStorageId
+                  {storageLookupUnavailableForSource
+                    ? "Already viewing this record from Storage Service"
+                    : selectedStorageId
                     ? `Storage record for selected ID: ${selectedStorageId}`
                     : displayedRecordId
                       ? `Storage record: ${displayedRecordId}`
@@ -2672,7 +2686,15 @@ export function JsonViewerContent({
                   <span
                     className="inline-flex"
                     tabIndex={searchLookupDisabled ? 0 : undefined}
-                    aria-label={searchLookupDisabled ? (activeRdmsContext ? "Reservoir DDMS lookup unavailable until a UUID is selected" : "Search unavailable until a record ID is available") : undefined}
+                    aria-label={
+                      searchLookupDisabled
+                        ? activeRdmsContext
+                          ? "Reservoir DDMS lookup unavailable until a UUID is selected"
+                          : searchLookupUnavailableForSource
+                            ? "Search lookup disabled because this record is already from Search"
+                            : "Search unavailable until a record ID is available"
+                        : undefined
+                    }
                   >
                     <Button
                       variant="ghost"
@@ -2696,7 +2718,9 @@ export function JsonViewerContent({
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {rdmsContext
+                  {searchLookupUnavailableForSource
+                    ? "Already viewing this record from Search Service"
+                    : rdmsContext
                     ? (selectedUuid ? "Look up UUID in Reservoir DDMS" : "Click a UUID value to enable lookup")
                     : selectedSearchId
                       ? `Search selected ID: ${selectedSearchId}`

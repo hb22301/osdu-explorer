@@ -215,6 +215,33 @@ function browserFunction(fn: (...args: any[]) => unknown, ...args: unknown[]): s
   return `(${fn.toString()})(${args.map((arg) => JSON.stringify(arg)).join(",")})`;
 }
 
+async function assertSameSourceLookupDisabled(
+  browser: CdpClient,
+  source: "Search" | "Storage",
+): Promise<void> {
+  await waitFor(
+    () => evaluate<boolean>(browser, `Boolean(
+      document.querySelector('button[aria-label="Open record in Storage API"]') &&
+      document.querySelector('button[aria-label="Search record in Search API"]')
+    )`),
+    `${source} record lookup icons`,
+  );
+  const disabled = await evaluate<{ storage: boolean; search: boolean }>(browser, `({
+    storage: document.querySelector('button[aria-label="Open record in Storage API"]')?.disabled ?? false,
+    search: document.querySelector('button[aria-label="Search record in Search API"]')?.disabled ?? false,
+  })`);
+  assert.equal(
+    disabled.storage,
+    source === "Storage",
+    `The Storage lookup icon should ${source === "Storage" ? "" : "not "}be disabled in a ${source} record`,
+  );
+  assert.equal(
+    disabled.search,
+    source === "Search",
+    `The Search lookup icon should ${source === "Search" ? "" : "not "}be disabled in a ${source} record`,
+  );
+}
+
 function terminateProcess(child: ChildProcess | undefined): void {
   if (!child?.pid) return;
   try {
@@ -266,6 +293,7 @@ async function openWellRecord(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('well-record-ok') ?? false"),
     "the parent well record content",
   );
+  await assertSameSourceLookupDisabled(browser, "Storage");
   await assertRecordIdDoesNotAutoSelect(browser, WELL_ID, "Storage");
 }
 
@@ -423,6 +451,7 @@ async function openSearchResultViewer(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Related records\"]') !== null"),
     "Related records control in the Search Service record viewer",
   );
+  await assertSameSourceLookupDisabled(browser, "Search");
   await assertRecordIdDoesNotAutoSelect(browser, WELL_ID, "Search");
 }
 
@@ -463,6 +492,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('wellbore-record-ok') ?? false"),
     "the child wellbore record content",
   );
+  await assertSameSourceLookupDisabled(browser, "Storage");
   await waitFor(
     () => evaluate<boolean>(browser, "Boolean(document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Related records\"]')?.disabled && !document.querySelector('[data-testid=\"json-viewer-actions-toolbar\"] button[aria-label=\"Back to previous record\"]')?.disabled)"),
     "disabled Related and enabled Back controls for the child record",
@@ -517,6 +547,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('search-well-record-ok') ?? false"),
     "the Search Service version of the parent record",
   );
+  await assertSameSourceLookupDisabled(browser, "Search");
   await openRelatedMenu(browser);
   assert.equal(
     await evaluate<boolean>(browser, `document.querySelector('[role="menuitem"][aria-label="Open related record ${SEARCH_WELLBORE_ID}"]') !== null`),
@@ -588,6 +619,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.body.textContent?.includes('search-wellbore-record-ok') ?? false"),
     "the related record opened from a Search result",
   );
+  await assertSameSourceLookupDisabled(browser, "Search");
   assert.equal(
     await evaluate<boolean>(browser, `window.__relTest.searchRequests.includes('id:"${SEARCH_WELLBORE_ID}"')`),
     true,
