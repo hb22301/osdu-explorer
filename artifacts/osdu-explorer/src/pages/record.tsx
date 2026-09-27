@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileJson, History, Shield, Tags as TagsIcon, Loader2, ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
+import { RecordAclEditor } from "@/components/record-acl-editor";
 
 export default function RecordPage() {
   const [, params] = useRoute("/records/:id");
@@ -81,11 +82,7 @@ export default function RecordPage() {
               <CardTitle>Access Control List (ACL)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-muted/30 rounded-lg p-4 overflow-auto border border-border/50">
-                <pre className="text-sm font-mono text-foreground">
-                  {JSON.stringify(record.acl, null, 2)}
-                </pre>
-              </div>
+              <RecordAclEditor recordId={id} record={record} />
             </CardContent>
           </Card>
           
