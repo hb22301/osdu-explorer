@@ -99,12 +99,12 @@ async function getPageTarget(): Promise<CdpTarget> {
 }
 
 // Mocks the RDDMS endpoints so dataspace creation can be exercised without a
-// backend. A PUT records the created name and appends it to the list the next
-// GET returns, mirroring the server registering the dataspace.
+// backend. A POST captures the collection payload and appends successful IDs to
+// the list the next GET returns.
 function mockApiScript(): string {
   return `
     (() => {
-      window.__dsTest = { dataspaces: ["browser/dataspace"], putNames: [] };
+      window.__dsTest = { dataspaces: ["browser/dataspace"], requests: [] };
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
         const url = typeof input === "string" ? input : input.url;
@@ -125,11 +125,21 @@ function mockApiScript(): string {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (method === "PUT" && url.includes("/api/osdu/rdms/dataspaces/")) {
-          const name = decodeURIComponent(url.split("/api/osdu/rdms/dataspaces/")[1]);
-          window.__dsTest.putNames.push(name);
+        if (url.endsWith("/api/osdu/rdms/dataspaces") && method === "POST") {
+          const payload = JSON.parse(init.body);
+          window.__dsTest.requests.push({ method, url, payload });
+          const name = payload[0].DataspaceId;
+          if (name === "browser/failed-space") {
+            return new Response(JSON.stringify({ error: "Reservoir DDMS: invalid legal tag" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           if (!window.__dsTest.dataspaces.includes(name)) window.__dsTest.dataspaces.push(name);
-          return new Response(JSON.stringify({ path: name }), { headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ DataspaceId: name }), {
+            status: 201,
+            headers: { "Content-Type": "application/json" },
+          });
         }
         return realFetch(input, init);
       };
@@ -182,7 +192,7 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the new-dataspace dialog",
   );
 
-  // An invalid name is rejected client-side: an error shows and no PUT fires.
+  // An invalid name is rejected client-side: an error shows and no POST fires.
   await setInput(browser, "input-new-dataspace-name", "bad name");
   await clickTestId(browser, "button-create-dataspace");
   await waitFor(
@@ -190,24 +200,39 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the validation error for an invalid name",
   );
   assert.deepEqual(
-    await evaluate<string[]>(browser, "window.__dsTest.putNames"),
+    await evaluate<any[]>(browser, "window.__dsTest.requests"),
     [],
     "an invalid name must not reach the backend",
   );
 
-  // A valid name is created: the PUT fires, the dialog closes, and the new
-  // dataspace becomes the selected one.
+  // A valid name is created with the exact Reservoir DDMS collection contract.
   await setInput(browser, "input-new-dataspace-name", "browser/new-space");
+  await setInput(browser, "input-new-dataspace-legal-tags", "browser-test-tag");
+  await setInput(browser, "input-new-dataspace-countries", "us");
+  await setInput(browser, "input-new-dataspace-owners", "data.default.owners@browser.dataservices.energy");
+  await setInput(browser, "input-new-dataspace-viewers", "data.default.viewers@browser.dataservices.energy");
   await clickTestId(browser, "button-create-dataspace");
   await waitFor(
-    () => evaluate<boolean>(browser, "window.__dsTest.putNames.length === 1"),
-    "the create PUT to fire",
+    () => evaluate<boolean>(browser, "window.__dsTest.requests.length === 1"),
+    "the create POST to fire",
   );
-  assert.deepEqual(
-    await evaluate<string[]>(browser, "window.__dsTest.putNames"),
-    ["browser/new-space"],
-    "creating should PUT the new dataspace name exactly once",
+  const createdRequests = await evaluate<any[]>(browser, "window.__dsTest.requests");
+  assert.equal(createdRequests[0].method, "POST", "dataspace registration must use POST");
+  assert.ok(
+    createdRequests[0].url.endsWith("/api/osdu/rdms/dataspaces"),
+    "dataspace registration must target the collection endpoint",
   );
+  assert.deepEqual(createdRequests[0].payload, [{
+    DataspaceId: "browser/new-space",
+    Path: "browser/new-space",
+    CustomData: {
+      legaltags: ["browser-test-tag"],
+      otherRelevantDataCountries: ["US"],
+      owners: ["data.default.owners@browser.dataservices.energy"],
+      viewers: ["data.default.viewers@browser.dataservices.energy"],
+      "read-only": "false",
+    },
+  }], "the app should send the full registration envelope and custom data arrays");
   await waitFor(
     () => evaluate<boolean>(browser, `document.querySelector('[data-testid="dialog-new-dataspace"]') === null`),
     "the dialog to close after a successful create",
@@ -215,6 +240,24 @@ async function runScenario(browser: CdpClient): Promise<void> {
   await waitFor(
     () => evaluate<boolean>(browser, `document.querySelector('[role="combobox"]')?.textContent?.includes("browser/new-space") ?? false`),
     "the new dataspace to become selected",
+  );
+
+  // A Reservoir DDMS failure is shown in the still-open dialog.
+  await clickTestId(browser, "button-new-dataspace");
+  await setInput(browser, "input-new-dataspace-name", "browser/failed-space");
+  await setInput(browser, "input-new-dataspace-legal-tags", "browser-test-tag");
+  await setInput(browser, "input-new-dataspace-countries", "US");
+  await setInput(browser, "input-new-dataspace-owners", "data.default.owners@browser.dataservices.energy");
+  await setInput(browser, "input-new-dataspace-viewers", "");
+  await clickTestId(browser, "button-create-dataspace");
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelector('[data-testid="new-dataspace-error"]')?.textContent?.includes("invalid legal tag") ?? false`),
+    "the upstream create error to be shown",
+  );
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[data-testid="dialog-new-dataspace"]') !== null`),
+    true,
+    "the create dialog should remain open after an upstream error",
   );
 }
 

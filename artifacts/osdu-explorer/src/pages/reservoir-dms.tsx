@@ -54,7 +54,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { validateDataspaceName, createDataspace } from "@/lib/rdms-dataspace-create";
+import {
+  buildDataspacePayload,
+  createDataspace,
+  validateDataspaceName,
+  type DataspaceMetadataDraft,
+} from "@/lib/rdms-dataspace-create";
 
 interface Resource {
   name: string;
@@ -331,6 +336,13 @@ export default function ReservoirDmsPage() {
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newDataspaceName, setNewDataspaceName] = useState("");
+  const [newDataspaceMetadata, setNewDataspaceMetadata] = useState<DataspaceMetadataDraft>({
+    legalTags: "",
+    countries: "",
+    owners: "",
+    viewers: "",
+    readOnly: false,
+  });
   const [creatingDataspace, setCreatingDataspace] = useState(false);
   const [createDataspaceError, setCreateDataspaceError] = useState<string | null>(null);
 
@@ -430,22 +442,44 @@ export default function ReservoirDmsPage() {
       setCreateDataspaceError(validation.error);
       return;
     }
-    setCreatingDataspace(true);
-    setCreateDataspaceError(null);
-    const result = await createDataspace(validation.value);
-    setCreatingDataspace(false);
-    if (!result.ok) {
-      setCreateDataspaceError(result.error);
+    const payload = buildDataspacePayload(validation.value, newDataspaceMetadata);
+    if (!payload.ok) {
+      setCreateDataspaceError(payload.error);
       return;
     }
-    setCreateDialogOpen(false);
-    setNewDataspaceName("");
-    await loadDataspaces();
-    setSelectedDataspace(validation.value);
-  }, [newDataspaceName, dataspaces, loadDataspaces]);
+    setCreatingDataspace(true);
+    setCreateDataspaceError(null);
+    try {
+      const result = await createDataspace(payload.value);
+      if (!result.ok) {
+        setCreateDataspaceError(result.error);
+        return;
+      }
+      setCreateDialogOpen(false);
+      setNewDataspaceName("");
+      setNewDataspaceMetadata({
+        legalTags: "",
+        countries: "",
+        owners: "",
+        viewers: "",
+        readOnly: false,
+      });
+      await loadDataspaces();
+      setSelectedDataspace(validation.value);
+    } finally {
+      setCreatingDataspace(false);
+    }
+  }, [newDataspaceName, newDataspaceMetadata, dataspaces, loadDataspaces]);
 
   const openCreateDialog = useCallback(() => {
     setNewDataspaceName("");
+    setNewDataspaceMetadata({
+      legalTags: "",
+      countries: "",
+      owners: "",
+      viewers: "",
+      readOnly: false,
+    });
     setCreateDataspaceError(null);
     setCreateDialogOpen(true);
   }, []);
@@ -1378,19 +1412,25 @@ export default function ReservoirDmsPage() {
           if (!open) setCreateDataspaceError(null);
         }}
       >
-        <DialogContent className="sm:max-w-md" data-testid="dialog-new-dataspace">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" data-testid="dialog-new-dataspace">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <FolderPlus className="h-4 w-4 text-emerald-500" />
               New dataspace
             </DialogTitle>
             <DialogDescription>
-              Register a new Reservoir DDMS dataspace. Use a name or a path such as
-              {" "}<span className="font-mono">PDS-Preview/Agentic_CWP</span>.
+              Register a new Reservoir DDMS dataspace. The entered name is used for both
+              DataspaceId and Path. Use comma-separated custom data values valid for the
+              active data partition.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="new-dataspace-name" className="text-xs font-medium">
+                Dataspace ID / path
+              </label>
             <Input
+              id="new-dataspace-name"
               autoFocus
               value={newDataspaceName}
               placeholder="dataspace name…"
@@ -1408,6 +1448,95 @@ export default function ReservoirDmsPage() {
                 }
               }}
             />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium">Custom data</p>
+              <p className="text-[11px] text-muted-foreground">
+                Legal tags, countries, and owners are required. Viewers are optional.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="new-dataspace-legal-tags" className="text-xs font-medium">Legal tags</label>
+                <Input
+                  id="new-dataspace-legal-tags"
+                  value={newDataspaceMetadata.legalTags}
+                  placeholder="valid-legal-tag, another-tag"
+                  className="h-8 font-mono text-xs"
+                  data-testid="input-new-dataspace-legal-tags"
+                  disabled={creatingDataspace}
+                  onChange={(event) => {
+                    setNewDataspaceMetadata((current) => ({ ...current, legalTags: event.target.value }));
+                    if (createDataspaceError) setCreateDataspaceError(null);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="new-dataspace-countries" className="text-xs font-medium">
+                  Other relevant data countries
+                </label>
+                <Input
+                  id="new-dataspace-countries"
+                  value={newDataspaceMetadata.countries}
+                  placeholder="US, NO"
+                  className="h-8 font-mono text-xs"
+                  data-testid="input-new-dataspace-countries"
+                  disabled={creatingDataspace}
+                  onChange={(event) => {
+                    setNewDataspaceMetadata((current) => ({ ...current, countries: event.target.value }));
+                    if (createDataspaceError) setCreateDataspaceError(null);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="new-dataspace-owners" className="text-xs font-medium">Owner groups</label>
+                <Input
+                  id="new-dataspace-owners"
+                  value={newDataspaceMetadata.owners}
+                  placeholder="data.default.owners@partition.dataservices.energy"
+                  className="h-8 font-mono text-xs"
+                  data-testid="input-new-dataspace-owners"
+                  disabled={creatingDataspace}
+                  onChange={(event) => {
+                    setNewDataspaceMetadata((current) => ({ ...current, owners: event.target.value }));
+                    if (createDataspaceError) setCreateDataspaceError(null);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="new-dataspace-viewers" className="text-xs font-medium">Viewer groups</label>
+                <Input
+                  id="new-dataspace-viewers"
+                  value={newDataspaceMetadata.viewers}
+                  placeholder="data.default.viewers@partition.dataservices.energy"
+                  className="h-8 font-mono text-xs"
+                  data-testid="input-new-dataspace-viewers"
+                  disabled={creatingDataspace}
+                  onChange={(event) => {
+                    setNewDataspaceMetadata((current) => ({ ...current, viewers: event.target.value }));
+                    if (createDataspaceError) setCreateDataspaceError(null);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div>
+                <p className="text-xs font-medium">Read-only dataspace</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Saved as the string value "true" or "false".
+                </p>
+              </div>
+              <Switch
+                checked={newDataspaceMetadata.readOnly}
+                onCheckedChange={(readOnly) => {
+                  setNewDataspaceMetadata((current) => ({ ...current, readOnly }));
+                  if (createDataspaceError) setCreateDataspaceError(null);
+                }}
+                disabled={creatingDataspace}
+                aria-label="Read-only dataspace"
+                data-testid="input-new-dataspace-read-only"
+              />
+            </div>
             {createDataspaceError && (
               <p className={cn("text-xs", RESERVOIR_ERROR_TEXT_CLASS)} role="alert" data-testid="new-dataspace-error">
                 {createDataspaceError}

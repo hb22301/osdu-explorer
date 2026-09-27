@@ -144,7 +144,8 @@ export function RecordAclEditor({ recordId, record }: RecordAclEditorProps) {
   const [confirmLockout, setConfirmLockout] = useState(false);
 
   // Re-seed the draft whenever a fresh record arrives (e.g. after a save refetch).
-  useEffect(() => { setDraft(original); setSaved(false); }, [original]);
+  useEffect(() => { setDraft(original); }, [original]);
+  useEffect(() => { setSaved(false); }, [recordId]);
 
   // Best-effort: load the caller's groups for autocomplete + lockout detection.
   // A failure just disables autocomplete; editing still works.
@@ -178,9 +179,9 @@ export function RecordAclEditor({ recordId, record }: RecordAclEditorProps) {
     const result = await saveStorageRecord([withAcl(record, draft)]);
     setSaving(false);
     if (!result.ok) { setSaveError(result.error); return; }
-    setSaved(true);
     // Refetch the record so the persisted ACL (and version) flow back in.
     await queryClient.invalidateQueries({ queryKey: getGetOsduRecordQueryKey(recordId) });
+    setSaved(true);
   };
 
   const attemptSave = () => {

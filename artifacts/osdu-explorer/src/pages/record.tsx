@@ -1,16 +1,19 @@
-import { useRoute } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { useGetOsduRecord, getGetOsduRecordQueryKey, useGetOsduRecordVersions, getGetOsduRecordVersionsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileJson, History, Shield, Tags as TagsIcon, Loader2, ArrowLeft } from "lucide-react";
-import { Link } from "wouter";
 import { RecordAclEditor } from "@/components/record-acl-editor";
+import { RecordLegalEditor } from "@/components/record-legal-editor";
 
-export default function RecordPage() {
-  const [, params] = useRoute("/records/:id");
-  const id = params?.id ? decodeURIComponent(params.id) : "";
+interface RecordDetailsContentProps {
+  id: string;
+  onBack: () => void;
+  embedded?: boolean;
+}
 
+export function RecordDetailsContent({ id, onBack, embedded = false }: RecordDetailsContentProps) {
   const { data: record, isLoading: isLoadingRecord } = useGetOsduRecord(id, {
     query: { enabled: !!id, queryKey: getGetOsduRecordQueryKey(id) }
   });
@@ -29,23 +32,36 @@ export default function RecordPage() {
 
   if (!record) {
     return (
-      <div className="p-8 max-w-5xl mx-auto text-center space-y-4">
+      <div className={`${embedded ? "p-4 sm:p-8" : "p-8"} max-w-5xl mx-auto text-center space-y-4`}>
         <h1 className="text-2xl font-bold">Record not found</h1>
-        <Link href="/search" className="text-primary hover:underline flex items-center justify-center">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to search
-        </Link>
+        {!embedded && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center justify-center text-primary hover:underline"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" /> Back to search
+          </button>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className={`${embedded ? "p-4 sm:p-8" : "p-8"} max-w-6xl mx-auto space-y-6`}>
       <div className="space-y-4">
-        <Link href="/search" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to search
-        </Link>
+        {!embedded && (
+          <button
+            type="button"
+            onClick={onBack}
+            data-testid="record-details-back"
+            className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" /> Back to search
+          </button>
+        )}
         <div>
-          <h1 className="text-3xl font-bold tracking-tight font-mono break-all">{record.id}</h1>
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight font-mono break-all">{record.id}</h1>
           <div className="mt-2 flex items-center gap-3 flex-wrap">
             <Badge variant="secondary" className="font-mono text-sm px-2 py-0.5">{record.kind}</Badge>
             <span className="text-sm text-muted-foreground">Version: {record.version}</span>
@@ -91,11 +107,7 @@ export default function RecordPage() {
               <CardTitle>Legal Constraints</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-muted/30 rounded-lg p-4 overflow-auto border border-border/50">
-                <pre className="text-sm font-mono text-foreground">
-                  {JSON.stringify(record.legal, null, 2)}
-                </pre>
-              </div>
+              <RecordLegalEditor recordId={id} record={record} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -165,4 +177,12 @@ export default function RecordPage() {
       </Tabs>
     </div>
   );
+}
+
+export default function RecordPage() {
+  const [, params] = useRoute("/records/:id");
+  const [, setLocation] = useLocation();
+  const id = params?.id ? decodeURIComponent(params.id) : "";
+
+  return <RecordDetailsContent id={id} onBack={() => setLocation("/search")} />;
 }

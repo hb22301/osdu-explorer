@@ -9,9 +9,10 @@ import {
   JsonViewerToolbar,
   type RelatedRecordNavigationContext,
 } from "@/components/json-viewer-toolbar";
+import { RecordDetailsContent } from "@/pages/record";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileSearch2, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw, DatabaseZap } from "lucide-react";
+import { FileSearch2, FileJson, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw, DatabaseZap } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -642,6 +643,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   const [relatedNavigationError, setRelatedNavigationError] = useState<string | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [storageOpenId, setStorageOpenId] = useState<string | null>(null);
+  const [recordDetailsId, setRecordDetailsId] = useState<string | null>(null);
   const [lookupIdDraft, setLookupIdDraft] = useState("");
   const [lookupOpenId, setLookupOpenId] = useState<string | null>(null);
   const [selectedStorageVersion, setSelectedStorageVersion] = useState<number | undefined>();
@@ -1513,7 +1515,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
           <CardHeader className="space-y-2 px-4 pt-3 pb-2">
             {rows.length > 0 && !hasActiveTableFilters && (
               <p className="overflow-x-auto whitespace-nowrap text-[11px] leading-4 text-muted-foreground">
-                Click the Search API or Storage API icon to open the corresponding response; double-click a row to open its Storage API response
+                Select a row, then choose Record details for its ACL and legal tabs; double-click a row to open its Storage API response
               </p>
             )}
             <div className="flex flex-row items-center justify-between gap-3">
@@ -1533,7 +1535,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
                   <span
                     className="inline-flex"
                     tabIndex={!selectedRowId ? 0 : undefined}
-                    aria-label={!selectedRowId ? "Search API unavailable until a row is selected" : undefined}
+                    aria-label={!selectedRowId ? "Search Record unavailable until a row is selected" : undefined}
                   >
                     <Button
                       variant="outline"
@@ -1546,13 +1548,38 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
                           handleOpenSearchResult(row._raw);
                         }
                       }}
-                      aria-label="Open Search API result"
+                      aria-label="Open Search Record result"
                     >
                       <FileSearch2 className="h-4 w-4" />
                     </Button>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>Search API</TooltipContent>
+                <TooltipContent>Search Record</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="inline-flex"
+                    tabIndex={!selectedRowId ? 0 : undefined}
+                    aria-label={!selectedRowId ? "Record details unavailable until a row is selected" : undefined}
+                  >
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className={`h-8 w-8 ${selectedRowId ? "text-primary hover:text-primary" : "text-foreground disabled:text-foreground disabled:opacity-100"}`}
+                      disabled={!selectedRowId}
+                      onClick={() => {
+                        const row = displayRows.find((candidate) => candidate.id === selectedRowId);
+                        if (!row || row.id === "—") return;
+                        setRecordDetailsId(row.id);
+                      }}
+                      aria-label="Record details"
+                    >
+                      <FileJson className="h-4 w-4" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Record details</TooltipContent>
               </Tooltip>
               <RecordLookupDialog
                 selectedId={selectedRowId ?? ""}
@@ -2059,6 +2086,31 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
         />
       )}
 
+      <Dialog
+        open={recordDetailsId !== null}
+        onOpenChange={(open) => {
+          if (!open) setRecordDetailsId(null);
+        }}
+      >
+        <DialogContent
+          data-testid="record-details-dialog"
+          className="max-w-none w-screen h-screen flex flex-col p-0 gap-0 rounded-none border-0 [&>button]:h-7 [&>button]:w-7 [&>button]:rounded-md [&>button]:border [&>button]:border-border/60 [&>button]:bg-background/60 [&>button]:p-1 [&>button]:opacity-100 [&>button]:hover:bg-accent"
+          aria-describedby={undefined}
+        >
+          <DialogTitle className="sr-only">
+            {recordDetailsId ? `Record details for ${recordDetailsId}` : "Record details"}
+          </DialogTitle>
+          {recordDetailsId && (
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <RecordDetailsContent
+                id={recordDetailsId}
+                onBack={() => setRecordDetailsId(null)}
+                embedded
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

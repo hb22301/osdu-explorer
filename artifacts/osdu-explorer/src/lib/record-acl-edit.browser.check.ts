@@ -13,7 +13,7 @@ const VIEWER = "data.default.viewers@opendes.dataservices.energy";
 
 declare global {
   interface Window {
-    __aclTest: { puts: unknown[] };
+    __aclTest: { puts: unknown[]; recordGets: number };
   }
 }
 
@@ -117,17 +117,17 @@ function mockApiScript(): string {
       const recordId = ${JSON.stringify(RECORD_ID)};
       const owner = ${JSON.stringify(OWNER)};
       const viewer = ${JSON.stringify(VIEWER)};
-      window.__aclTest = { puts: [] };
-      const record = {
+      window.__aclTest = { puts: [], recordGets: 0 };
+      let record = {
         id: recordId,
         kind: "osdu:wks:master-data--Well:1.0.0",
         version: 100,
         acl: { owners: [owner], viewers: [] },
-        legal: { legaltags: ["opendes-public"], otherRelevantDataCountries: ["US"] },
+        legal: { legaltags: ["opendes-public"], otherRelevantDataCountries: ["US"], status: "compliant" },
         meta: [],
         ancestry: {},
         tags: {},
-        data: { FacilityName: "ACL demo record" },
+          data: { Name: "ACL demo record" },
       };
       const realFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
@@ -135,6 +135,18 @@ function mockApiScript(): string {
         const method = (init && init.method) || "GET";
         if (url.includes("/api/osdu/config")) {
           return new Response(JSON.stringify({ configured: true }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/api/osdu/kinds")) {
+          return new Response(JSON.stringify({ kinds: [] }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/api/osdu/legal-tags")) {
+          return new Response(JSON.stringify({ legalTags: [
+            { name: "opendes-public", description: "Public data" },
+            { name: "preprod-akerbp-reference", description: "Reference data" },
+          ] }), { headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/api/osdu/search")) {
+          return new Response(JSON.stringify({ results: [record], totalCount: 1 }), { headers: { "Content-Type": "application/json" } });
         }
         if (url.includes("/api/osdu/entitlements/groups")) {
           return new Response(JSON.stringify({ groups: [
@@ -144,13 +156,16 @@ function mockApiScript(): string {
           ] }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "PUT" && url.includes("/api/osdu/records")) {
-          window.__aclTest.puts.push(JSON.parse(init.body));
+          const records = JSON.parse(init.body);
+          window.__aclTest.puts.push(records);
+          record = records[0];
           return new Response(JSON.stringify({ recordCount: 1, recordIds: [recordId] }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/versions")) {
           return new Response(JSON.stringify({ recordId, versions: [100] }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "GET" && url.includes("/api/osdu/records/")) {
+          window.__aclTest.recordGets += 1;
           return new Response(JSON.stringify(record), { headers: { "Content-Type": "application/json" } });
         }
         return realFetch(input, init);
@@ -202,15 +217,31 @@ function clickByAriaExpr(selector: string): string {
 }
 
 async function openAclTab(browser: CdpClient): Promise<void> {
-  await browser.call("Page.navigate", { url: `${APP_URL}/records/${encodeURIComponent(RECORD_ID)}` });
+  await browser.call("Page.navigate", { url: `${APP_URL}/dashboard` });
   await waitFor(
-    () => evaluate<boolean>(browser, "document.body?.innerText.includes('ACL & Legal') ?? false"),
-    "the record page to render",
+    () => evaluate<boolean>(browser, `document.body?.innerText.includes("Dashboard") && document.body?.innerText.includes("ACL demo record")`),
+    "the dashboard record row",
+  );
+  await evaluate<void>(browser, browserFunction((recordId: string) => {
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) => candidate.textContent?.includes("ACL demo record")) as HTMLElement | undefined;
+    if (!row) throw new Error(`Dashboard row for ${recordId} was not found`);
+    row.click();
+  }, RECORD_ID));
+  await waitFor(
+    () => evaluate<boolean>(browser, `!!document.querySelector('button[aria-label="Record details"]:not([disabled])')`),
+    "the Record details action to become available",
+  );
+  await evaluate<void>(browser, clickByAriaExpr('button[aria-label="Record details"]'));
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelector('[data-testid="record-details-dialog"]')?.textContent?.includes(${JSON.stringify(RECORD_ID)}) ?? false`),
+    "the record details dialog to open",
   );
   await evaluate<void>(browser, browserFunction(() => {
     const tab = [...document.querySelectorAll('[role="tab"]')].find((t) => t.textContent?.includes("ACL & Legal"));
     if (!tab) throw new Error("ACL tab was not found");
-    (tab as HTMLElement).click();
+    const element = tab as HTMLElement;
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    element.click();
   }));
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"acl-owners-list\"]') !== null"),
@@ -275,6 +306,113 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"acl-saved\"]') !== null"),
     "the ACL saved confirmation",
   );
+
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelector('datalist#legal-tags-options option[value="preprod-akerbp-reference"]') !== null`),
+    "the valid legal tag suggestions",
+  );
+  await evaluate<void>(browser, clickByAriaExpr('button[aria-label="Remove legal tag opendes-public"]'));
+  await waitFor(
+    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="legal-tags-chip"]')].every((chip) => !chip.textContent?.includes("opendes-public"))`),
+    "the removed legal tag",
+  );
+  await evaluate<void>(browser, setInputExpr("Add legal tag", "not-a-valid-legal-tag"));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Add legal tag button\"]')?.disabled ?? false"),
+    "invalid legal tags to be rejected",
+  );
+  await evaluate<void>(browser, setInputExpr("Add legal tag", "preprod-akerbp-reference"));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Add legal tag button\"]')?.disabled === false"),
+    "a valid legal tag to be accepted",
+  );
+  await evaluate<void>(browser, clickByAriaExpr('button[aria-label="Add legal tag button"]'));
+  await waitFor(
+    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="legal-tags-chip"]')].some((chip) => chip.textContent?.includes("preprod-akerbp-reference"))`),
+    "the added legal tag chip",
+  );
+
+  await evaluate<void>(browser, clickByAriaExpr('button[aria-label="Remove country US"]'));
+  await waitFor(
+    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="legal-countries-chip"]')].every((chip) => !chip.textContent?.includes("(US)"))`),
+    "the removed country",
+  );
+  await evaluate<void>(browser, setInputExpr("Add country", "ZZ"));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Add country button\"]')?.disabled ?? false"),
+    "unassigned country codes to be rejected",
+  );
+  await evaluate<void>(browser, setInputExpr("Add country", "Norway"));
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('button[aria-label=\"Add country button\"]')?.disabled === false"),
+    "a valid country code to be accepted",
+  );
+  await evaluate<void>(browser, clickByAriaExpr('button[aria-label="Add country button"]'));
+  await waitFor(
+    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="legal-countries-chip"]')].some((chip) => chip.textContent?.includes("NO"))`),
+    "the added country chip",
+  );
+
+  const putsBeforeLegalSave = await evaluate<number>(browser, "window.__aclTest.puts.length");
+  const recordGetsBeforeLegalSave = await evaluate<number>(browser, "window.__aclTest.recordGets");
+  await evaluate<void>(browser, clickByAriaExpr('button[aria-label="Save legal constraints"]'));
+  await waitFor(
+    () => evaluate<boolean>(browser, `window.__aclTest.puts.length > ${putsBeforeLegalSave}`),
+    "the legal constraints Storage PUT to fire",
+  );
+  const legalPut = await evaluate<any[]>(browser, `window.__aclTest.puts[${putsBeforeLegalSave}]`);
+  assert.deepEqual(
+    legalPut[0].legal.legaltags,
+    ["preprod-akerbp-reference"],
+    "the removed legal tag should be replaced with the valid selection",
+  );
+  assert.deepEqual(
+    legalPut[0].legal.otherRelevantDataCountries,
+    ["NO"],
+    "the country name should be saved as its officially assigned alpha-2 code",
+  );
+  assert.equal(legalPut[0].legal.status, "compliant", "other legal metadata should be preserved");
+  assert.deepEqual(legalPut[0].acl.owners, [OWNER], "the ACL should be preserved by a legal edit");
+  assert.deepEqual(legalPut[0].acl.viewers, [VIEWER], "the ACL viewers should be preserved by a legal edit");
+  assert.equal(legalPut[0].data.Name, "ACL demo record", "the record data should be preserved by a legal edit");
+  await waitFor(
+    () => evaluate<boolean>(browser, `window.__aclTest.recordGets > ${recordGetsBeforeLegalSave} && document.querySelector('[data-testid="legal-saved"]') !== null`),
+    "the saved legal constraints to remain visible after refetch",
+  );
+
+  assert.equal(
+    await evaluate<boolean>(browser, `document.querySelector('[data-testid="record-details-dialog"]')?.textContent?.includes("Back to search") ?? false`),
+    false,
+    "the embedded record details dialog should not show Back to search",
+  );
+  await browser.call("Input.dispatchKeyEvent", {
+    type: "keyDown",
+    key: "Escape",
+    code: "Escape",
+    windowsVirtualKeyCode: 27,
+  });
+  await browser.call("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Escape",
+    code: "Escape",
+    windowsVirtualKeyCode: 27,
+  });
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const selectedRow = [...document.querySelectorAll("tbody tr")]
+        .find((row) => row.textContent?.includes("ACL demo record"));
+      return location.pathname === "/dashboard"
+        && !document.querySelector('[data-testid="record-details-dialog"]')
+        && selectedRow?.getAttribute("data-state") === "selected";
+    })()`),
+    "closing the dialog and preserving the selected dashboard row",
+  );
+
+  await browser.call("Page.navigate", { url: `${APP_URL}/records/${encodeURIComponent(RECORD_ID)}` });
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.body?.innerText.includes(${JSON.stringify(RECORD_ID)}) && document.body?.innerText.includes("Data Payload") && !!document.querySelector('button[data-testid="record-details-back"]')`),
+    "the direct record route to remain available",
+  );
 }
 
 async function runBrowserCheck(): Promise<void> {
@@ -307,7 +445,7 @@ async function runBrowserCheck(): Promise<void> {
     await browser.call("Page.enable");
     await browser.call("Page.addScriptToEvaluateOnNewDocument", { source: mockApiScript() });
     await runScenario(browser);
-    console.log("Record ACL edit browser check passed.");
+    console.log("Record details dialog, ACL, and legal constraints browser check passed.");
   } finally {
     browser?.close();
     terminateProcess(chromium);

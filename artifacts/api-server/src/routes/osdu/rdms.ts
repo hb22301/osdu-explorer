@@ -53,6 +53,31 @@ function extractErrorDetail(data: unknown): string | null {
   return null;
 }
 
+function isDataspaceRegistrationPayload(value: unknown): value is Array<Record<string, unknown>> {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  const isStringArray = (candidate: unknown, required: boolean): boolean =>
+    Array.isArray(candidate)
+    && (!required || candidate.length > 0)
+    && candidate.every((item) => typeof item === "string" && item.trim().length > 0);
+
+  return value.every((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const dataspace = entry as Record<string, unknown>;
+    const customData = dataspace.CustomData;
+    if (!customData || typeof customData !== "object" || Array.isArray(customData)) return false;
+    const custom = customData as Record<string, unknown>;
+    return typeof dataspace.DataspaceId === "string"
+      && dataspace.DataspaceId.trim().length > 0
+      && typeof dataspace.Path === "string"
+      && dataspace.Path.trim().length > 0
+      && isStringArray(custom.legaltags, true)
+      && isStringArray(custom.otherRelevantDataCountries, true)
+      && isStringArray(custom.owners, true)
+      && isStringArray(custom.viewers, false)
+      && (custom["read-only"] === "true" || custom["read-only"] === "false");
+  });
+}
+
 // Cascade-delete discovery/orchestration tuning. `/sources` returns the full
 // transitive "referenced-by" closure (recursive up to SOURCES_DEPTH); we page
 // through it and stop at SOURCES_MAX so a pathological graph can never make the
@@ -203,19 +228,19 @@ router.get("/osdu/rdms/dataspaces", async (req, res): Promise<void> => {
   }
 });
 
-// Create (register) a dataspace. RDDMS uses an idempotent PUT keyed on the
-// dataspace name; an empty body lets the server apply its defaults. ETP has no
-// create-dataspace operation wired up here, so that mode is refused with a clear
-// message rather than silently proxied.
-router.put("/osdu/rdms/dataspaces/:dataspace", async (req, res): Promise<void> => {
+// Create (register) a dataspace using Reservoir DDMS's collection endpoint and
+// array request body. ETP has no create-dataspace operation wired up here, so
+// that mode is refused with a clear message rather than silently proxied.
+router.post("/osdu/rdms/dataspaces", async (req, res): Promise<void> => {
   const cfg = req.session.osduConfig;
   if (!cfg) {
     res.status(401).json({ error: "OSDU not configured. Please set up your connection first." });
     return;
   }
-  const { dataspace } = req.params;
-  if (!dataspace) {
-    res.status(400).json({ error: "Dataspace parameter is required." });
+  if (!isDataspaceRegistrationPayload(req.body)) {
+    res.status(400).json({
+      error: "Expected an array of dataspaces with DataspaceId, Path, and legal, country, and owner custom data.",
+    });
     return;
   }
   if (rdmsMode(req) === "etp") {
@@ -226,10 +251,9 @@ router.put("/osdu/rdms/dataspaces/:dataspace", async (req, res): Promise<void> =
   }
   const client = getOsduClient(cfg);
   try {
-    const path = `/api/reservoir-ddms/v2/dataspaces/${encodeURIComponent(dataspace)}`;
-    const { status, data } = await client.fetch(path, {
-      method: "PUT",
-      body: req.body && typeof req.body === "object" ? req.body : {},
+    const { status, data } = await client.fetch("/api/reservoir-ddms/v2/dataspaces", {
+      method: "POST",
+      body: req.body,
       headers: { Accept: "application/json" },
     });
     if (status >= 200 && status < 300) {
