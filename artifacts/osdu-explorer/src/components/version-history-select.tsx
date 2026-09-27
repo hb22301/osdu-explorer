@@ -18,10 +18,11 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { History, ChevronDown, Loader2, Check, Trash2, AlertCircle } from "lucide-react";
+import { History, ChevronDown, Loader2, Check, Trash2, AlertCircle, GitCompare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { parseVersions, formatVersion } from "@/lib/storage-version-history";
 import { deleteStorageRecordVersions } from "@/lib/storage-record-delete";
+import { RecordVersionCompare } from "@/components/record-version-compare";
 
 interface VersionHistorySelectProps {
   recordId: string | undefined;
@@ -50,6 +51,7 @@ export function VersionHistorySelect({
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [compareOpen, setCompareOpen] = useState(false);
   const { data, isLoading, error } = useGetOsduRecordVersions(recordId ?? "", {
     query: { enabled: !!recordId } as any,
   });
@@ -124,6 +126,16 @@ export function VersionHistorySelect({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-h-72 overflow-auto">
+          {versions.length >= 2 && (
+            <DropdownMenuItem
+              onSelect={() => setCompareOpen(true)}
+              className="gap-2 text-xs"
+              aria-label="Compare versions"
+            >
+              <GitCompare className="h-3.5 w-3.5" />
+              <span className="flex-1">Compare versions…</span>
+            </DropdownMenuItem>
+          )}
           {versions.map((v) => (
             <DropdownMenuItem
               key={v.version}
@@ -195,6 +207,15 @@ export function VersionHistorySelect({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {compareOpen && (
+        <RecordVersionCompare
+          recordId={recordId}
+          versions={versions}
+          open={compareOpen}
+          onOpenChange={setCompareOpen}
+        />
+      )}
     </>
   );
 }
