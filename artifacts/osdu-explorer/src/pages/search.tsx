@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ConsolePanel } from "@/components/console-panel";
+import { DashboardAggregations } from "@/components/dashboard-aggregations";
 import { format } from "date-fns";
 import {
   collectDashboardRows,
@@ -674,6 +675,8 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     } catch { return 50; }
   });
 
+  const [aggRefreshKey, setAggRefreshKey] = useState(0);
+
   const { recent, add: addRecent, clear: clearRecent } = useRecentSearches();
   const queryWrapRef = useRef<HTMLDivElement>(null);
 
@@ -892,6 +895,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
     setKind("*:*:*:*");
     setQuery(recentQuery);
     setOffset(0);
+    setAggRefreshKey((k) => k + 1);
     searchMutation.mutate({
       data: { kind: "*:*:*:*", query: recentQuery, limit, offset: 0, sort: dashboardSortFor(dashboardSortMode) },
     });
@@ -1489,6 +1493,10 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
           stale={dashboardKindDataIsStale}
           onRetry={handleDashboardKindRetry}
         />
+      )}
+
+      {dashboardMode && (
+        <DashboardAggregations query={query} refreshKey={aggRefreshKey} />
       )}
 
       {dashboardMode && searchMutation.isPending && !searchMutation.data && (

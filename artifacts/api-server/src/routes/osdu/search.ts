@@ -19,6 +19,15 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
 
   const { kind, query, limit, offset, trackTotalCount, returnedFields, sort } = parsed.data;
 
+  // `aggregateBy` isn't in the generated request schema (adding it would need
+  // an Orval regeneration), so read and validate it inline off the raw body.
+  const aggregateByRaw = (req.body && typeof req.body === "object")
+    ? (req.body as Record<string, unknown>).aggregateBy
+    : undefined;
+  const aggregateBy = typeof aggregateByRaw === "string" && aggregateByRaw.trim()
+    ? aggregateByRaw.trim()
+    : undefined;
+
   const client = getOsduClient(cfg);
   const osduBody: Record<string, unknown> = {
     kind,
@@ -30,6 +39,7 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
   if (trackTotalCount !== undefined) osduBody.trackTotalCount = trackTotalCount;
   if (returnedFields && returnedFields.length > 0) osduBody.returnedFields = returnedFields;
   if (sort) osduBody.sort = sort;
+  if (aggregateBy) osduBody.aggregateBy = aggregateBy;
 
   const { status, data } = await client.fetch("/api/search/v2/query", {
     method: "POST",
@@ -46,10 +56,12 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
 
   let result: ReturnType<typeof SearchOsduRecordsResponse.parse>;
   try {
+    // OSDU returns `aggregations` as an array; the generated schema types it as
+    // an object, so keep it out of the parse and normalize it separately below.
     result = SearchOsduRecordsResponse.parse({
       results: osduData.results ?? [],
       totalCount: osduData.totalCount ?? 0,
-      aggregations: osduData.aggregations ?? null,
+      aggregations: null,
     });
   } catch (parseErr) {
     req.log.warn({ parseErr, data }, "OSDU search response failed Zod validation — returning raw");
@@ -60,7 +72,21 @@ router.post("/osdu/search", async (req, res): Promise<void> => {
     };
   }
 
-  res.json(result);
+  res.json({ ...result, aggregations: normalizeAggregations(osduData.aggregations) });
 });
+
+// OSDU's Search aggregations come back as `[{ key, count }, ...]`. Normalize to
+// that shape, dropping malformed buckets; returns null when absent.
+function normalizeAggregations(raw: unknown): { key: string; count: number }[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .map((item) => {
+      const bucket = (item ?? {}) as Record<string, unknown>;
+      const key = typeof bucket.key === "string" ? bucket.key : null;
+      const count = typeof bucket.count === "number" ? bucket.count : null;
+      return key !== null && count !== null ? { key, count } : null;
+    })
+    .filter((bucket): bucket is { key: string; count: number } => bucket !== null);
+}
 
 export default router;

@@ -1,6 +1,6 @@
 {
   "name": "@workspace/osdu-explorer",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -26,6 +26,8 @@
     "check:record-acl-edit-browser": "tsx src/lib/record-acl-edit.browser.check.ts",
     "check:storage-relationship-nav-browser": "tsx src/lib/storage-relationship-nav.browser.check.ts",
     "check:kinds-browser-browser": "tsx src/lib/kinds-browser.browser.check.ts",
+    "check:search-aggregations": "tsx src/lib/search-aggregations.check.ts",
+    "check:dashboard-aggregations-browser": "tsx src/lib/dashboard-aggregations.browser.check.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
