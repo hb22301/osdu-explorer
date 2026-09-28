@@ -8,7 +8,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Terminal, Shield, Key, Link as LinkIcon, User, Upload, AlertCircle } from "lucide-react";
+import { Terminal, Shield, Key, Link as LinkIcon, User, Upload, AlertCircle, Database } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { APP_RELEASE_LABEL } from "@/lib/app-metadata";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -145,8 +145,8 @@ export default function ConnectPage() {
       <ThemeToggle className="absolute right-4 top-4 text-muted-foreground hover:text-foreground" />
       <div className="w-full max-w-4xl space-y-4">
         <div className="flex flex-col items-center text-center space-y-1.5">
-          <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center mb-1.5">
-            <OsduIcon className="w-6 h-6 text-primary" />
+          <div className="w-12 h-10 bg-primary/20 rounded-xl flex items-center justify-center mb-1.5">
+            <OsduIcon className="w-12 h-6 text-primary" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">OSDU Data Manager</h1>
           <p className="text-sm text-muted-foreground">Connect to your data platform</p>
@@ -232,7 +232,7 @@ export default function ConnectPage() {
                   render={({ field }) => (
                     <FormItem className="relative space-y-1.5">
                       <FormLabel>Data Partition ID</FormLabel>
-                      <OsduIcon className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
+                      <Database className="pointer-events-none absolute left-3 top-[2.125rem] h-4 w-4 text-muted-foreground" />
                       <FormControl>
                         <Input placeholder="opendes" className="pl-9 font-mono text-sm" {...field} />
                       </FormControl>

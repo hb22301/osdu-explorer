@@ -115,7 +115,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <TooltipProvider delayDuration={200}>
         <div className="w-14 border-r border-border bg-card flex flex-col h-full shrink-0 items-center">
           <div className="h-14 flex items-center justify-center border-b border-border w-full shrink-0">
-            <OsduIcon className="w-6 h-6 text-primary" />
+            <OsduIcon className="w-12 h-6 text-primary" />
           </div>
 
           <div className="flex-1 py-3 w-full flex flex-col items-center gap-1">
