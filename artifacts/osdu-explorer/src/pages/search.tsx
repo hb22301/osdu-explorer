@@ -86,19 +86,17 @@ const COL_ORDER_KEY = "osdu-explorer:col-order";
 const DASHBOARD_WINDOW_VALUE_KEY = "osdu-explorer:dashboard-window-value";
 const DASHBOARD_WINDOW_UNIT_KEY = "osdu-explorer:dashboard-window-unit";
 const LEGACY_DASHBOARD_WINDOW_MINUTES_KEY = "osdu-explorer:dashboard-window-minutes";
-const DASHBOARD_WINDOW_MAX_SECONDS = 7 * 24 * 60 * 60;
 
 const DASHBOARD_WINDOW_UNITS: Array<{
   value: DashboardWindowUnit;
   label: string;
   suffix: string;
   seconds: number;
-  max: number;
 }> = [
-  { value: "seconds", label: "Seconds", suffix: "s", seconds: 1, max: DASHBOARD_WINDOW_MAX_SECONDS },
-  { value: "minutes", label: "Minutes", suffix: "m", seconds: 60, max: DASHBOARD_WINDOW_MAX_SECONDS / 60 },
-  { value: "hours", label: "Hours", suffix: "h", seconds: 60 * 60, max: DASHBOARD_WINDOW_MAX_SECONDS / (60 * 60) },
-  { value: "days", label: "Days", suffix: "d", seconds: 24 * 60 * 60, max: DASHBOARD_WINDOW_MAX_SECONDS / (24 * 60 * 60) },
+  { value: "seconds", label: "Seconds", suffix: "s", seconds: 1 },
+  { value: "minutes", label: "Minutes", suffix: "m", seconds: 60 },
+  { value: "hours", label: "Hours", suffix: "h", seconds: 60 * 60 },
+  { value: "days", label: "Days", suffix: "d", seconds: 24 * 60 * 60 },
 ];
 
 function getDashboardWindowUnit(unit: DashboardWindowUnit) {
@@ -106,8 +104,9 @@ function getDashboardWindowUnit(unit: DashboardWindowUnit) {
 }
 
 function clampDashboardWindowValue(value: number, unit: DashboardWindowUnit): number {
-  const max = getDashboardWindowUnit(unit).max;
-  return Number.isFinite(value) ? Math.min(max, Math.max(1, Math.round(value))) : unit === "minutes" ? 60 : 1;
+  return Number.isFinite(value)
+    ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(1, Math.round(value)))
+    : unit === "minutes" ? 60 : 1;
 }
 
 function dashboardWindowToSeconds(value: number, unit: DashboardWindowUnit): number {
@@ -1330,7 +1329,6 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
               id="dashboard-window"
               type="number"
               min={1}
-              max={getDashboardWindowUnit(dashboardWindowUnitDraft).max}
               value={dashboardWindowDraft}
               onChange={(e) => setDashboardWindowDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleDashboardRefresh(); }}

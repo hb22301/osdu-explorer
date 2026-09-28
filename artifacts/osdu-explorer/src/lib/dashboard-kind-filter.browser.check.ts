@@ -796,14 +796,52 @@ async function runDashboardTimestampBrowserCheck(): Promise<void> {
           `${mode.label} ${unit.label} query should not mention the other timestamp`,
         );
         assert.deepEqual(
-          [...new Set(dashboardCalls.slice(-2).map((call) => call.sort.field[0]))],
+          [...new Set(dashboardCalls
+            .filter((call) => Array.isArray(call.sort?.field))
+            .slice(-2)
+            .map((call) => call.sort.field[0]))],
           [mode.field],
-          `the dashboard and Kind requests should keep using ${mode.field}`,
+          `the latest sorted dashboard requests should keep using ${mode.field}`,
         );
       }
     }
 
-    console.log("Dashboard timestamp mode browser check passed.");
+    await chooseDashboardSelect(browser, "dashboard-sort-mode", "Create Time");
+    await chooseDashboardSelect(browser, "dashboard-window-unit", "Days");
+    await setDashboardWindowValue(browser, 30);
+    const callsBeforeLongWindowRefresh = await evaluate<number>(
+      browser,
+      "window.__dashboardTimestampTest.calls.length",
+    );
+    await evaluate<void>(browser, browserFunction(() => {
+      const refresh = [...document.querySelectorAll("button")]
+        .find((candidate) => candidate.textContent?.trim() === "Refresh");
+      if (!refresh) throw new Error("Dashboard Refresh button was not found");
+      (refresh as HTMLElement).click();
+    }));
+    await waitFor(
+      () => evaluate<boolean>(
+        browser!,
+        `window.__dashboardTimestampTest.calls.length > ${callsBeforeLongWindowRefresh}`,
+      ),
+      "a dashboard refresh with a window longer than seven days",
+    );
+    const longWindowQuery = await evaluate<string>(
+      browser,
+      "window.__dashboardTimestampTest.calls.filter((call) => call.kind === '*:*:*:*').at(-1)?.query ?? ''",
+    );
+    assert.equal(
+      longWindowQuery,
+      "createTime:[now-30d TO now]",
+      "the dashboard should preserve a 30-day window",
+    );
+    const windowHasMax = await evaluate<boolean>(
+      browser,
+      "document.querySelector('#dashboard-window')?.hasAttribute('max') ?? false",
+    );
+    assert.equal(windowHasMax, false, "the dashboard window input should not impose a maximum");
+
+    console.log("Dashboard timestamp and long-window browser check passed.");
   } finally {
     browser?.close();
     terminateProcess(chromium);
