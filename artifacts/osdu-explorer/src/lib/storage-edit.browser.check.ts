@@ -236,10 +236,10 @@ async function runScenario(browser: CdpClient): Promise<void> {
   );
 
   await evaluate<void>(browser, browserFunction(() => {
-    const storage = [...document.querySelectorAll("button")]
-      .find((candidate) => candidate.textContent?.trim() === "Storage API");
-    if (!storage) throw new Error("The Storage API lookup button was not found");
-    (storage as HTMLElement).click();
+    const row = [...document.querySelectorAll("tbody tr")].find((candidate) =>
+      candidate.textContent?.includes("uuid-store"));
+    if (!row) throw new Error("The search result row was not found");
+    row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
   }));
   await waitFor(
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('Record from Storage Service') ?? false"),
