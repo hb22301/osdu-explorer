@@ -6,19 +6,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Loader2, ArrowUp, ArrowDown, ChevronsUpDown, FileJson2, FilePlus2, Hash, AlertCircle, RefreshCw, Filter, X } from "lucide-react";
 import { JsonViewerToolbar } from "@/components/json-viewer-toolbar";
-import { buildNewRecordTemplate } from "@/lib/storage-record-new";
-import { createStorageRecords } from "@/lib/storage-record-clone";
+import { NewRecordDialog } from "@/components/new-record-dialog";
 import { cn } from "@/lib/utils";
 
 // How many kinds to request per page while looping the Storage query/kinds cursor,
@@ -68,151 +58,6 @@ const HEADERS: { key: SortCol; label: string; className?: string }[] = [
   { key: "version",   label: "Version" },
   { key: "records",   label: "Records", className: "text-right" },
 ];
-
-// Create a new Storage record of a chosen kind. Fetches the kind's schema to
-// seed the editor with a best-effort field skeleton (falling back to the bare
-// {kind, acl, legal, data:{}} envelope when no schema is registered), then PUTs
-// an id-less record so OSDU creates it fresh.
-function NewRecordDialog({ kind, onClose }: { kind: string; onClose: () => void }) {
-  const { data: schema, isFetching, isError } = useGetOsduSchema(
-    encodeURIComponent(kind),
-    { query: { enabled: true, retry: false, queryKey: ["osduSchema", kind] } },
-  );
-
-  const [draft, setDraft] = useState<string | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [createdIds, setCreatedIds] = useState<string[] | null>(null);
-
-  // Seed the draft once the schema resolves (data or error → bare fallback).
-  useEffect(() => {
-    if (draft !== null || isFetching) return;
-    setDraft(buildNewRecordTemplate(kind, isError ? undefined : schema));
-  }, [draft, isFetching, isError, schema, kind]);
-
-  const handleChange = (value: string) => {
-    setDraft(value);
-    if (value.trim() === "") {
-      setParseError("JSON is empty");
-      return;
-    }
-    try {
-      JSON.parse(value);
-      setParseError(null);
-    } catch (err) {
-      setParseError(err instanceof Error ? err.message : "Invalid JSON");
-    }
-  };
-
-  const create = async () => {
-    if (draft === null) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(draft);
-    } catch (err) {
-      setParseError(err instanceof Error ? err.message : "Invalid JSON");
-      return;
-    }
-    const records = Array.isArray(parsed) ? parsed : [parsed];
-    setSaving(true);
-    setSaveError(null);
-    const result = await createStorageRecords(records, setStep);
-    setSaving(false);
-    setStep(null);
-    if (result.ok) setCreatedIds(result.recordIds);
-    else setSaveError(result.error);
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <DialogContent className="max-w-3xl flex flex-col max-h-[85vh]" data-testid="new-record-dialog">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FilePlus2 className="h-4 w-4 text-neon" />
-            New record
-          </DialogTitle>
-          <DialogDescription className="font-mono text-xs break-all">{kind}</DialogDescription>
-        </DialogHeader>
-
-        {draft === null ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Preparing template…
-          </div>
-        ) : (
-          <div className="flex flex-1 min-h-0 flex-col gap-2">
-            {!isError && (
-              <p className="shrink-0 text-xs text-muted-foreground">
-                Fill in <span className="font-mono">acl</span>, <span className="font-mono">legal</span>, and the{" "}
-                <span className="font-mono">data</span> fields. Fields behind schema references aren't scaffolded — add them as needed.
-              </p>
-            )}
-            {isError && (
-              <p className="shrink-0 text-xs text-muted-foreground">
-                No registered schema for this kind — starting from the bare record envelope.
-              </p>
-            )}
-            <Textarea
-              value={draft}
-              onChange={(e) => handleChange(e.target.value)}
-              spellCheck={false}
-              className="flex-1 min-h-[280px] resize-none font-mono text-xs"
-              aria-label="New record JSON editor"
-              data-testid="new-record-editor"
-              disabled={createdIds !== null}
-            />
-            {parseError ? (
-              <div role="alert" className="shrink-0 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text">
-                Invalid JSON: {parseError}
-              </div>
-            ) : (
-              <div className="shrink-0 text-xs text-emerald-500">Valid JSON</div>
-            )}
-            {saveError && (
-              <div role="alert" className="shrink-0 rounded-md border border-error-border/60 bg-error-surface px-3 py-2 text-xs text-error-text break-all">
-                {saveError}
-              </div>
-            )}
-            {createdIds && (
-              <div
-                role="status"
-                data-testid="new-record-success"
-                className="shrink-0 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400 break-all"
-              >
-                {createdIds.length > 0
-                  ? `Created new record: ${createdIds.join(", ")}`
-                  : "New record created."}
-              </div>
-            )}
-          </div>
-        )}
-
-        <DialogFooter>
-          {saving && step && (
-            <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {step}
-            </span>
-          )}
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-            {createdIds ? "Close" : "Cancel"}
-          </Button>
-          {!createdIds && (
-            <Button
-              size="sm"
-              onClick={() => { void create(); }}
-              disabled={draft === null || saving || parseError !== null}
-              data-testid="button-create-new-record"
-            >
-              {saving ? "Creating…" : "Create record"}
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // Browse the kinds that actually have records in the partition (Storage
 // query/kinds), with optional record counts and a jump to each kind's schema.
@@ -556,7 +401,11 @@ export function KindsBrowser() {
 
       {/* Create a new record of a kind, seeded from its schema. */}
       {creatingKind !== null && (
-        <NewRecordDialog kind={creatingKind} onClose={() => setCreatingKind(null)} />
+        <NewRecordDialog
+          kinds={allKinds}
+          initialKind={creatingKind}
+          onClose={() => setCreatingKind(null)}
+        />
       )}
     </>
   );

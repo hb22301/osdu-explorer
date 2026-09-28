@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KindCombobox } from "@/components/kind-combobox";
 import { RecordLookupDialog } from "@/components/record-lookup-dialog";
+import { NewRecordDialog } from "@/components/new-record-dialog";
 import {
   JsonViewerToolbar,
   type RelatedRecordNavigationContext,
@@ -12,7 +13,7 @@ import {
 import { RecordDetailsContent } from "@/pages/record";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FileSearch2, FileJson, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw, DatabaseZap } from "lucide-react";
+import { FileSearch2, FileJson, Rocket, ChevronLeft, ChevronRight, Loader2, ArrowUp, ArrowDown, ChevronsUpDown, Copy, Check, Clock, X, Trash2, Filter, GripVertical, Columns3, Maximize2, Minimize2, Terminal, ChevronDown, ChevronUp, RefreshCw, DatabaseZap, FilePlus2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -678,6 +679,7 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
   });
 
   const [aggRefreshKey, setAggRefreshKey] = useState(0);
+  const [newRecordOpen, setNewRecordOpen] = useState(false);
 
   const { recent, add: addRecent, clear: clearRecent } = useRecentSearches();
   const queryWrapRef = useRef<HTMLDivElement>(null);
@@ -1307,6 +1309,18 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
             ? `Records ${dashboardSortMode === "createTime" ? "created" : "updated"} within the last ${dashboardWindow.value.toLocaleString()} ${dashboardWindow.unit}.`
             : "Search records with a Lucene query, or look up a single record directly by its Storage ID."}
         </p>
+        {!dashboardMode && (
+          <Button
+            type="button"
+            size="sm"
+            className="ml-auto h-8 gap-1.5"
+            onClick={() => setNewRecordOpen(true)}
+            data-testid="button-open-new-record"
+          >
+            <FilePlus2 className="h-3.5 w-3.5" />
+            New record
+          </Button>
+        )}
         {dashboardMode && (
           <div className="ml-auto flex items-center gap-2">
             <label htmlFor="dashboard-window" className="text-xs text-muted-foreground whitespace-nowrap">
@@ -1473,6 +1487,14 @@ export default function SearchPage({ dashboardMode = false }: { dashboardMode?: 
           openRequestId={lookupOpenId}
           onOpenRequestHandled={() => setLookupOpenId(null)}
           onRecordDeleted={handleRecordDeleted}
+        />
+      )}
+
+      {newRecordOpen && (
+        <NewRecordDialog
+          kinds={kindsData?.kinds ?? []}
+          initialKind={kind !== "*:*:*:*" ? kind : undefined}
+          onClose={() => setNewRecordOpen(false)}
         />
       )}
 

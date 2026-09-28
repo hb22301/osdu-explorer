@@ -2,21 +2,14 @@ import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
-const APP_PORT = 5196;
-const DEBUG_PORT = 9450 + (process.pid % 100);
+const APP_PORT = 5197;
+const DEBUG_PORT = 9550 + (process.pid % 100);
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
 const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? "/repl/tools/bin/chromium";
 
+// A complete kind that is deliberately NOT in the mocked kinds list, so the
+// KindCombobox offers it as a "Use custom" entry we can select.
 const TARGET_KIND = "osdu:wks:master-data--Well:1.0.0";
-const OWNER_GROUP = "data.default.owners@partition.dataservices.energy";
-
-declare global {
-  interface Window {
-    __newRecordTest: {
-      requests: { method: string; url: string; body: string | null }[];
-    };
-  }
-}
 
 interface CdpMessage {
   id?: number;
@@ -113,8 +106,9 @@ async function getPageTarget(): Promise<CdpTarget> {
   return target;
 }
 
-// Mocks the kinds list, the target kind's schema (inline data fields plus one
-// $ref-only field), and the create PUT so the new-record flow runs end to end.
+// Mocks config, an unrelated kinds list, the target kind's schema, the lookup
+// endpoints, and the create PUT so the Search-page new-record flow runs end to
+// end without a live backend.
 function mockApiScript(): string {
   return `
     (() => {
@@ -128,49 +122,32 @@ function mockApiScript(): string {
         if (url.includes("/api/osdu/config")) {
           return new Response(JSON.stringify({ configured: true }), { headers: { "Content-Type": "application/json" } });
         }
+        // A kinds list that does NOT contain the target kind, so the combobox
+        // offers it as a custom entry.
         if (url.includes("/api/osdu/kinds")) {
-          return new Response(JSON.stringify({ kinds: [targetKind], cursor: null }), {
+          return new Response(JSON.stringify({ kinds: ["osdu:wks:reference-data--Something:1.0.0"], cursor: null }), {
             headers: { "Content-Type": "application/json" },
           });
         }
-        // Entitlements groups feed the owner/viewer lookup autocomplete.
         if (url.includes("/api/osdu/entitlements/groups")) {
-          return new Response(JSON.stringify({ groups: [
-            { name: "data.default.owners", email: "data.default.owners@partition.dataservices.energy", description: "" },
-            { name: "data.default.viewers", email: "data.default.viewers@partition.dataservices.energy", description: "" },
-          ] }), { headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ groups: [] }), { headers: { "Content-Type": "application/json" } });
         }
-        // Valid legal tags feed the legal-tags lookup.
         if (url.includes("/api/osdu/legal-tags")) {
-          return new Response(JSON.stringify({ legalTags: [
-            { name: "partition-legal-tag-public", description: "", properties: {} },
-          ] }), { headers: { "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ legalTags: [] }), { headers: { "Content-Type": "application/json" } });
         }
-        // Create: PUT to the records endpoint returns a server-assigned id.
         if (method === "PUT" && url.endsWith("/api/osdu/records")) {
           window.__newRecordTest.requests.push({ method, url, body: (init && init.body) || null });
           return new Response(JSON.stringify({
             recordCount: 1,
-            recordIds: ["tenant:browser-test:master-data--Well(uuid-new)"],
+            recordIds: ["tenant:browser-test:master-data--Well(uuid-search)"],
           }), { headers: { "Content-Type": "application/json" } });
         }
-        // Schema detail: a data node with inline fields and one $ref-only field.
         const detail = url.match(/\\/api\\/osdu\\/schemas\\/(.+?)(?:\\?|$)/);
         if (method === "GET" && detail) {
           return new Response(JSON.stringify({
             kind: targetKind,
             status: "PUBLISHED",
-            schema: {
-              properties: {
-                data: {
-                  properties: {
-                    FacilityName: { type: "string" },
-                    Depth: { type: "number" },
-                    RefField: { $ref: "osdu:wks:AbstractFacility:1.0.0" },
-                  },
-                },
-              },
-            },
+            schema: { properties: { data: { properties: { FacilityName: { type: "string" } } } } },
           }), { headers: { "Content-Type": "application/json" } });
         }
         if (method === "POST" && url.includes("/api/osdu/search")) {
@@ -211,77 +188,53 @@ function terminateProcess(child: ChildProcess | undefined): void {
 }
 
 async function runScenario(browser: CdpClient): Promise<void> {
-  await browser.call("Page.navigate", { url: `${APP_URL}/schemas` });
+  await browser.call("Page.navigate", { url: `${APP_URL}/search` });
   await waitFor(
-    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Schema Browser'"),
-    "the Schema Browser page",
+    () => evaluate<boolean>(browser, "document.querySelector('h1')?.textContent === 'Record Search'"),
+    "the Record Search page",
   );
 
-  // Switch to the Kinds view where the New record action lives.
+  // The prominent header "New record" button opens the dialog with a kind picker.
+  await waitFor(
+    () => evaluate<boolean>(browser, `document.querySelector('[data-testid="button-open-new-record"]') !== null`),
+    "the header New record button",
+  );
   await evaluate<void>(browser, browserFunction(() => {
-    const tab = [...document.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Kinds");
-    if (!tab) throw new Error("The Kinds tab was not found");
-    (tab as HTMLButtonElement).click();
+    (document.querySelector('[data-testid="button-open-new-record"]') as HTMLButtonElement).click();
   }));
   await waitFor(
-    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="kind-row"]')].some((r) => r.textContent?.includes(${JSON.stringify(TARGET_KIND)}))`),
-    "the target kind row",
+    () => evaluate<boolean>(browser, `document.querySelector('[data-testid="new-record-pick-kind"]') !== null`),
+    "the new-record dialog kind prompt",
   );
 
-  // Open the New record dialog for the target kind.
+  // Drive the kind combobox: type the target kind and select the "Use custom" entry.
   await evaluate<void>(browser, browserFunction((kind: string) => {
-    const btn = document.querySelector(`button[aria-label="Create a new record of ${kind}"]`) as HTMLButtonElement | null;
-    if (!btn) throw new Error("The New record button was not found");
-    btn.click();
+    const input = document.querySelector('[data-testid="new-record-dialog"] input[type="text"]') as HTMLInputElement | null;
+    if (!input) throw new Error("The kind combobox input was not found");
+    input.focus();
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
+    setter?.call(input, kind);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
   }, TARGET_KIND));
+  await waitFor(
+    () => evaluate<boolean>(browser, `[...document.querySelectorAll('[data-testid="new-record-dialog"] li[role="option"]')].some((li) => li.textContent?.includes("Use"))`),
+    "the combobox custom-kind option",
+  );
+  await evaluate<void>(browser, browserFunction(() => {
+    const custom = [...document.querySelectorAll('[data-testid="new-record-dialog"] li[role="option"]')]
+      .find((li) => li.textContent?.includes("Use"));
+    if (!custom) throw new Error("The custom-kind option was not found");
+    custom.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  }));
   await waitFor(
     () => evaluate<boolean>(browser, `document.querySelector('[data-testid="new-record-editor"]') !== null`),
     "the new-record editor to open with a seeded template",
   );
 
-  // The template carries the kind, the boilerplate envelope, and the inline
-  // schema fields — but not the $ref-only field.
   const seeded = await evaluate<string>(browser, `document.querySelector('[data-testid="new-record-editor"]')?.value ?? ''`);
   const draft = JSON.parse(seeded) as Record<string, unknown>;
-  assert.equal(draft.kind, TARGET_KIND, "the template carries the chosen kind");
+  assert.equal(draft.kind, TARGET_KIND, "the picked kind seeds the template");
   assert.equal("id" in draft, false, "the template carries no id");
-  assert.deepEqual(draft.acl, { owners: [], viewers: [] }, "the acl boilerplate is seeded");
-  const data = draft.data as Record<string, unknown>;
-  assert.equal(data.FacilityName, "", "inline string fields are scaffolded");
-  assert.equal(data.Depth, 0, "inline number fields are scaffolded");
-  assert.equal("RefField" in data, false, "$ref-only fields are not guessed");
-
-  // The acl/legal lookup pickers write straight into the record JSON. Add an
-  // owner group through its picker and confirm it lands in acl.owners.
-  await waitFor(
-    () => evaluate<boolean>(browser, `document.querySelector('[data-testid="new-record-acl-owners-input"]') !== null`),
-    "the owner lookup input",
-  );
-  await evaluate<void>(browser, browserFunction((group: string) => {
-    const input = document.querySelector('[data-testid="new-record-acl-owners-input"]') as HTMLInputElement | null;
-    if (!input) throw new Error("The owner lookup input was not found");
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")?.set;
-    setter?.call(input, group);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }, OWNER_GROUP));
-  await waitFor(
-    () => evaluate<boolean>(browser, `!document.querySelector('[data-testid="new-record-acl-owners-add"]')?.disabled`),
-    "the owner Add button to enable for a valid group",
-  );
-  await evaluate<void>(browser, browserFunction(() => {
-    const add = document.querySelector('[data-testid="new-record-acl-owners-add"]') as HTMLButtonElement | null;
-    if (!add) throw new Error("The owner Add button was not found");
-    add.click();
-  }));
-  await waitFor(
-    () => evaluate<boolean>(browser, browserFunction((group: string) => {
-      try {
-        const d = JSON.parse((document.querySelector('[data-testid="new-record-editor"]') as HTMLTextAreaElement).value);
-        return Array.isArray(d.acl?.owners) && d.acl.owners.includes(group);
-      } catch { return false; }
-    }, OWNER_GROUP)),
-    "the owner picker to sync into acl.owners in the JSON editor",
-  );
 
   // Creating fires exactly one id-less PUT and surfaces the new record id.
   await evaluate<void>(browser, browserFunction(() => {
@@ -294,21 +247,16 @@ async function runScenario(browser: CdpClient): Promise<void> {
     "the new-record success banner",
   );
 
-  const successText = await evaluate<string>(browser, `document.querySelector('[data-testid="new-record-success"]')?.textContent ?? ''`);
-  assert.match(successText, /uuid-new/, "the success banner shows the new record id");
-
   const requests = await evaluate<{ method: string; url: string; body: string | null }[]>(
     browser,
     "window.__newRecordTest.requests",
   );
   assert.equal(requests.length, 1, "creating fires exactly one PUT to the records endpoint");
   assert.equal(requests[0].method, "PUT", "the create uses PUT");
-  assert.match(requests[0].url, /\/api\/osdu\/records$/, "the create targets the storage records endpoint");
   const body = JSON.parse(requests[0].body ?? "null");
-  assert.ok(Array.isArray(body), "the request body is an array of records");
-  assert.equal(body.length, 1, "the request body holds exactly the new record");
+  assert.ok(Array.isArray(body) && body.length === 1, "the request body holds exactly the new record");
   assert.equal("id" in body[0], false, "a create body carries no id so OSDU assigns one");
-  assert.equal(body[0].kind, TARGET_KIND, "the create sends the chosen kind");
+  assert.equal(body[0].kind, TARGET_KIND, "the create sends the picked kind");
 }
 
 async function runBrowserCheck(): Promise<void> {
@@ -322,7 +270,7 @@ async function runBrowserCheck(): Promise<void> {
       detached: true,
       stdio: "ignore",
     });
-    await waitForUrl(`${APP_URL}/schemas`, "OSDU Explorer dev server for new-record check");
+    await waitForUrl(`${APP_URL}/search`, "OSDU Explorer dev server for new-record search-entry check");
 
     chromium = spawn(CHROMIUM_PATH, [
       "--headless=new",
@@ -331,7 +279,7 @@ async function runBrowserCheck(): Promise<void> {
       "--disable-gpu",
       "--remote-allow-origins=*",
       `--remote-debugging-port=${DEBUG_PORT}`,
-      `--user-data-dir=/tmp/osdu-storage-new-${process.pid}`,
+      `--user-data-dir=/tmp/osdu-storage-new-search-${process.pid}`,
       "about:blank",
     ], { detached: true, stdio: "ignore" });
     await waitForUrl(`http://127.0.0.1:${DEBUG_PORT}/json/version`, "Chromium");
@@ -341,7 +289,7 @@ async function runBrowserCheck(): Promise<void> {
     await browser.call("Page.enable");
     await browser.call("Page.addScriptToEvaluateOnNewDocument", { source: mockApiScript() });
     await runScenario(browser);
-    console.log("Storage Service new-record browser check passed.");
+    console.log("Storage Service new-record search-entry browser check passed.");
   } finally {
     browser?.close();
     terminateProcess(chromium);
