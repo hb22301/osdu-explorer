@@ -78,10 +78,14 @@ export interface OsduRecord {
   kind?: string;
   /** @nullable */
   version?: number | null;
-  /** Record creation timestamp returned by OSDU Search. */
+  /** Record creation timestamp returned by OSDU. */
   createTime?: string;
-  /** Record update timestamp returned by OSDU Search. */
+  /** User who created the record. */
+  createUser?: string;
+  /** Record update timestamp returned by OSDU. */
   modifyTime?: string;
+  /** User who last modified the record. */
+  modifyUser?: string;
   acl?: OsduRecordAcl;
   legal?: OsduRecordLegal;
   data?: OsduRecordData;

@@ -88,8 +88,10 @@ export const SearchOsduRecordsResponse = zod.object({
   "id": zod.string().optional(),
   "kind": zod.string().optional(),
   "version": zod.number().nullish(),
-  "createTime": zod.string().optional().describe('Record creation timestamp returned by OSDU Search.'),
-  "modifyTime": zod.string().optional().describe('Record update timestamp returned by OSDU Search.'),
+  "createTime": zod.string().optional().describe('Record creation timestamp returned by OSDU.'),
+  "createUser": zod.string().optional().describe('User who created the record.'),
+  "modifyTime": zod.string().optional().describe('Record update timestamp returned by OSDU.'),
+  "modifyUser": zod.string().optional().describe('User who last modified the record.'),
   "acl": zod.object({
 
 }).passthrough().optional(),
@@ -127,8 +129,10 @@ export const GetOsduRecordResponse = zod.object({
   "id": zod.string().optional(),
   "kind": zod.string().optional(),
   "version": zod.number().nullish(),
-  "createTime": zod.string().optional().describe('Record creation timestamp returned by OSDU Search.'),
-  "modifyTime": zod.string().optional().describe('Record update timestamp returned by OSDU Search.'),
+  "createTime": zod.string().optional().describe('Record creation timestamp returned by OSDU.'),
+  "createUser": zod.string().optional().describe('User who created the record.'),
+  "modifyTime": zod.string().optional().describe('Record update timestamp returned by OSDU.'),
+  "modifyUser": zod.string().optional().describe('User who last modified the record.'),
   "acl": zod.object({
 
 }).passthrough().optional(),

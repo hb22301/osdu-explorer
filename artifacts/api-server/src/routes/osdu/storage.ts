@@ -1,13 +1,13 @@
 import { Router, type IRouter } from "express";
 import {
   GetOsduRecordParams,
-  GetOsduRecordResponse,
   GetOsduRecordVersionsParams,
   GetOsduRecordVersionsResponse,
   ListOsduKindsQueryParams,
   ListOsduKindsResponse,
 } from "@workspace/api-zod";
 import { getOsduClient } from "../../lib/osdu-client";
+import { parseStorageRecordResponse } from "../../lib/storage-record-response";
 
 const router: IRouter = Router();
 
@@ -57,18 +57,7 @@ router.get("/osdu/records/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const record = data as Record<string, unknown>;
-  const result = GetOsduRecordResponse.parse({
-    id: record.id ?? null,
-    kind: record.kind ?? null,
-    version: record.version ?? null,
-    acl: record.acl ?? {},
-    legal: record.legal ?? {},
-    data: record.data ?? {},
-    meta: record.meta ?? [],
-    ancestry: record.ancestry ?? {},
-    tags: record.tags ?? {},
-  });
+  const result = parseStorageRecordResponse(data as Record<string, unknown>);
 
   res.json(result);
 });
@@ -138,18 +127,7 @@ router.get("/osdu/records/:id/:version", async (req, res): Promise<void> => {
     return;
   }
 
-  const record = data as Record<string, unknown>;
-  const result = GetOsduRecordResponse.parse({
-    id: record.id ?? null,
-    kind: record.kind ?? null,
-    version: record.version ?? null,
-    acl: record.acl ?? {},
-    legal: record.legal ?? {},
-    data: record.data ?? {},
-    meta: record.meta ?? [],
-    ancestry: record.ancestry ?? {},
-    tags: record.tags ?? {},
-  });
+  const result = parseStorageRecordResponse(data as Record<string, unknown>);
 
   res.json(result);
 });

@@ -430,10 +430,16 @@ components:
           type: ["integer", "null"]
         createTime:
           type: string
-          description: Record creation timestamp returned by OSDU Search.
+          description: Record creation timestamp returned by OSDU.
+        createUser:
+          type: string
+          description: User who created the record.
         modifyTime:
           type: string
-          description: Record update timestamp returned by OSDU Search.
+          description: Record update timestamp returned by OSDU.
+        modifyUser:
+          type: string
+          description: User who last modified the record.
         acl:
           type: object
         legal:

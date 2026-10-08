@@ -120,6 +120,10 @@ function mockApiScript(): string {
         id: recordId,
         kind: "osdu:wks:master-data--Well:1.0.0",
         version: 1,
+        createUser: "creator@example.com",
+        createTime: "2026-09-01T12:00:00.000Z",
+        modifyUser: "editor@example.com",
+        modifyTime: "2026-09-02T12:00:00.000Z",
         acl: { owners: [], viewers: [] },
         legal: {},
         data: { FacilityName: "Looked up by ID", LookupMarker: "direct-lookup-ok" },
@@ -220,6 +224,18 @@ async function runScenario(browser: CdpClient): Promise<void> {
     () => evaluate<boolean>(browser, "document.querySelector('[role=\"dialog\"]')?.textContent?.includes('direct-lookup-ok') ?? false"),
     "the looked-up record content",
   );
+  await waitFor(
+    () => evaluate<boolean>(browser, `(() => {
+      const text = document.querySelector('[role="dialog"]')?.textContent ?? "";
+      return [
+        "creator@example.com",
+        "2026-09-01T12:00:00.000Z",
+        "editor@example.com",
+        "2026-09-02T12:00:00.000Z",
+      ].every((value) => text.includes(value));
+    })()`),
+    "the Storage lookup system fields in the JSON viewer",
+  );
   const recordRequests = await evaluate<string[]>(browser, "window.__lookupTest.recordRequests");
   assert.equal(
     recordRequests.some((url) => {
@@ -232,6 +248,22 @@ async function runScenario(browser: CdpClient): Promise<void> {
     true,
     `the lookup should request the record by its exact ID; received ${JSON.stringify(recordRequests)}`,
   );
+
+  await browser.call("Page.navigate", { url: `${APP_URL}/records/${encodeURIComponent(recordId)}` });
+  await waitFor(
+    () => evaluate<boolean>(browser, "document.querySelector('[data-testid=\"system-field-create-user\"]')?.textContent?.trim() === 'creator@example.com'"),
+    "the record details system fields",
+  );
+  const systemFields = await evaluate<string[]>(browser, `[
+    document.querySelector('[data-testid="system-field-create-time"]')?.textContent?.trim() ?? "",
+    document.querySelector('[data-testid="system-field-modify-user"]')?.textContent?.trim() ?? "",
+    document.querySelector('[data-testid="system-field-modify-time"]')?.textContent?.trim() ?? "",
+  ]`);
+  assert.deepEqual(systemFields, [
+    "2026-09-01T12:00:00.000Z",
+    "editor@example.com",
+    "2026-09-02T12:00:00.000Z",
+  ]);
 }
 
 async function runBrowserCheck(): Promise<void> {

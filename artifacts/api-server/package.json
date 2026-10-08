@@ -9,6 +9,7 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "check:schema-response": "pnpm --filter @workspace/osdu-explorer exec tsx ../api-server/src/routes/osdu/schema.check.ts",
     "check:search-forwarding": "pnpm --filter @workspace/osdu-explorer exec tsx ../api-server/src/routes/osdu/search.check.ts",
+    "check:storage-record-response": "pnpm --filter @workspace/osdu-explorer exec tsx ../api-server/src/routes/osdu/storage-record-response.check.ts",
     "check:rdms-dataspace-create": "pnpm --filter @workspace/osdu-explorer exec tsx ../api-server/src/routes/osdu/rdms-dataspace-create.check.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

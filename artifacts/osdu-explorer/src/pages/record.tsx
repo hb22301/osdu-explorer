@@ -47,6 +47,13 @@ export function RecordDetailsContent({ id, onBack, embedded = false }: RecordDet
     );
   }
 
+  const systemFields = [
+    { key: "create-user", label: "Created by", value: record.createUser },
+    { key: "create-time", label: "Created", value: record.createTime },
+    { key: "modify-user", label: "Modified by", value: record.modifyUser },
+    { key: "modify-time", label: "Modified", value: record.modifyTime },
+  ] as const;
+
   return (
     <div className={`${embedded ? "p-4 sm:p-8" : "p-8"} max-w-6xl mx-auto space-y-6`}>
       <div className="space-y-4">
@@ -78,6 +85,26 @@ export function RecordDetailsContent({ id, onBack, embedded = false }: RecordDet
         </TabsList>
         
         <TabsContent value="data" className="mt-6">
+          <Card className="mb-6 border-border/50">
+            <CardHeader>
+              <CardTitle>System fields</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4 sm:grid-cols-2">
+                {systemFields.map((field) => (
+                  <div key={field.key} className="min-w-0 space-y-1">
+                    <dt className="text-sm text-muted-foreground">{field.label}</dt>
+                    <dd
+                      data-testid={`system-field-${field.key}`}
+                      className="break-all font-mono text-sm text-foreground"
+                    >
+                      {field.value ?? "—"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
           <Card className="border-border/50">
             <CardHeader>
               <CardTitle>Data Payload</CardTitle>
